@@ -103,3 +103,34 @@ func TestPagesStopsAtAFetchError(t *testing.T) {
 		t.Errorf("Pages = %v, %v, want no items and the fetch error", got, err)
 	}
 }
+
+func TestPagesRefusesASizeUnderOne(t *testing.T) {
+	for _, size := range []int{0, -1} {
+		calls := 0
+
+		_, err := rest.Pages(size, nil, func(rest.Page) ([]string, error) {
+			calls++
+
+			return nil, nil
+		})
+		if err == nil || calls != 0 {
+			t.Errorf("Pages(%d) = %v after %d fetches, want an error before any: it would never end", size, err, calls)
+		}
+	}
+}
+
+func TestPagesTakesAnEmptyMarkerAfterTheFirstPage(t *testing.T) {
+	// "c" has no marker; the fetch pages by offset.
+	marker := func(s string) string {
+		if s == "c" {
+			return ""
+		}
+
+		return s
+	}
+
+	got, err := rest.Pages(3, marker, func(p rest.Page) ([]string, error) { return from(p.Offset, p.Size), nil })
+	if err != nil || !slices.Equal(got, items) {
+		t.Errorf("Pages = %v, %v, want %v: the marker did not repeat", got, err, items)
+	}
+}

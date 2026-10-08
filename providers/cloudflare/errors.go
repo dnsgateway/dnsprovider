@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go/v7/option"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/rest"
 )
 
 // ErrNoTenant means a call that is scoped to a Tenant was made before
@@ -41,7 +41,7 @@ func apiError(err error, res *http.Response) error {
 	e := &dnsprovider.APIError{
 		Provider:   "cloudflare",
 		StatusCode: res.StatusCode,
-		RetryAfter: retryAfter(res.Header.Get("Retry-After")),
+		RetryAfter: rest.RetryAfter(res.Header.Get("Retry-After"), time.Now()),
 	}
 
 	// cloudflare-go leaves the error body readable.
@@ -84,21 +84,4 @@ var errorCodes = map[int]error{
 	10000: dnsprovider.ErrUnauthorized, // Authentication error
 	7003:  dnsprovider.ErrNotFound,     // Could not route to …, perhaps your object identifier is invalid?
 	81044: dnsprovider.ErrNotFound,     // Record does not exist.
-}
-
-// retryAfter parses a Retry-After header: delay seconds or an HTTP date.
-func retryAfter(v string) time.Duration {
-	if v == "" {
-		return 0
-	}
-
-	if s, err := strconv.Atoi(v); err == nil {
-		return max(0, time.Duration(s)*time.Second)
-	}
-
-	if t, err := http.ParseTime(v); err == nil {
-		return max(0, time.Until(t).Round(time.Second))
-	}
-
-	return 0
 }

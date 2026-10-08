@@ -8,7 +8,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"net/http"
 	"net/netip"
@@ -17,8 +16,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/time/rate"
 
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
@@ -100,46 +97,36 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		client = &http.Client{Timeout: DefaultRequestTimeout}
 	}
 
+	// A non-2xx answer is an error page, not XML: rest's own APIError,
+	// with the status alone, reports it.
 	return &Provider{
-		baseURL: baseURL,
+		api: &rest.Client{
+			Provider: "namecheap",
+			BaseURL:  baseURL,
+			HTTP:     client,
+			Limit:    rest.AccountPerMinute("namecheap "+baseURL+" "+cfg.User, RequestsPerMinute),
+			MaxBody:  maxResponseBytes,
+			Log:      o.Logger,
+		},
 		auth: url.Values{
 			"ApiUser":  {cfg.User},
 			"UserName": {cfg.User},
 			"ApiKey":   {cfg.Key},
 			"ClientIp": {cfg.ClientIP},
 		},
-		client: client,
-		limit:  rest.PerMinute(RequestsPerMinute),
-		log:    o.Logger,
 	}, nil
 }
 
 // RequestsPerMinute is Namecheap's published rate limit for an Account.
+// Every Provider built for the same API user and endpoint shares it.
 const RequestsPerMinute = 20
 
 // Provider is one Namecheap Account.
 type Provider struct {
-	baseURL string
+	// api sends the Account's commands.
+	api *rest.Client
 	// auth are the parameters every request carries.
-	auth   url.Values
-	client *http.Client
-	limit  *rate.Limiter
-	log    *slog.Logger
-}
-
-// api is the Account's rest.Client. It is built per call so a Provider
-// holds plain values alone, and two built alike are equal. A non-2xx
-// answer is an error page, not XML: rest's own APIError, with the status
-// alone, reports it.
-func (p *Provider) api() *rest.Client {
-	return &rest.Client{
-		Provider: "namecheap",
-		BaseURL:  p.baseURL,
-		HTTP:     p.client,
-		Limit:    p.limit,
-		MaxBody:  maxResponseBytes,
-		Log:      p.log,
-	}
+	auth url.Values
 }
 
 var (
@@ -371,7 +358,7 @@ func call[T any](ctx context.Context, p *Provider, command string, params url.Va
 	// Every command is a POST, so none is tried again: rest retries only
 	// GET, PUT and DELETE.
 	var data []byte
-	if err := p.api().Do(ctx, http.MethodPost, "", nil, form, &data); err != nil {
+	if err := p.api.Do(ctx, http.MethodPost, "", nil, form, &data); err != nil {
 		return zero, err
 	}
 

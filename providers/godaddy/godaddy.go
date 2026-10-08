@@ -4,6 +4,8 @@ package godaddy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,8 +15,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"golang.org/x/time/rate"
 
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
@@ -82,16 +82,22 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		client = &http.Client{Timeout: DefaultRequestTimeout}
 	}
 
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	// The key is marked secret: the Account is named by its hash.
+	keyHash := sha256.Sum256([]byte(cfg.Key))
+
 	return &Provider{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
+		baseURL: baseURL,
 		auth:    "sso-key " + cfg.Key + ":" + cfg.Secret,
 		client:  client,
-		limit:   rest.PerMinute(RequestsPerMinute),
+		limit:   rest.AccountPerMinute("godaddy "+baseURL+" "+hex.EncodeToString(keyHash[:]), RequestsPerMinute),
 		log:     o.Logger,
 	}, nil
 }
 
 // RequestsPerMinute is GoDaddy's published rate limit for an Account.
+// Every Provider built for the same API key and endpoint shares it.
 const RequestsPerMinute = 60
 
 // Provider is one GoDaddy Account.
@@ -99,12 +105,13 @@ type Provider struct {
 	baseURL string
 	auth    string
 	client  *http.Client
-	limit   *rate.Limiter
+	limit   *rest.Window
 	log     *slog.Logger
 }
 
-// api is the Account's rest.Client. It is built per call so a Provider
-// holds plain values alone, and two built alike are equal.
+// api is the Account's rest.Client. It is built per call, not held: its
+// Auth and Decode are funcs, which reflect.DeepEqual never finds equal, and
+// two Providers built alike must be equal.
 func (p *Provider) api() *rest.Client {
 	return &rest.Client{
 		Provider: "godaddy",

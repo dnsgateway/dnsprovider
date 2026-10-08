@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/providers/namecheap"
@@ -772,5 +773,41 @@ func TestNamecheapTakesTTLsFrom60To60000WithoutAutomaticOrProxy(t *testing.T) {
 
 	if dnsprovider.AutoTTLOf(p) || dnsprovider.ProxiableTypesOf(p) != nil {
 		t.Error("Namecheap has no automatic TTL and no proxy")
+	}
+}
+
+func TestProvidersOfOneAccountShareItsRateLimit(t *testing.T) {
+	srv := httptest.NewServer((&ncAPI{}).handler(t))
+	t.Cleanup(srv.Close)
+
+	build := func(cfg namecheap.Config) dnsprovider.Provider {
+		p, err := namecheap.New(cfg, dnsprovider.WithBaseURL(srv.URL+"/xml.response"))
+		if err != nil {
+			t.Fatalf("New: %v", err)
+		}
+
+		return p
+	}
+
+	first, again := build(testConfig), build(testConfig)
+
+	other := testConfig
+	other.User = "otheruser"
+
+	for range namecheap.RequestsPerMinute {
+		if _, err := first.Zones(context.Background()); err != nil {
+			t.Fatalf("Zones: %v", err)
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+
+	if _, err := again.Zones(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("Zones of a second Provider of the Account = %v, want it held back past the deadline", err)
+	}
+
+	if _, err := build(other).Zones(ctx); err != nil {
+		t.Errorf("Zones of another Account: %v, want its own rate limit", err)
 	}
 }

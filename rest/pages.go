@@ -2,6 +2,7 @@ package rest
 
 import (
 	"errors"
+	"fmt"
 	"reflect"
 )
 
@@ -24,10 +25,14 @@ type Page struct {
 	Size int
 }
 
-// Pages reads every page of a list with fetch, size items at a time. A
-// page shorter than size is the last. marker, if not nil, names the item
+// Pages reads every page of a list with fetch, size items at a time; a
+// size under 1 is an error. A page shorter than size is the last. marker, if not nil, names the item
 // a marker-paged API starts the next page after.
 func Pages[T any](size int, marker func(T) string, fetch func(Page) ([]T, error)) ([]T, error) {
+	if size < 1 {
+		return nil, fmt.Errorf("rest: page size %d is under 1", size)
+	}
+
 	var out, last []T
 
 	p := Page{Number: 1, Size: size}
@@ -53,8 +58,10 @@ func Pages[T any](size int, marker func(T) string, fetch func(Page) ([]T, error)
 		p.Offset += len(items)
 
 		if marker != nil {
+			// The first page starts after no marker: only a marker that
+			// repeats the last one is the same page.
 			next := marker(items[len(items)-1])
-			if next == p.Marker {
+			if p.Number > 2 && next == p.Marker {
 				return nil, ErrSamePage
 			}
 

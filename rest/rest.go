@@ -12,12 +12,11 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
-
-	"golang.org/x/time/rate"
 
 	"github.com/dnsgateway/dnsprovider"
 )
@@ -42,9 +41,9 @@ type Client struct {
 	HTTP *http.Client
 	// Auth puts the Account's credentials on a request; nil adds none.
 	Auth func(*http.Request)
-	// Limit is the Provider's published rate limit, per Account; nil
-	// sends without waiting.
-	Limit *rate.Limiter
+	// Limit is the Provider's published rate limit, per Account, such as
+	// AccountPerMinute or a *rate.Limiter; nil sends without waiting.
+	Limit Limiter
 	// Decode turns a non-2xx answer into an error, normally a
 	// *dnsprovider.APIError; nil gives an APIError with the status alone.
 	Decode func(res *http.Response, body []byte) error
@@ -62,8 +61,9 @@ type Client struct {
 	// not say how long to wait; it doubles on each retry. Zero is
 	// DefaultBackoff.
 	Backoff time.Duration
-	// MaxWait is the longest wait for a retry; a Provider that asks for
-	// longer gets its error returned at once. Zero is DefaultMaxWait.
+	// MaxWait is the longest wait for a retry: the backoff stops growing
+	// there, and a Provider that asks for longer gets its error returned
+	// at once. Zero is DefaultMaxWait.
 	MaxWait time.Duration
 }
 
@@ -74,7 +74,8 @@ type Client struct {
 //
 // A GET, PUT or DELETE answered 429 or 5xx is tried again, after the wait
 // the Provider asked for (Retry-After) or else a doubling backoff. A POST
-// is never tried again: a lost answer would create twice.
+// is never tried again: a lost answer would create twice. A retried DELETE
+// answered 404 succeeds: an earlier try deleted it and its answer was lost.
 func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body, out any) error {
 	var (
 		data        []byte
@@ -129,6 +130,11 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 			return nil
 		}
 
+		if try > 1 && method == http.MethodDelete && isStatus(err, http.StatusNotFound) {
+			// An earlier try may have deleted it and lost the answer.
+			return nil
+		}
+
 		wait, ok := c.retryWait(method, err, backoff)
 		if !ok || try >= attempts {
 			return err
@@ -147,7 +153,8 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 		case <-t.C:
 		}
 
-		backoff *= 2
+		// Capped, the doubling cannot overflow.
+		backoff = min(backoff*2, cmp.Or(c.MaxWait, DefaultMaxWait))
 	}
 }
 
@@ -156,6 +163,16 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 func (c *Client) send(ctx context.Context, method, u, contentType, accept string, data []byte) ([]byte, error) {
 	if c.Limit != nil {
 		if err := c.Limit.Wait(ctx); err != nil {
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("%s: %w", c.Provider, ctx.Err())
+			}
+
+			// A limiter refuses at once a wait past the deadline; a
+			// *rate.Limiter says so without context.DeadlineExceeded.
+			if _, has := ctx.Deadline(); has && !errors.Is(err, context.DeadlineExceeded) {
+				return nil, fmt.Errorf("%s: %w: %w", c.Provider, context.DeadlineExceeded, err)
+			}
+
 			return nil, fmt.Errorf("%s: %w", c.Provider, err)
 		}
 	}
@@ -205,9 +222,10 @@ func (c *Client) send(ctx context.Context, method, u, contentType, accept string
 	return answer, nil
 }
 
-// retryWait is how long to wait before trying a failed call again; ok is
-// false when it is not tried again: a POST, an error that is not a 429 or
-// 5xx answer, or a wait past MaxWait.
+// retryWait is how long to wait before trying a failed call again: what
+// the Provider asked for, or else the backoff cut to MaxWait. ok is false
+// when it is not tried again: a POST, an error that is not a 429 or 5xx
+// answer, or a Provider asking for a wait past MaxWait.
 func (c *Client) retryWait(method string, err error, backoff time.Duration) (wait time.Duration, ok bool) {
 	switch method {
 	case http.MethodGet, http.MethodPut, http.MethodDelete:
@@ -220,9 +238,19 @@ func (c *Client) retryWait(method string, err error, backoff time.Duration) (wai
 		return 0, false
 	}
 
-	wait = cmp.Or(apiErr.RetryAfter, backoff)
+	maxWait := cmp.Or(c.MaxWait, DefaultMaxWait)
+	if apiErr.RetryAfter > 0 {
+		return apiErr.RetryAfter, apiErr.RetryAfter <= maxWait
+	}
 
-	return wait, wait <= cmp.Or(c.MaxWait, DefaultMaxWait)
+	return min(backoff, maxWait), true
+}
+
+// isStatus reports whether err is an APIError with the HTTP status code.
+func isStatus(err error, code int) bool {
+	var apiErr *dnsprovider.APIError
+
+	return errors.As(err, &apiErr) && apiErr.StatusCode == code
 }
 
 // decode turns a non-2xx answer into an error with Decode. An APIError
@@ -235,21 +263,29 @@ func (c *Client) decode(res *http.Response, body []byte) error {
 
 	var apiErr *dnsprovider.APIError
 	if errors.As(err, &apiErr) && apiErr.RetryAfter == 0 {
-		apiErr.RetryAfter = retryAfter(res.Header.Get("Retry-After"), time.Now())
+		apiErr.RetryAfter = RetryAfter(res.Header.Get("Retry-After"), time.Now())
 	}
 
 	return err
 }
 
-// retryAfter is the wait a Retry-After header asks for, in seconds or as
-// an HTTP date; zero when it asks for none or cannot be read.
-func retryAfter(h string, now time.Time) time.Duration {
+// RetryAfter is the wait a Retry-After header asks for at now, in seconds
+// or as an HTTP date; zero when it asks for none or cannot be read. A wait
+// past what a Duration holds is the longest Duration.
+func RetryAfter(h string, now time.Time) time.Duration {
 	if h == "" {
 		return 0
 	}
 
-	if s, err := strconv.Atoi(h); err == nil {
-		return max(time.Duration(s)*time.Second, 0)
+	if s, err := strconv.ParseInt(h, 10, 64); err == nil || errors.Is(err, strconv.ErrRange) {
+		switch {
+		case s <= 0:
+			return 0
+		case s > math.MaxInt64/int64(time.Second):
+			return math.MaxInt64
+		default:
+			return time.Duration(s) * time.Second
+		}
 	}
 
 	if t, err := http.ParseTime(h); err == nil {

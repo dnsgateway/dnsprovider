@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -303,5 +304,86 @@ func TestRetryAfterMayBeAnHTTPDate(t *testing.T) {
 	var apiErr *dnsprovider.APIError
 	if !errors.As(err, &apiErr) || apiErr.RetryAfter < 118*time.Second || apiErr.RetryAfter > 2*time.Minute {
 		t.Errorf("err = %v, want RetryAfter about 2m0s", err)
+	}
+}
+
+func TestARetriedDeleteThatFindsItGoneSucceeds(t *testing.T) {
+	f := &flaky{statuses: []int{503, http.StatusNotFound}}
+	c := quick(newClient(t, f))
+
+	if err := c.Do(context.Background(), http.MethodDelete, "/things/1", nil, nil, nil); err != nil {
+		t.Errorf("Do: %v, want success: the first try may have deleted it", err)
+	}
+
+	if got := f.calls.Load(); got != 2 {
+		t.Errorf("sent %d requests, want 2", got)
+	}
+}
+
+func TestOnlyARetriedDeleteTakesA404AsDone(t *testing.T) {
+	cases := []struct {
+		name     string
+		method   string
+		statuses []int
+	}{
+		{"first delete", http.MethodDelete, []int{http.StatusNotFound}},
+		{"retried get", http.MethodGet, []int{503, http.StatusNotFound}},
+		{"retried put", http.MethodPut, []int{503, http.StatusNotFound}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := quick(newClient(t, &flaky{statuses: tc.statuses}))
+
+			if err := c.Do(context.Background(), tc.method, "/things/1", nil, nil, nil); !errors.Is(err, dnsprovider.ErrNotFound) {
+				t.Errorf("err = %v, want ErrNotFound", err)
+			}
+		})
+	}
+}
+
+func TestTheBackoffIsCappedAtMaxWait(t *testing.T) {
+	f := &flaky{statuses: []int{503, 503}}
+	c := newClient(t, f)
+	c.Backoff = time.Hour
+	c.MaxWait = time.Millisecond
+
+	start := time.Now()
+	if err := c.Do(context.Background(), http.MethodGet, "/things", nil, nil, nil); err != nil {
+		t.Fatalf("Do: %v, want retries that wait MaxWait", err)
+	}
+
+	if got := f.calls.Load(); got != 3 {
+		t.Errorf("sent %d requests, want 3", got)
+	}
+
+	if waited := time.Since(start); waited > time.Second {
+		t.Errorf("Do took %v, want each wait cut to MaxWait", waited)
+	}
+}
+
+func TestRetryAfterParsesSecondsAndDates(t *testing.T) {
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	cases := []struct {
+		header string
+		want   time.Duration
+	}{
+		{"", 0},
+		{"0", 0},
+		{"-5", 0},
+		{"soon", 0},
+		{"120", 2 * time.Minute},
+		{now.Add(90 * time.Second).Format(http.TimeFormat), 90 * time.Second},
+		{now.Add(-time.Hour).Format(http.TimeFormat), 0},
+		// Past what a Duration holds: the longest wait, not a negative one.
+		{"9223372037", time.Duration(math.MaxInt64)},
+		{"99999999999999999999", time.Duration(math.MaxInt64)},
+	}
+
+	for _, c := range cases {
+		if got := rest.RetryAfter(c.header, now); got != c.want {
+			t.Errorf("RetryAfter(%q) = %v, want %v", c.header, got, c.want)
+		}
 	}
 }

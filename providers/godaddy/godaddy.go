@@ -141,8 +141,11 @@ type wireDomain struct {
 	NameServers []string `json:"nameServers"`
 }
 
-// Zones implements dnsprovider.Provider: every ACTIVE domain of the Account.
-func (p *Provider) Zones(ctx context.Context, _ dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+// Zones implements dnsprovider.Provider: the ACTIVE domains of the
+// Account whose names match the filter. The v1 API has no name filter, so
+// every page is read and filtered with dnsprovider.MatchZone. GoDaddy
+// lists only the domains it serves: every Zone is Active.
+func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	all, err := p.listDomains(ctx)
 	if err != nil {
 		return nil, err
@@ -150,10 +153,17 @@ func (p *Provider) Zones(ctx context.Context, _ dnsprovider.ZoneFilter) ([]dnspr
 
 	out := make([]dnsprovider.Zone, 0, len(all))
 	for _, d := range all {
-		out = append(out, dnsprovider.Zone{Name: d.Domain, ID: d.Domain, Nameservers: goDaddyNameservers(d.NameServers)})
+		if z := toZone(d); dnsprovider.MatchZone(f, z) {
+			out = append(out, z)
+		}
 	}
 
 	return out, nil
+}
+
+// toZone turns a v1 domain into an Active Zone.
+func toZone(d wireDomain) dnsprovider.Zone {
+	return dnsprovider.Zone{Name: d.Domain, ID: d.Domain, State: dnsprovider.HostingActive, Nameservers: goDaddyNameservers(d.NameServers)}
 }
 
 // nameserverSuffix ends the name of every GoDaddy DNS nameserver.

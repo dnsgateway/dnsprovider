@@ -287,6 +287,45 @@ func TestZonesAreTheAccountsActiveDomainsOnEveryPage(t *testing.T) {
 	}
 }
 
+func TestZonesFilteredByNameKeepOnlyMatchesFromEveryPage(t *testing.T) {
+	api := &gdAPI{pageSize: 2, domains: []map[string]any{
+		domain("a.example"), domain("b.other"), domain("Shop.EXAMPLE"), domain("d.other"),
+	}}
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example"})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	var names []string
+	for _, z := range zones {
+		names = append(names, z.Name)
+	}
+
+	if want := []string{"a.example", "Shop.EXAMPLE"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("Zones = %v, want %v", names, want)
+	}
+
+	if n := len(api.Requests()); n != 3 {
+		t.Errorf("sent %d requests, want every page read", n)
+	}
+}
+
+func TestZonesAreActive(t *testing.T) {
+	api := &gdAPI{domains: []map[string]any{domain("a.example"), domain("b.example")}}
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	for _, z := range zones {
+		if z.State != dnsprovider.HostingActive {
+			t.Errorf("Zone %s is %v, want Active: GoDaddy lists only the domains it serves", z.Name, z.State)
+		}
+	}
+}
+
 func TestZonesCarryTheirNameserversOnlyWhenGoDaddyAnswersForThem(t *testing.T) {
 	api := &gdAPI{pageSize: 10, domains: []map[string]any{
 		domain("hosted.example", "NS43.DOMAINCONTROL.COM", "ns44.domaincontrol.com"),

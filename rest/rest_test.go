@@ -305,3 +305,38 @@ func TestRetryAfterMayBeAnHTTPDate(t *testing.T) {
 		t.Errorf("err = %v, want RetryAfter about 2m0s", err)
 	}
 }
+
+func TestARetriedDeleteThatFindsItGoneSucceeds(t *testing.T) {
+	f := &flaky{statuses: []int{503, http.StatusNotFound}}
+	c := quick(newClient(t, f))
+
+	if err := c.Do(context.Background(), http.MethodDelete, "/things/1", nil, nil, nil); err != nil {
+		t.Errorf("Do: %v, want success: the first try may have deleted it", err)
+	}
+
+	if got := f.calls.Load(); got != 2 {
+		t.Errorf("sent %d requests, want 2", got)
+	}
+}
+
+func TestOnlyARetriedDeleteTakesA404AsDone(t *testing.T) {
+	cases := []struct {
+		name     string
+		method   string
+		statuses []int
+	}{
+		{"first delete", http.MethodDelete, []int{http.StatusNotFound}},
+		{"retried get", http.MethodGet, []int{503, http.StatusNotFound}},
+		{"retried put", http.MethodPut, []int{503, http.StatusNotFound}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			c := quick(newClient(t, &flaky{statuses: tc.statuses}))
+
+			if err := c.Do(context.Background(), tc.method, "/things/1", nil, nil, nil); !errors.Is(err, dnsprovider.ErrNotFound) {
+				t.Errorf("err = %v, want ErrNotFound", err)
+			}
+		})
+	}
+}

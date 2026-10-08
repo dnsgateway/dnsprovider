@@ -74,7 +74,8 @@ type Client struct {
 //
 // A GET, PUT or DELETE answered 429 or 5xx is tried again, after the wait
 // the Provider asked for (Retry-After) or else a doubling backoff. A POST
-// is never tried again: a lost answer would create twice.
+// is never tried again: a lost answer would create twice. A retried DELETE
+// answered 404 succeeds: an earlier try deleted it and its answer was lost.
 func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body, out any) error {
 	var (
 		data        []byte
@@ -126,6 +127,11 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 				return fmt.Errorf("%s: decode %s: %w", c.Provider, path, err)
 			}
 
+			return nil
+		}
+
+		if try > 1 && method == http.MethodDelete && isStatus(err, http.StatusNotFound) {
+			// An earlier try may have deleted it and lost the answer.
 			return nil
 		}
 
@@ -223,6 +229,13 @@ func (c *Client) retryWait(method string, err error, backoff time.Duration) (wai
 	wait = cmp.Or(apiErr.RetryAfter, backoff)
 
 	return wait, wait <= cmp.Or(c.MaxWait, DefaultMaxWait)
+}
+
+// isStatus reports whether err is an APIError with the HTTP status code.
+func isStatus(err error, code int) bool {
+	var apiErr *dnsprovider.APIError
+
+	return errors.As(err, &apiErr) && apiErr.StatusCode == code
 }
 
 // decode turns a non-2xx answer into an error with Decode. An APIError

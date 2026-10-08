@@ -42,7 +42,7 @@ type Client struct {
 	// Auth puts the Account's credentials on a request; nil adds none.
 	Auth func(*http.Request)
 	// Limit is the Provider's published rate limit, per Account, such as
-	// PerMinute or a *rate.Limiter; nil sends without waiting.
+	// AccountPerMinute or a *rate.Limiter; nil sends without waiting.
 	Limit Limiter
 	// Decode turns a non-2xx answer into an error, normally a
 	// *dnsprovider.APIError; nil gives an APIError with the status alone.

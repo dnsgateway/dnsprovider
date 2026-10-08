@@ -71,3 +71,17 @@ func TestFactoryReturnsTheScriptedFailure(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, boom)
 	}
 }
+
+func TestFactoryRefusesMissingAndUnknownFields(t *testing.T) {
+	for name, fields := range map[string]map[string]string{
+		"no token":      {},
+		"empty token":   {"token": ""},
+		"unknown field": {"token": "t", "secret": "x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := providertest.New().Factory().New(fields); err == nil {
+				t.Fatalf("Factory built a Provider from %v", fields)
+			}
+		})
+	}
+}

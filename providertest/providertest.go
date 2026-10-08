@@ -7,12 +7,14 @@ package providertest
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"sync"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/fields"
 )
 
 // Op names a Provider operation, for scripted failures and recorded calls.
@@ -251,18 +253,21 @@ func (p *Provider) Calls() []Call {
 	return slices.Clone(p.calls)
 }
 
-// Factory builds Providers from a field map with one secret "token" field,
-// for a consumer's dnsprovider.Registry. Every Provider it builds shares
-// this fake's script; it records each build as OpNew with its fields.
+// Factory builds Providers from a field map with one required, secret
+// "token" field, for a consumer's dnsprovider.Registry. As the Factory
+// contract wants, a missing token or a field other than "token" is an
+// error. Every Provider it builds shares this fake's script; it records
+// each build of valid fields as OpNew with its fields.
 func (p *Provider) Factory() dnsprovider.Factory {
-	return dnsprovider.Factory{
-		Fields: []dnsprovider.Field{{Name: "token", Label: "API token", Secret: true}},
-		New:    p.build,
-	}
+	return fields.Factory("providertest", []dnsprovider.Field{{Name: "token", Label: "API token", Secret: true}}, p.build)
 }
 
-func (p *Provider) build(fields map[string]string, _ ...dnsprovider.Option) (dnsprovider.Provider, error) {
-	if err := p.record(Call{Op: OpNew, Fields: maps.Clone(fields)}); err != nil {
+func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovider.Provider, error) {
+	if m["token"] == "" {
+		return nil, errors.New("providertest: no API token")
+	}
+
+	if err := p.record(Call{Op: OpNew, Fields: maps.Clone(m)}); err != nil {
 		return nil, err
 	}
 

@@ -201,7 +201,7 @@ func TestZonesAreTheTenantsAlone(t *testing.T) {
 func TestZonesNeedATenant(t *testing.T) {
 	api := &cfAPI{zones: []map[string]any{cfZone("z1", "example.com")}}
 
-	if _, err := newProviderIn(t, api, acme, "").Zones(context.Background()); !errors.Is(err, cloudflare.ErrNoTenant) {
+	if _, err := newProviderIn(t, api, acme, "").Zones(context.Background()); !errors.Is(err, dnsprovider.ErrNoTenant) {
 		t.Errorf("err = %v, want ErrNoTenant", err)
 	}
 

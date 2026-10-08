@@ -17,6 +17,10 @@ var (
 	ErrUnauthorized = errors.New("not authorized")
 	// ErrNotFound means the Provider does not know the Zone or Record.
 	ErrNotFound = errors.New("not found")
+	// ErrNoTenant means a call scoped to a Tenant was made before the
+	// Provider's Config set one. A Provider that returns it implements
+	// TenantLister, which lists the Tenants to pick from.
+	ErrNoTenant = errors.New("no Tenant set; pick one of Tenants")
 	// ErrNotImplemented means the adapter does not support the operation yet.
 	ErrNotImplemented = errors.New("not implemented yet")
 )

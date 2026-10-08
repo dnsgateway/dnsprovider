@@ -212,8 +212,8 @@ func (p *Provider) Zones(ctx context.Context) ([]dnsprovider.Zone, error) {
 
 // listZones reads every Zone of the Tenant.
 func (p *Provider) listZones(ctx context.Context) ([]zones.Zone, error) {
-	if p.tenantID == "" {
-		return nil, ErrNoTenant
+	if err := p.needTenant(); err != nil {
+		return nil, err
 	}
 
 	var params zones.ZoneListParams
@@ -223,6 +223,15 @@ func (p *Provider) listZones(ctx context.Context) ([]zones.Zone, error) {
 	return listAll(ctx, zonesPerPage, func(opts ...option.RequestOption) (*pagination.V4PagePaginationArray[zones.Zone], error) {
 		return p.zones.List(ctx, params, opts...)
 	})
+}
+
+// needTenant is ErrNoTenant, wrapped, until a Tenant is set.
+func (p *Provider) needTenant() error {
+	if p.tenantID == "" {
+		return fmt.Errorf("cloudflare: %w", ErrNoTenant)
+	}
+
+	return nil
 }
 
 // listAll reads every page of a v4 list. It pages by hand, rather than with

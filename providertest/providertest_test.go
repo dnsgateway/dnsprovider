@@ -726,3 +726,21 @@ func TestTheFakesFactoryDeclaresTheZoneWritesScripted(t *testing.T) {
 		}
 	}
 }
+
+func TestZoneOfANameOnboardedAgainIsTheNewZoneNotTheMovedOne(t *testing.T) {
+	ctx := context.Background()
+
+	fake := providertest.New().AddZone(dnsprovider.Zone{ID: "z1", Name: "example.org", State: dnsprovider.HostingMoved})
+	fake.SetZoneCreator(true)
+
+	p := newFake(t, fake)
+
+	created, err := p.(dnsprovider.ZoneCreator).CreateZone(ctx, "example.org")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := p.Zone(ctx, "example.org"); err != nil || got.ID != created.ID {
+		t.Errorf("Zone = %+v, %v; want the Onboarded %s, as Cloudflare prefers an Active, then a Pending Zone", got, err, created.ID)
+	}
+}

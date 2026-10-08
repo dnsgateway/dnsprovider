@@ -491,7 +491,9 @@ func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) ([]dnsprov
 
 // Zone implements dnsprovider.Provider: the scripted Zone of that name,
 // matched as the adapters match it, ignoring case and a trailing dot;
-// ErrNotFound when none is.
+// ErrNotFound when none is. Of several, such as one Moved and one
+// Onboarded again, it is the Active one, else the Pending one, else the
+// first added, as Cloudflare's.
 func (p *Provider) Zone(_ context.Context, name string) (dnsprovider.Zone, error) {
 	if err := p.record(Call{Op: OpZone, Zone: dnsprovider.Zone{Name: name}}); err != nil {
 		return dnsprovider.Zone{}, err
@@ -500,10 +502,22 @@ func (p *Provider) Zone(_ context.Context, name string) (dnsprovider.Zone, error
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	var found []dnsprovider.Zone
+
 	for _, z := range p.zones {
 		if names.ZoneName(z.Name) == names.ZoneName(name) {
-			return p.scripted(z), nil
+			found = append(found, p.scripted(z))
 		}
+	}
+
+	for _, s := range []dnsprovider.HostingState{dnsprovider.HostingActive, dnsprovider.HostingPending} {
+		if i := slices.IndexFunc(found, func(z dnsprovider.Zone) bool { return z.State == s }); i >= 0 {
+			return found[i], nil
+		}
+	}
+
+	if len(found) > 0 {
+		return found[0], nil
 	}
 
 	return dnsprovider.Zone{}, fmt.Errorf("providertest: zone %q: %w", name, dnsprovider.ErrNotFound)

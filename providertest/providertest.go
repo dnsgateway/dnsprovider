@@ -183,29 +183,19 @@ func (p *Provider) SetAutoTTL(on bool) {
 	p.autoTTL = on
 }
 
+//go:generate go run gen_wrappers.go
+
 // The fake implements the optional interfaces whose absence the
 // dnsprovider helpers read as their unscripted answer, such as
 // TTLRangeOf's DefaultTTLRange. TenantLister and ZoneStatusReader, which a
 // consumer may branch on, and Batcher, which changes how
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
-// once scripted; see build.
+// once scripted: one type per combination, generated (see
+// gen_wrappers.go) and picked by build.
 var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
 	_ dnsprovider.ProxyFlag = (*Provider)(nil)
-
-	_ dnsprovider.TenantLister     = withTenants{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatus{}
-	_ dnsprovider.Batcher          = withBatcher{}
-	_ dnsprovider.TenantLister     = withTenantsAndZoneStatus{}
-	_ dnsprovider.ZoneStatusReader = withTenantsAndZoneStatus{}
-	_ dnsprovider.TenantLister     = withTenantsAndBatcher{}
-	_ dnsprovider.Batcher          = withTenantsAndBatcher{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusAndBatcher{}
-	_ dnsprovider.Batcher          = withZoneStatusAndBatcher{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusAndBatcher{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusAndBatcher{}
-	_ dnsprovider.Batcher          = withTenantsZoneStatusAndBatcher{}
 )
 
 // TTLRange implements dnsprovider.TTLLimits; the default range when not
@@ -267,13 +257,8 @@ func (p *Provider) SetTenants(tenants ...dnsprovider.Tenant) {
 	p.tenants = append([]dnsprovider.Tenant{}, tenants...)
 }
 
-// withTenants is the fake with scripted Tenants.
-type withTenants struct {
-	*Provider
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenants) Tenants(context.Context) ([]dnsprovider.Tenant, error) {
+// tenantList is the scripted Tenants, for dnsprovider.TenantLister.
+func (p *Provider) tenantList(context.Context) ([]dnsprovider.Tenant, error) {
 	if err := p.record(Call{Op: OpTenants}); err != nil {
 		return nil, err
 	}
@@ -376,24 +361,21 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	switch tenants, status := p.tenants != nil, p.readStatus; {
-	case tenants && status && p.batcher:
-		return withTenantsZoneStatusAndBatcher{withTenantsAndZoneStatus{withTenants{p}}}, nil
-	case tenants && status:
-		return withTenantsAndZoneStatus{withTenants{p}}, nil
-	case tenants && p.batcher:
-		return withTenantsAndBatcher{withTenants{p}}, nil
-	case status && p.batcher:
-		return withZoneStatusAndBatcher{withZoneStatus{p}}, nil
-	case tenants:
-		return withTenants{p}, nil
-	case status:
-		return withZoneStatus{p}, nil
-	case p.batcher:
-		return withBatcher{p}, nil
+	var set opts
+
+	if p.tenants != nil {
+		set |= optTenants
 	}
 
-	return p, nil
+	if p.readStatus {
+		set |= optZoneStatus
+	}
+
+	if p.batcher {
+		set |= optBatcher
+	}
+
+	return wrap(p, set), nil
 }
 
 // record logs a call and returns its scripted failure, if any.
@@ -629,70 +611,8 @@ func (p *Provider) applyChangeset(_ context.Context, cs dnsprovider.Changeset) (
 	return res, nil
 }
 
-// withBatcher is the fake as a Batcher.
-type withBatcher struct {
-	*Provider
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// withTenantsAndBatcher is the fake with scripted Tenants, as a Batcher.
-type withTenantsAndBatcher struct {
-	withTenants
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsAndBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// withZoneStatusAndBatcher is the fake with scripted Zone Status, as a
-// Batcher.
-type withZoneStatusAndBatcher struct {
-	withZoneStatus
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withZoneStatusAndBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// withTenantsZoneStatusAndBatcher is the fake with scripted Tenants and
-// Zone Status, as a Batcher.
-type withTenantsZoneStatusAndBatcher struct {
-	withTenantsAndZoneStatus
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsZoneStatusAndBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// withZoneStatus is the fake with scripted Zone Status.
-type withZoneStatus struct {
-	*Provider
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatus) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// withTenantsAndZoneStatus is the fake with scripted Tenants and Zone
-// Status.
-type withTenantsAndZoneStatus struct {
-	withTenants
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsAndZoneStatus) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// zoneStatus is the scripted Zone Status, every setting Unknown for a
+// zoneStatus is the scripted Zone Status, for
+// dnsprovider.ZoneStatusReader, every setting Unknown for a
 // Zone without one.
 func (p *Provider) zoneStatus(_ context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
 	if err := p.record(Call{Op: OpZoneStatus, Zone: z}); err != nil {

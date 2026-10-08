@@ -286,3 +286,26 @@ func TestAWriteCloudflareTookWithoutAReadableRecordSucceedsWithTheRecordAsSent(t
 		})
 	}
 }
+
+func TestUpdateRecordWithoutAProxyFlagKeepsTheOneCloudflareHolds(t *testing.T) {
+	// A Record that does not say whether it is proxied leaves the flag as
+	// Cloudflare holds it, as a PATCH keeps what it does not send.
+	api := &cfAPI{records: map[string][]map[string]any{"z1": {cfRecord("r1", "A", "www.example.com", "192.0.2.1", 300, true, true)}}}
+	p := newProvider(t, api)
+
+	before := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300, Extras: map[string]string{cloudflare.ExtraProxied: "true"}}
+	after := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 300}
+
+	got, err := p.UpdateRecord(context.Background(), crudZone, before, after)
+	if err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+
+	assertWrites(t, api, []write{{Method: "PATCH", Path: "/client/v4/zones/z1/dns_records/r1", Body: map[string]any{
+		"type": "A", "name": "www.example.com", "content": "192.0.2.2", "ttl": 300.0,
+	}}})
+
+	want := after
+	want.Extras = map[string]string{cloudflare.ExtraProxied: "true"}
+	assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{want})
+}

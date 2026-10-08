@@ -523,12 +523,12 @@ func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, befo
 		return dnsprovider.Record{}, noID(before)
 	}
 
-	// A PATCH keeps what it does not send: a Record that loses its proxy
-	// flag, as it changes to a type that cannot have one, has it turned
-	// off.
-	_, proxied := before.Extras[ExtraProxied]
+	// A PATCH keeps what it does not send, so a Record without a proxy
+	// flag keeps the one Cloudflare holds; only a Record that changes to a
+	// type that cannot be proxied has the flag it had turned off.
+	_, hadFlag := before.Extras[ExtraProxied]
 
-	body, err := encodeBody(after, proxied)
+	body, err := encodeBody(after, hadFlag && !slices.Contains(p.ProxiableTypes(), strings.ToUpper(after.Type)))
 	if err != nil {
 		return dnsprovider.Record{}, err
 	}

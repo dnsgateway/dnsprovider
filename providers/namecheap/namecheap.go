@@ -155,21 +155,53 @@ type getListResult struct {
 	} `xml:"Paging"`
 }
 
-// Zones implements dnsprovider.Provider: every domain of the Account on
-// Namecheap's own DNS. A domain delegated elsewhere has no host list
-// Namecheap will read.
-func (p *Provider) Zones(ctx context.Context, _ dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+// Zones implements dnsprovider.Provider: the domains of the Account on
+// Namecheap's own DNS whose names match the filter. A domain delegated
+// elsewhere has no host list Namecheap will read. The filter goes to
+// getList as its SearchTerm, and the answer is filtered again with
+// dnsprovider.MatchZone. Every Zone is Active.
+func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+	all, err := p.listDomains(ctx, strings.ToLower(f.Contains))
+	if err != nil {
+		return nil, err
+	}
+
+	var out []dnsprovider.Zone
+
+	for _, d := range all {
+		if z := toZone(d); dnsprovider.MatchZone(f, z) {
+			out = append(out, z)
+		}
+	}
+
+	return out, nil
+}
+
+// toZone turns a domain on Namecheap's DNS into an Active Zone.
+func toZone(d wireDomain) dnsprovider.Zone {
+	return dnsprovider.Zone{Name: d.Name, ID: d.Name, State: dnsprovider.HostingActive}
+}
+
+// listDomains reads every page of the Account's domains on Namecheap's
+// DNS that getList finds for a SearchTerm; all of them when it is empty.
+func (p *Provider) listDomains(ctx context.Context, search string) ([]wireDomain, error) {
 	var (
-		out  []dnsprovider.Zone
+		out  []wireDomain
 		read int
 		last []wireDomain
 	)
 
 	for page := 1; ; page++ {
-		res, err := call[getListResult](ctx, p, "namecheap.domains.getList", url.Values{
+		params := url.Values{
 			"Page":     {strconv.Itoa(page)},
 			"PageSize": {strconv.Itoa(domainsPerPage)},
-		})
+		}
+
+		if search != "" {
+			params.Set("SearchTerm", search)
+		}
+
+		res, err := call[getListResult](ctx, p, "namecheap.domains.getList", params)
 		if err != nil {
 			return nil, err
 		}
@@ -184,7 +216,7 @@ func (p *Provider) Zones(ctx context.Context, _ dnsprovider.ZoneFilter) ([]dnspr
 
 		for _, d := range res.Domains {
 			if d.IsOurDNS {
-				out = append(out, dnsprovider.Zone{Name: d.Name, ID: d.Name})
+				out = append(out, d)
 			}
 		}
 

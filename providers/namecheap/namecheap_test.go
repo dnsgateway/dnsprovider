@@ -58,6 +58,9 @@ type ncAPI struct {
 	noPaging bool
 	// stuckPage makes getList answer page 1 whatever Page asks for.
 	stuckPage bool
+	// ignoreSearch makes getList list every domain whatever SearchTerm
+	// asks for.
+	ignoreSearch bool
 	// setHostsFalse makes setHosts answer OK with IsSuccess="false" and
 	// change nothing.
 	setHostsFalse bool
@@ -156,13 +159,24 @@ func (api *ncAPI) getList(w http.ResponseWriter, r *http.Request) {
 		page = 1
 	}
 
-	start := min((page-1)*size, len(api.domains))
+	listed := api.domains
+	if term := r.Form.Get("SearchTerm"); term != "" && !api.ignoreSearch {
+		listed = nil
+
+		for _, d := range api.domains {
+			if strings.Contains(strings.ToLower(d.Name), strings.ToLower(term)) {
+				listed = append(listed, d)
+			}
+		}
+	}
+
+	start := min((page-1)*size, len(listed))
 
 	var b strings.Builder
 
 	b.WriteString(`<DomainGetListResult>`)
 
-	for _, d := range api.domains[start:min(start+size, len(api.domains))] {
+	for _, d := range listed[start:min(start+size, len(listed))] {
 		fmt.Fprintf(&b, `<Domain ID="%d" Name="%s" User="apiuser" Created="02/15/2024" Expires="02/15/2027" IsExpired="false" IsLocked="false" AutoRenew="true" WhoisGuard="ENABLED" IsPremium="false" IsOurDNS="%t"/>`,
 			len(d.Name), d.Name, d.OurDNS)
 	}
@@ -171,7 +185,7 @@ func (api *ncAPI) getList(w http.ResponseWriter, r *http.Request) {
 
 	if !api.noPaging {
 		fmt.Fprintf(&b, `<Paging><TotalItems>%d</TotalItems><CurrentPage>%d</CurrentPage><PageSize>%d</PageSize></Paging>`,
-			len(api.domains), page, size)
+			len(listed), page, size)
 	}
 
 	writeOK(w, "namecheap.domains.getList", b.String())
@@ -438,6 +452,59 @@ func zoneNames(zones []dnsprovider.Zone) []string {
 	}
 
 	return out
+}
+
+func TestZonesPushTheNameFilterToSearchTerm(t *testing.T) {
+	api := &ncAPI{domains: []ncDomain{
+		{Name: "example.com", OurDNS: true},
+		{Name: "shop-example.net", OurDNS: true},
+		{Name: "other.org", OurDNS: true},
+	}}
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example"})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	if got, want := zoneNames(zones), []string{"example.com", "shop-example.net"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Zones = %v, want %v", got, want)
+	}
+
+	if reqs := api.Requests(); len(reqs) != 1 || reqs[0].Get("SearchTerm") != "example" {
+		t.Errorf("requests = %v, want one getList with SearchTerm example", reqs)
+	}
+}
+
+func TestZonesKeepOnlyMatchesWhenNamecheapSearchesLoosely(t *testing.T) {
+	api := &ncAPI{ignoreSearch: true}
+	api.domains, _ = domains(150)
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "d12"})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	want := []string{"d120.example", "d121.example", "d122.example", "d123.example", "d124.example",
+		"d125.example", "d126.example", "d127.example", "d128.example", "d129.example"}
+	if got := zoneNames(zones); !reflect.DeepEqual(got, want) {
+		t.Errorf("Zones = %v, want %v", got, want)
+	}
+}
+
+func TestZonesAreActive(t *testing.T) {
+	api := &ncAPI{}
+	api.domains, _ = domains(3)
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	for _, z := range zones {
+		if z.State != dnsprovider.HostingActive {
+			t.Errorf("Zone %s is %v, want Active: Namecheap lists only the domains on its DNS", z.Name, z.State)
+		}
+	}
 }
 
 func TestZonesReadEveryPageWhenTheAnswerHasNoTotal(t *testing.T) {

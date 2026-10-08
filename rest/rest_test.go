@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -358,5 +359,31 @@ func TestTheBackoffIsCappedAtMaxWait(t *testing.T) {
 
 	if waited := time.Since(start); waited > time.Second {
 		t.Errorf("Do took %v, want each wait cut to MaxWait", waited)
+	}
+}
+
+func TestRetryAfterParsesSecondsAndDates(t *testing.T) {
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+
+	cases := []struct {
+		header string
+		want   time.Duration
+	}{
+		{"", 0},
+		{"0", 0},
+		{"-5", 0},
+		{"soon", 0},
+		{"120", 2 * time.Minute},
+		{now.Add(90 * time.Second).Format(http.TimeFormat), 90 * time.Second},
+		{now.Add(-time.Hour).Format(http.TimeFormat), 0},
+		// Past what a Duration holds: the longest wait, not a negative one.
+		{"9223372037", time.Duration(math.MaxInt64)},
+		{"99999999999999999999", time.Duration(math.MaxInt64)},
+	}
+
+	for _, c := range cases {
+		if got := rest.RetryAfter(c.header, now); got != c.want {
+			t.Errorf("RetryAfter(%q) = %v, want %v", c.header, got, c.want)
+		}
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -259,21 +260,29 @@ func (c *Client) decode(res *http.Response, body []byte) error {
 
 	var apiErr *dnsprovider.APIError
 	if errors.As(err, &apiErr) && apiErr.RetryAfter == 0 {
-		apiErr.RetryAfter = retryAfter(res.Header.Get("Retry-After"), time.Now())
+		apiErr.RetryAfter = RetryAfter(res.Header.Get("Retry-After"), time.Now())
 	}
 
 	return err
 }
 
-// retryAfter is the wait a Retry-After header asks for, in seconds or as
-// an HTTP date; zero when it asks for none or cannot be read.
-func retryAfter(h string, now time.Time) time.Duration {
+// RetryAfter is the wait a Retry-After header asks for at now, in seconds
+// or as an HTTP date; zero when it asks for none or cannot be read. A wait
+// past what a Duration holds is the longest Duration.
+func RetryAfter(h string, now time.Time) time.Duration {
 	if h == "" {
 		return 0
 	}
 
-	if s, err := strconv.Atoi(h); err == nil {
-		return max(time.Duration(s)*time.Second, 0)
+	if s, err := strconv.ParseInt(h, 10, 64); err == nil || errors.Is(err, strconv.ErrRange) {
+		switch {
+		case s <= 0:
+			return 0
+		case s > math.MaxInt64/int64(time.Second):
+			return math.MaxInt64
+		default:
+			return time.Duration(s) * time.Second
+		}
 	}
 
 	if t, err := http.ParseTime(h); err == nil {

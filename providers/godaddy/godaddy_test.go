@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -606,6 +607,9 @@ func TestErrorResponsesAreTypedErrors(t *testing.T) {
 		{"no API access", 403, `{"code":"ACCESS_DENIED","message":"Authenticated user is not allowed access"}`, dnsprovider.ErrUnauthorized, 0, "ACCESS_DENIED"},
 		{"unknown domain", 404, `{"code":"UNKNOWN_DOMAIN","message":"The given domain is not registered"}`, dnsprovider.ErrNotFound, 0, "UNKNOWN_DOMAIN"},
 		{"rate limited", 429, `{"code":"TOO_MANY_REQUESTS","message":"Too many requests","retryAfterSec":42}`, dnsprovider.ErrRateLimited, 42 * time.Second, "Too many requests"},
+		{"rate limited for longer than a Duration holds", 429, `{"code":"TOO_MANY_REQUESTS","message":"Too many requests","retryAfterSec":9223372036854775807}`, dnsprovider.ErrRateLimited, math.MaxInt64, "Too many requests"},
+		{"rate limited past int64", 429, `{"code":"TOO_MANY_REQUESTS","message":"Too many requests","retryAfterSec":99999999999999999999}`, dnsprovider.ErrRateLimited, math.MaxInt64, "Too many requests"},
+		{"rate limited with a negative wait", 429, `{"code":"TOO_MANY_REQUESTS","message":"Too many requests","retryAfterSec":-5}`, dnsprovider.ErrRateLimited, 0, "Too many requests"},
 		{"invalid record", 422, `{"code":"INVALID_BODY","message":"Request body doesn't fulfill schema","fields":[{"code":"INVALID_VALUE","message":"data must be an IPv4 address","path":"records[0].data"}]}`, nil, 0, "records[0].data: data must be an IPv4 address"},
 		{"edge page", 502, `<html>Bad Gateway</html>`, nil, 0, ""},
 	}

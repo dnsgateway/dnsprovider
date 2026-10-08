@@ -1367,3 +1367,27 @@ func TestApplyAddingTheRecordAFailedModificationKeepsIsAConflict(t *testing.T) {
 		t.Errorf("writes = %v, want %v", got, want)
 	}
 }
+
+func TestCreateRecordReturnsTheRecordAsRecordsReadsItBack(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {}}}
+	p := newProvider(t, api)
+
+	for _, add := range []dnsprovider.Record{
+		{Type: "A", Name: "WWW.Example.com", Value: "192.0.2.1", TTL: 600},
+		{Type: "SRV", Name: "_SIP._TCP.Example.com", Value: "10 20 5060 sip.example.com", TTL: 600},
+	} {
+		got, err := p.CreateRecord(context.Background(), example, add)
+		if err != nil {
+			t.Fatalf("CreateRecord %s: %v", add.Name, err)
+		}
+
+		set, err := p.Records(context.Background(), example, dnsprovider.RecordFilter{Type: add.Type})
+		if err != nil {
+			t.Fatalf("Records: %v", err)
+		}
+
+		if len(set.Records) != 1 || !reflect.DeepEqual(got, set.Records[0]) {
+			t.Errorf("CreateRecord = %+v, want it as Records reads it: %+v", got, set.Records)
+		}
+	}
+}

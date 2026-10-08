@@ -506,7 +506,7 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 		if c.Kind == dnsprovider.ChangeModify || c.Kind == dnsprovider.ChangeAdd {
 			g := group(c.After)
 			g.ops = append(g.ops, rrOp{index: i, rec: c.After})
-			res.Results[i].Record = withID(c.After)
+			res.Results[i].Record = stored(cs.Zone.Name, c.After)
 		}
 	}
 
@@ -584,6 +584,31 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 	}
 
 	return res, nil
+}
+
+// stored is a Record as GoDaddy stores it, so as Records reads it back:
+// the RRset replace sends it, under its RRset's name, as toWire has it.
+// It is worked out from what is sent rather than read back, which would
+// cost a request per RRset against GoDaddy's rate limit. A Record toWire
+// refuses is not written, so is kept as it is.
+func stored(zone string, r dnsprovider.Record) dnsprovider.Record {
+	w, err := toWire(zone, r)
+	if err != nil {
+		return withID(r)
+	}
+
+	read := wireRecord{Type: r.Type, Name: rrsetOf(zone, r).name, Data: w.Data, TTL: w.TTL, Service: w.Service, Protocol: w.Protocol}
+
+	for _, f := range []struct {
+		from *uint64
+		to   *uint32
+	}{{w.Priority, &read.Priority}, {w.Weight, &read.Weight}, {w.Port, &read.Port}} {
+		if f.from != nil {
+			*f.to = uint32(*f.from)
+		}
+	}
+
+	return toRecord(zone, read)
 }
 
 // removesOnly is 1 for a group that only removes Records, else 0.

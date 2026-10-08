@@ -479,7 +479,8 @@ func TestZonesCarryTheirHostingState(t *testing.T) {
 		zone("z2", "pending.example", "pending"),
 		zone("z3", "initializing.example", "initializing"),
 		zone("z4", "moved.example", "moved"),
-		zone("z5", "odd.example", "deactivated"),
+		zone("z5", "deactivated.example", "deactivated"),
+		zone("z6", "odd.example", "read only"),
 	}}
 
 	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
@@ -497,7 +498,9 @@ func TestZonesCarryTheirHostingState(t *testing.T) {
 		"pending.example":      dnsprovider.HostingPending,
 		"initializing.example": dnsprovider.HostingPending,
 		"moved.example":        dnsprovider.HostingMoved,
-		"odd.example":          dnsprovider.HostingUnknown,
+		// Cloudflare no longer serves a deactivated Zone.
+		"deactivated.example": dnsprovider.HostingMoved,
+		"odd.example":         dnsprovider.HostingUnknown,
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Hosting States = %v, want %v", got, want)

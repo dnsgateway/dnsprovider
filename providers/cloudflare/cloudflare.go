@@ -262,15 +262,21 @@ func toZone(z zones.Zone) dnsprovider.Zone {
 	return dnsprovider.Zone{Name: z.Name, ID: z.ID, State: hostingState(z.Status), Nameservers: slices.Clone(z.NameServers)}
 }
 
+// zoneStatusDeactivated is a status Cloudflare documents for a Zone it
+// stopped serving, which cloudflare-go's enum leaves out.
+const zoneStatusDeactivated zones.ZoneStatus = "deactivated"
+
 // hostingState is the Hosting State of a Zone in a Cloudflare status. An
-// initializing Zone, just Onboarded, waits for Delegation as a pending one does.
+// initializing Zone, just Onboarded, waits for Delegation as a pending one
+// does. A deactivated Zone is Moved: Cloudflare no longer serves it, which
+// is what Moved tells a consumer, whatever made Cloudflare stop.
 func hostingState(s zones.ZoneStatus) dnsprovider.HostingState {
 	switch s {
 	case zones.ZoneStatusActive:
 		return dnsprovider.HostingActive
 	case zones.ZoneStatusPending, zones.ZoneStatusInitializing:
 		return dnsprovider.HostingPending
-	case zones.ZoneStatusMoved:
+	case zones.ZoneStatusMoved, zoneStatusDeactivated:
 		return dnsprovider.HostingMoved
 	}
 

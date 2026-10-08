@@ -20,9 +20,9 @@ func Env(typ, field string) string {
 }
 
 // Run builds a Provider from its Factory's fields, read from the
-// environment (see Env), and reads its Account, Zones, one Zone by name and its Records without
-// writing to it. It
-// skips the test unless every secret field is set. A Provider that lists
+// environment (see Env), and reads its Account, its Zones, the first of
+// them by name and its Records, without writing to the Account. It skips
+// the test unless every secret field is set. A Provider that lists
 // Tenants has them listed, and its Zones read only when its Tenant is set
 // too: Zones failing with dnsprovider.ErrNoTenant ends the test there.
 // DNSPROVIDER_<TYPE>_BASE_URL may point it at another endpoint, such as a

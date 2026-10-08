@@ -366,8 +366,8 @@ func listAll[T any](ctx context.Context, perPage int, list func(...option.Reques
 	}
 }
 
-// Records implements dnsprovider.Provider. Cloudflare filters by type and
-// by name itself, the name "contains" ignoring case; the answer is
+// Records implements dnsprovider.Provider. Cloudflare filters by a type it
+// takes and by name itself, the name "contains" ignoring case; the answer is
 // filtered again with dnsprovider.MatchRecord. The v4 API reports no SOA
 // serial short of a BIND export of the whole Zone, so the RecordSet has
 // none: A consumer asks the Zone's nameservers for it.
@@ -381,8 +381,10 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprov
 	var params cfdns.RecordListParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	if f.Type != "" {
-		params.Type.Value, params.Type.Present = cfdns.RecordListParamsType(strings.ToUpper(f.Type)), true
+	// Cloudflare answers 400 for a type it does not take, so such a type
+	// is filtered here and finds none.
+	if typ := cfdns.RecordListParamsType(strings.ToUpper(f.Type)); typ.IsKnown() {
+		params.Type.Value, params.Type.Present = typ, true
 	}
 
 	if text := names.ZoneName(f.Contains); text != "" {

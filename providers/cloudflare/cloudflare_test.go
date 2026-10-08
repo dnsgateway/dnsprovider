@@ -202,6 +202,13 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 			return
 		}
 
+		// Cloudflare answers 400 for a type it does not take.
+		if typ := r.URL.Query().Get("type"); typ != "" && !slices.Contains(cfRecordTypes, typ) {
+			writeErrors(w, http.StatusBadRequest, 9000, "DNS record type is invalid")
+
+			return
+		}
+
 		api.page(w, r, api.recordsMatching(records, r.URL.Query()))
 	})
 	mux.HandleFunc("POST /client/v4/zones/{zone}/dns_records", api.writeRecord)
@@ -1654,6 +1661,8 @@ func TestRecordsFilteredByTypeAndNamePushBothToCloudflare(t *testing.T) {
 		{"name", dnsprovider.RecordFilter{Contains: "WWW."}, []string{"r1", "r2", "r4"}, "", "www", true},
 		{"absolute name", dnsprovider.RecordFilter{Contains: "www.example.com."}, []string{"r1", "r2"}, "", "www.example.com", true},
 		{"type and name", dnsprovider.RecordFilter{Type: "A", Contains: "www"}, []string{"r1", "r4"}, "A", "www", true},
+		{"type Cloudflare does not take", dnsprovider.RecordFilter{Type: "SPF"}, []string{}, "", "", false},
+		{"malformed type", dnsprovider.RecordFilter{Type: "A B", Contains: "www"}, []string{}, "", "www", true},
 	}
 
 	for _, c := range cases {
@@ -1684,6 +1693,9 @@ func TestRecordsFilteredByTypeAndNamePushBothToCloudflare(t *testing.T) {
 		})
 	}
 }
+
+// cfRecordTypes are the record types Cloudflare's record list takes.
+var cfRecordTypes = []string{"A", "AAAA", "CAA", "CERT", "CNAME", "DNSKEY", "DS", "HTTPS", "LOC", "MX", "NAPTR", "NS", "OPENPGPKEY", "PTR", "SMIMEA", "SRV", "SSHFP", "SVCB", "TLSA", "TXT", "URI"}
 
 func TestRecordsWithTheZeroFilterSendNoFilter(t *testing.T) {
 	api := &cfAPI{records: map[string][]map[string]any{"z1": {cfRecord("r1", "A", "example.com", "192.0.2.1", 1, true, true)}}}

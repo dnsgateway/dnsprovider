@@ -82,21 +82,21 @@ func newProviderIn(t *testing.T, api *cfAPI, tenants cfTenants, tenantID string)
 	return p
 }
 
-var acme = cfTenants{accounts: []map[string]any{cfAccount("acc1", "Acme Ltd"), cfAccount("acc2", "Side project")}}
+var acme = cfTenants{accounts: []map[string]any{cfAccount(acc1, "Acme Ltd"), cfAccount(acc2, "Side project")}}
 
 func TestAccountVerifiesTheTokenAndNamesTheTenant(t *testing.T) {
 	api := &cfAPI{}
 
-	info, err := newProviderIn(t, api, acme, "acc1").Account(context.Background())
+	info, err := newProviderIn(t, api, acme, acc1).Account(context.Background())
 	if err != nil {
 		t.Fatalf("Account: %v", err)
 	}
 
-	if want := (dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{ID: "acc1", Name: "Acme Ltd"}}); !reflect.DeepEqual(info, want) {
+	if want := (dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{ID: acc1, Name: "Acme Ltd"}}); !reflect.DeepEqual(info, want) {
 		t.Errorf("Account = %+v, want %+v", info, want)
 	}
 
-	if got, want := strings.Join(api.Requests(), " "), "/client/v4/user/tokens/verify?page= /client/v4/accounts/acc1?page="; got != want {
+	if got, want := strings.Join(api.Requests(), " "), "/client/v4/user/tokens/verify?page= /client/v4/accounts/"+acc1+"?page="; got != want {
 		t.Errorf("requests = %s, want %s", got, want)
 	}
 }
@@ -123,7 +123,7 @@ func TestAccountWithABadTokenIsUnauthorized(t *testing.T) {
 		writeErrors(w, http.StatusUnauthorized, 1000, "Invalid API Token")
 	}}
 
-	if _, err := newProviderIn(t, invalid, acme, "acc1").Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+	if _, err := newProviderIn(t, invalid, acme, acc1).Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 		t.Errorf("invalid token: err = %v, want ErrUnauthorized", err)
 	}
 
@@ -131,14 +131,14 @@ func TestAccountWithABadTokenIsUnauthorized(t *testing.T) {
 		tenants := acme
 		tenants.tokenStatus = status
 
-		if _, err := newProviderIn(t, &cfAPI{}, tenants, "acc1").Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		if _, err := newProviderIn(t, &cfAPI{}, tenants, acc1).Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 			t.Errorf("%s token: err = %v, want ErrUnauthorized", status, err)
 		}
 	}
 }
 
 func TestAccountOfATenantTheTokenCannotReachIsUnauthorized(t *testing.T) {
-	if _, err := newProviderIn(t, &cfAPI{}, acme, "other").Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+	if _, err := newProviderIn(t, &cfAPI{}, acme, accOther).Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
 	}
 }
@@ -156,7 +156,7 @@ func TestTenantsListsEveryAccountTheTokenReachesBeforeATenantIsSet(t *testing.T)
 		t.Fatalf("Tenants: %v", err)
 	}
 
-	want := []dnsprovider.Tenant{{ID: "acc1", Name: "Acme Ltd"}, {ID: "acc2", Name: "Side project"}}
+	want := []dnsprovider.Tenant{{ID: acc1, Name: "Acme Ltd"}, {ID: acc2, Name: "Side project"}}
 	if !reflect.DeepEqual(tenants, want) {
 		t.Errorf("Tenants = %+v, want %+v", tenants, want)
 	}
@@ -189,11 +189,11 @@ func TestZonesAreTheTenantsAlone(t *testing.T) {
 		return false
 	}
 
-	if _, err := newProviderIn(t, api, acme, "acc1").Zones(context.Background()); err != nil {
+	if _, err := newProviderIn(t, api, acme, acc1).Zones(context.Background()); err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
 
-	if want := []string{"acc1", "acc1"}; !reflect.DeepEqual(scopes, want) {
+	if want := []string{acc1, acc1}; !reflect.DeepEqual(scopes, want) {
 		t.Errorf("zone lists scoped to account.id %q, want %q", scopes, want)
 	}
 }

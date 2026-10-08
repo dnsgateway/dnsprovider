@@ -24,8 +24,24 @@ func TestNewMakesNoNetworkCall(t *testing.T) {
 }
 
 func TestNewRefusesAConfigWithoutAToken(t *testing.T) {
-	if _, err := cloudflare.New(cloudflare.Config{TenantID: "acc1"}); err == nil {
+	if _, err := cloudflare.New(cloudflare.Config{TenantID: acc1}); err == nil {
 		t.Fatal("New built a Provider without a token")
+	}
+}
+
+func TestNewRefusesATenantIDThatIsNotACloudflareAccountID(t *testing.T) {
+	for _, id := range []string{"acc1", acc1[:31], acc1 + "0", "0123456789ABCDEF0123456789ABCDEF", "0123456789abcdef0123456789abcdeg", " " + acc1} {
+		if _, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: id}); err == nil {
+			t.Errorf("New took Tenant ID %q", id)
+		}
+
+		if _, err := cloudflare.Factory().New(map[string]string{"token": testToken, "tenant_id": id}); err == nil {
+			t.Errorf("Factory took Tenant ID %q", id)
+		}
+	}
+
+	if _, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: acc1}); err != nil {
+		t.Errorf("New refused Tenant ID %q: %v", acc1, err)
 	}
 }
 
@@ -47,7 +63,7 @@ func TestFactoryFieldsNameEveryConfigFieldAndMarkTheTokenSecret(t *testing.T) {
 
 func TestFactoryRefusesMissingAndUnknownFields(t *testing.T) {
 	for name, fields := range map[string]map[string]string{
-		"no token":      {"tenant_id": "acc1"},
+		"no token":      {"tenant_id": acc1},
 		"empty token":   {"token": ""},
 		"unknown field": {"token": testToken, "secret": "x"},
 	} {
@@ -65,12 +81,12 @@ func TestFactoryBuildsTheSameProviderAsTheTypedConfig(t *testing.T) {
 	srv := httptest.NewServer(api.handler(t))
 	t.Cleanup(srv.Close)
 
-	typed, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+	typed, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: acc1}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	built, err := cloudflare.Factory().New(map[string]string{"token": testToken, "tenant_id": "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+	built, err := cloudflare.Factory().New(map[string]string{"token": testToken, "tenant_id": acc1}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatal(err)
 	}

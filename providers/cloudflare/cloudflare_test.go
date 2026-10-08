@@ -27,6 +27,13 @@ import (
 
 const testToken = "test-token"
 
+// Cloudflare account IDs, as Tenant IDs: 32 lower-case hex digits.
+const (
+	acc1     = "0123456789abcdef0123456789abcdef"
+	acc2     = "fedcba9876543210fedcba9876543210"
+	accOther = "00000000000000000000000000000000"
+)
+
 // cfAPI is a scripted Cloudflare v4 API. Lists are paginated pageSize
 // items at a time, as Cloudflare does, whatever per_page the client asks for.
 type cfAPI struct {
@@ -93,7 +100,7 @@ func newProvider(t *testing.T, api *cfAPI) dnsprovider.Provider {
 	srv := httptest.NewServer(api.handler(t))
 	t.Cleanup(srv.Close)
 
-	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: acc1}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -341,7 +348,7 @@ func cfZone(id, name string, ns ...string) map[string]any {
 		"paused":       false,
 		"type":         "full",
 		"name_servers": ns,
-		"account":      map[string]any{"id": "acc1", "name": "Work"},
+		"account":      map[string]any{"id": acc1, "name": "Work"},
 		"created_on":   "2024-01-02T03:04:05.000000Z",
 		"modified_on":  "2024-01-02T03:04:05.000000Z",
 	}
@@ -923,7 +930,7 @@ func TestZoneStatusReadsDNSSECAndHSTSConcurrently(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: acc1}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -964,7 +971,7 @@ func TestAZoneStatusSettingThatFailsToReadIsUnknownOnItsOwn(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+			p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: acc1}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -1113,7 +1120,7 @@ func TestAStalledConnectionTimesOut(t *testing.T) {
 	t.Cleanup(func() { close(stalled) })
 
 	// The adapter's own client, so its own timeout is what ends the wait.
-	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: acc1}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -1148,7 +1155,7 @@ func TestAConsumersClientKeepsItsOwnTimeouts(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"), dnsprovider.WithHTTPClient(&http.Client{}))
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: acc1}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"), dnsprovider.WithHTTPClient(&http.Client{}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

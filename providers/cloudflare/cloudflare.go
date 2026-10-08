@@ -42,9 +42,10 @@ const recordsPerPage = 1000
 type Config struct {
 	// Token is a Cloudflare API token. Required.
 	Token string
-	// TenantID is the Cloudflare account the Provider acts within, which
-	// scopes every Zone listing. Empty until a Tenant is picked, when only
-	// Account and Tenants work; see ErrNoTenant.
+	// TenantID is the Cloudflare account the Provider acts within, 32
+	// lower-case hex digits, which scopes every call. Empty until a
+	// Tenant is picked, when only Account and Tenants work; see
+	// ErrNoTenant.
 	TenantID string
 }
 
@@ -100,6 +101,10 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		return nil, errors.New("cloudflare: no API token")
 	}
 
+	if cfg.TenantID != "" && !isAccountID(cfg.TenantID) {
+		return nil, fmt.Errorf("cloudflare: Tenant ID %q is not a Cloudflare account ID (32 lower-case hex digits)", cfg.TenantID)
+	}
+
 	o := dnsprovider.NewOptions(opts...)
 
 	baseURL := o.BaseURL
@@ -137,6 +142,21 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		records:  cfdns.NewRecordService(ropts...),
 		dnssec:   cfdns.NewDNSSECService(ropts...),
 	}, nil
+}
+
+// isAccountID reports whether s has the form of a Cloudflare account ID.
+func isAccountID(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+
+	for _, c := range []byte(s) {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+
+	return true
 }
 
 // Provider is one Cloudflare Account.

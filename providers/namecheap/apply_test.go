@@ -621,7 +621,7 @@ func TestApplyFailsWholeWhenTwoChangesAddTheSameRecord(t *testing.T) {
 	api := zoneAPI()
 	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "new.example.com", Value: "192.0.2.9", TTL: 1800}}
 
-	applyFails(t, api, "A new.example.com 192.0.2.9", dnsprovider.ErrConflict, add, add)
+	applyFails(t, api, "the Changeset sends A new.example.com 192.0.2.9 more than once", dnsprovider.ErrConflict, add, add)
 	wantNoSetHosts(t, api)
 }
 
@@ -646,4 +646,29 @@ func TestApplyFailsWholeOnAChangeOfNoKnownKind(t *testing.T) {
 
 	applyFails(t, api, "unknown change kind 0", nil, dnsprovider.Change{Before: r, After: r})
 	wantNoSetHosts(t, api)
+}
+
+func TestApplyModifiesOneOfTwoHostsNamecheapHoldsTwiceWithoutAConflict(t *testing.T) {
+	api := zoneAPI()
+	api.hosts["example.com"] = append(api.hosts["example.com"], ncHost{ID: "18", Name: "@", Type: "A", Address: "192.0.2.1", MXPref: 10, TTL: 300})
+
+	before := dnsprovider.Record{ID: "A example.com 300 192.0.2.1", Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300}
+	after := before
+	after.ID, after.TTL = "", 600
+
+	applyOK(t, api, dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: after})
+	wantSetHosts(t, api, "FWD", append(zoneHostsSent(), sentHost{"@", "A", "192.0.2.1", "", "600"}))
+}
+
+func TestApplyModifiesOneOfTwoMXHostsNamecheapHoldsTwiceWithoutAConflict(t *testing.T) {
+	api := zoneAPI()
+	api.emailType["example.com"] = "MX"
+	api.hosts["example.com"] = append(api.hosts["example.com"], ncHost{ID: "18", Name: "@", Type: "MX", Address: "mx1.example.net.", MXPref: 10, TTL: 300})
+
+	before := dnsprovider.Record{ID: "MX example.com 300 10 mx1.example.net", Type: "MX", Name: "example.com", Value: "10 mx1.example.net", TTL: 300}
+	after := before
+	after.ID, after.TTL = "", 600
+
+	applyOK(t, api, dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: after})
+	wantSetHosts(t, api, "MX", append(zoneHostsSent(), sentHost{"@", "MX", "mx1.example.net.", "10", "600"}))
 }

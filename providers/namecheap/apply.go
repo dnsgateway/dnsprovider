@@ -84,7 +84,8 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 // change was built from is replaced, in its place, or left out; the hosts
 // added go at the end; every other host is sent back exactly as read. sent
 // are the hosts each addition or modification sends, by change. A
-// Changeset that would send a host twice fails with ErrConflict.
+// Changeset that would leave a resource record more than once, and more
+// often than Namecheap held it, fails with ErrConflict.
 func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent []*sendHost, err error) {
 	type slot struct {
 		read    *wireHost
@@ -128,25 +129,50 @@ func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent 
 	}
 
 	// A host a change sends that another host has, by type, name and
-	// value, is the same resource record, whatever its TTL.
+	// value, is the same resource record, whatever its TTL. Hosts
+	// Namecheap holds more than once already are not the Changeset's
+	// doing: only a record it leaves more often than it was read is.
+	count := func(hs []*sendHost) map[string]int {
+		n := map[string]int{}
+		for _, h := range hs {
+			if h != nil {
+				n[h.key(cs.Zone.Name)]++
+			}
+		}
+
+		return n
+	}
+
+	before := make([]*sendHost, 0, len(read))
+	after := make([]*sendHost, 0, len(slots))
+
+	for _, s := range slots {
+		if s.read != nil {
+			h := asRead(*s.read)
+			before = append(before, &h)
+		}
+
+		after = append(after, s.send)
+	}
+
+	held, left, sends := count(before), count(after), count(sent)
+
 	for _, h := range sent {
 		if h == nil {
 			continue
 		}
 
-		r := h.read(cs.Zone.Name)
-
-		if slices.ContainsFunc(slots, func(s slot) bool {
-			if s.send == nil || s.send == h {
-				return false
-			}
-
-			o := s.send.read(cs.Zone.Name)
-
-			return strings.EqualFold(o.Type, r.Type) && strings.EqualFold(o.Name, r.Name) && o.Value == r.Value
-		}) {
-			return nil, nil, fmt.Errorf("namecheap: nothing was applied: %s %s %s is at Namecheap already (%w)", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
+		k := h.key(cs.Zone.Name)
+		if left[k] <= 1 || left[k] <= held[k] {
+			continue
 		}
+
+		r := h.read(cs.Zone.Name)
+		if sends[k] > 1 {
+			return nil, nil, fmt.Errorf("namecheap: nothing was applied: the Changeset sends %s %s %s more than once (%w)", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
+		}
+
+		return nil, nil, fmt.Errorf("namecheap: nothing was applied: %s %s %s is at Namecheap already (%w)", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
 	}
 
 	hosts = make([]sendHost, 0, len(slots))
@@ -233,6 +259,14 @@ func (h sendHost) read(zone string) dnsprovider.Record {
 	pref, _ := strconv.ParseUint(h.MXPref, 10, 16)
 
 	return toRecord(zone, wireHost{Name: h.Name, Type: h.Type, Address: h.Address, MXPref: uint32(pref), TTL: h.TTL})
+}
+
+// key tells a host apart from another resource record: its type, name
+// and value as Records reads it back, the type and name ignoring case.
+func (h sendHost) key(zone string) string {
+	r := h.read(zone)
+
+	return strings.ToUpper(r.Type) + "|" + strings.ToLower(r.Name) + "|" + r.Value
 }
 
 // asRead is a host getHosts answered, to send back exactly as read.

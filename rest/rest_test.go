@@ -291,3 +291,17 @@ func TestARetryIsLogged(t *testing.T) {
 		t.Errorf("logs = %q, want the retry of /things", logs.String())
 	}
 }
+
+func TestRetryAfterMayBeAnHTTPDate(t *testing.T) {
+	c := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Retry-After", time.Now().Add(2*time.Minute).UTC().Format(http.TimeFormat))
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+
+	err := c.Do(context.Background(), http.MethodPost, "/things", nil, nil, nil)
+
+	var apiErr *dnsprovider.APIError
+	if !errors.As(err, &apiErr) || apiErr.RetryAfter < 118*time.Second || apiErr.RetryAfter > 2*time.Minute {
+		t.Errorf("err = %v, want RetryAfter about 2m0s", err)
+	}
+}

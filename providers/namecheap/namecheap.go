@@ -1,5 +1,6 @@
 // Package namecheap is the Namecheap Provider, on the Namecheap XML API
-// over plain net/http: Namecheap has no Go SDK of its own.
+// over the shared rest client's transport: Namecheap has no Go SDK of its
+// own.
 package namecheap
 
 import (
@@ -7,7 +8,6 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"maps"
 	"net/http"
@@ -18,9 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
 	"github.com/dnsgateway/dnsprovider/internal/names"
+	"github.com/dnsgateway/dnsprovider/rest"
 )
 
 // DefaultBaseURL is the Namecheap production API endpoint. The sandbox is
@@ -106,9 +109,13 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 			"ClientIp": {cfg.ClientIP},
 		},
 		client: client,
+		limit:  rest.PerMinute(RequestsPerMinute),
 		log:    o.Logger,
 	}, nil
 }
+
+// RequestsPerMinute is Namecheap's published rate limit for an Account.
+const RequestsPerMinute = 20
 
 // Provider is one Namecheap Account.
 type Provider struct {
@@ -116,7 +123,23 @@ type Provider struct {
 	// auth are the parameters every request carries.
 	auth   url.Values
 	client *http.Client
+	limit  *rate.Limiter
 	log    *slog.Logger
+}
+
+// api is the Account's rest.Client. It is built per call so a Provider
+// holds plain values alone, and two built alike are equal. A non-2xx
+// answer is an error page, not XML: rest's own APIError, with the status
+// alone, reports it.
+func (p *Provider) api() *rest.Client {
+	return &rest.Client{
+		Provider: "namecheap",
+		BaseURL:  p.baseURL,
+		HTTP:     p.client,
+		Limit:    p.limit,
+		MaxBody:  maxResponseBytes,
+		Log:      p.log,
+	}
 }
 
 var (
@@ -320,9 +343,9 @@ type wireError struct {
 	Text   string `xml:",chardata"`
 }
 
-// call sends a command with its parameters and the Account's, and decodes
-// its CommandResponse. The parameters go in a POST form, so the API key
-// stays out of URLs and the errors that quote them.
+// call sends a command with its parameters and the Account's through
+// rest, and decodes its CommandResponse. The parameters go in a POST form,
+// so the API key stays out of URLs and the errors that quote them.
 func call[T any](ctx context.Context, p *Provider, command string, params url.Values) (T, error) {
 	var zero T
 
@@ -330,32 +353,11 @@ func call[T any](ctx context.Context, p *Provider, command string, params url.Va
 	maps.Copy(form, p.auth)
 	maps.Copy(form, params)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, p.baseURL, strings.NewReader(form.Encode()))
-	if err != nil {
-		return zero, fmt.Errorf("namecheap: %w", err)
-	}
-
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	res, err := p.client.Do(req)
-	if err != nil {
-		return zero, fmt.Errorf("namecheap: %w", err)
-	}
-	defer func() { _ = res.Body.Close() }()
-
-	// A non-2xx answer is an error page, not XML: its body is not read.
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return zero, &dnsprovider.APIError{Provider: "namecheap", StatusCode: res.StatusCode}
-	}
-
-	// One byte past the limit tells a cut-off answer from one that fits.
-	data, err := io.ReadAll(io.LimitReader(res.Body, maxResponseBytes+1))
-	if err != nil {
-		return zero, fmt.Errorf("namecheap: %w", err)
-	}
-
-	if len(data) > maxResponseBytes {
-		return zero, fmt.Errorf("namecheap: the %s answer is over %d bytes", command, maxResponseBytes)
+	// Every command is a POST, so none is tried again: rest retries only
+	// GET, PUT and DELETE.
+	var data []byte
+	if err := p.api().Do(ctx, http.MethodPost, "", nil, form, &data); err != nil {
+		return zero, err
 	}
 
 	var body apiResponse[T]

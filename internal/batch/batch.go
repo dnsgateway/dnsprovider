@@ -5,6 +5,7 @@ package batch
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/dnsgateway/dnsprovider"
 )
@@ -27,11 +28,16 @@ func Delete(ctx context.Context, b dnsprovider.Batcher, zone dnsprovider.Zone, r
 }
 
 // one applies a one-change Changeset and returns its Record, or the
-// Changeset's error or the change's own.
+// Changeset's error or the change's own; an error when the Batcher does
+// not answer with exactly one result.
 func one(ctx context.Context, b dnsprovider.Batcher, zone dnsprovider.Zone, c dnsprovider.Change) (dnsprovider.Record, error) {
 	res, err := b.ApplyChangeset(ctx, dnsprovider.Changeset{Zone: zone, Changes: []dnsprovider.Change{c}})
 	if err != nil {
 		return dnsprovider.Record{}, err
+	}
+
+	if len(res.Results) != 1 {
+		return dnsprovider.Record{}, fmt.Errorf("a one-change Changeset came back with %d results", len(res.Results))
 	}
 
 	r := res.Results[0]

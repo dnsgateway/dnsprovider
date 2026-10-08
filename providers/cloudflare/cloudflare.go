@@ -15,9 +15,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cloudflare/cloudflare-go/v7/accounts"
 	cfdns "github.com/cloudflare/cloudflare-go/v7/dns"
 	"github.com/cloudflare/cloudflare-go/v7/option"
 	"github.com/cloudflare/cloudflare-go/v7/packages/pagination"
+	"github.com/cloudflare/cloudflare-go/v7/user"
 	"github.com/cloudflare/cloudflare-go/v7/zones"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -124,6 +126,8 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 	return &Provider{
 		tenantID: cfg.TenantID,
 		log:      o.Logger,
+		tokens:   user.NewTokenService(ropts...),
+		accounts: accounts.NewAccountService(ropts...),
 		zones:    zones.NewZoneService(ropts...),
 		settings: zones.NewSettingService(ropts...),
 		records:  cfdns.NewRecordService(ropts...),
@@ -137,6 +141,8 @@ type Provider struct {
 	// until a Tenant is picked.
 	tenantID string
 	log      *slog.Logger
+	tokens   *user.TokenService
+	accounts *accounts.AccountService
 	zones    *zones.ZoneService
 	settings *zones.SettingService
 	records  *cfdns.RecordService
@@ -666,6 +672,41 @@ func settingError(err error, res *http.Response) (dnsprovider.Setting, error) {
 	}
 
 	return dnsprovider.Unknown, apiError(err, res)
+}
+
+// Account implements dnsprovider.Provider. It verifies the API token and,
+// once a Tenant is set, reads the Tenant's name, which also checks the
+// token reaches it. Cloudflare assigns nameservers per Zone, so the
+// Account expects none of its own.
+func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error) {
+	var raw *http.Response
+
+	tok, err := p.tokens.Verify(ctx, option.WithResponseInto(&raw))
+	if err != nil {
+		return dnsprovider.AccountInfo{}, apiError(err, raw)
+	}
+
+	if tok.Status != user.TokenVerifyResponseStatusActive {
+		return dnsprovider.AccountInfo{}, &dnsprovider.APIError{
+			Provider: "cloudflare",
+			Messages: []string{fmt.Sprintf("the API token is %s", tok.Status)},
+			Kind:     dnsprovider.ErrUnauthorized,
+		}
+	}
+
+	if p.tenantID == "" {
+		return dnsprovider.AccountInfo{}, nil
+	}
+
+	var params accounts.AccountGetParams
+	params.AccountID.Value, params.AccountID.Present = p.tenantID, true
+
+	acc, err := p.accounts.Get(ctx, params, option.WithResponseInto(&raw))
+	if err != nil {
+		return dnsprovider.AccountInfo{}, apiError(err, raw)
+	}
+
+	return dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{ID: acc.ID, Name: acc.Name}}, nil
 }
 
 // Nameservers implements dnsprovider.Provider. Cloudflare assigns nameservers

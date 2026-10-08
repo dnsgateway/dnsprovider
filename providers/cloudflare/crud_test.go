@@ -250,3 +250,39 @@ func TestDeleteRecordWhoseRetryFindsTheZoneGoneFails(t *testing.T) {
 		t.Errorf("got %d DELETEs, want 2: a delete is retried", deletes)
 	}
 }
+
+func TestAWriteCloudflareTookWithoutAReadableRecordSucceedsWithTheRecordAsSent(t *testing.T) {
+	// The success answer is authoritative (ADR-0001): Cloudflare stored the
+	// Record, so the write succeeds even when the answer does not say how.
+	// The Record comes back as sent, with the ID the write knows: none for
+	// a create, which a later read of the Zone fills in.
+	for name, result := range map[string]any{"null": nil, "undecodable": "not a record"} {
+		t.Run(name, func(t *testing.T) {
+			api := &cfAPI{fail: func(w http.ResponseWriter, _ *http.Request) {
+				writeJSON(w, http.StatusOK, map[string]any{"success": true, "errors": []any{}, "messages": []any{}, "result": result})
+			}}
+			p := newProvider(t, api)
+
+			sent := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300, Extras: map[string]string{cloudflare.ExtraProxied: "true"}}
+
+			got, err := p.CreateRecord(context.Background(), crudZone, sent)
+			if err != nil {
+				t.Fatalf("CreateRecord: %v, want the write Cloudflare took to succeed", err)
+			}
+
+			assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{sent})
+
+			before := sent
+			before.ID = "r1"
+			after := before
+			after.Value = "192.0.2.2"
+
+			got, err = p.UpdateRecord(context.Background(), crudZone, before, after)
+			if err != nil {
+				t.Fatalf("UpdateRecord: %v, want the write Cloudflare took to succeed", err)
+			}
+
+			assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{after})
+		})
+	}
+}

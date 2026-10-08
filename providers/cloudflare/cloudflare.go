@@ -499,11 +499,16 @@ func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 	var params cfdns.RecordNewParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	return p.write(ctx, body, func(opts ...option.RequestOption) error {
+	result, err := p.write(ctx, body, func(opts ...option.RequestOption) error {
 		_, err := p.records.New(ctx, params, append(opts, option.WithMaxRetries(0))...)
 
 		return err
 	})
+	if err != nil {
+		return dnsprovider.Record{}, err
+	}
+
+	return storedRecord(result, r), nil
 }
 
 // UpdateRecord implements dnsprovider.Provider: a PATCH of before, found
@@ -531,11 +536,19 @@ func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, befo
 	var params cfdns.RecordEditParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	return p.write(ctx, body, func(opts ...option.RequestOption) error {
+	result, err := p.write(ctx, body, func(opts ...option.RequestOption) error {
 		_, err := p.records.Edit(ctx, before.ID, params, opts...)
 
 		return err
 	})
+	if err != nil {
+		return dnsprovider.Record{}, err
+	}
+
+	sent := after
+	sent.ID = before.ID
+
+	return storedRecord(result, sent), nil
 }
 
 // DeleteRecord implements dnsprovider.Provider: a DELETE of the Record by
@@ -581,9 +594,9 @@ func noID(r dnsprovider.Record) error {
 }
 
 // write makes one record write, sending body when it is set, and returns
-// the Record as Cloudflare stored it; an empty Record when the answer
-// holds none, as a delete's does.
-func (p *Provider) write(ctx context.Context, body []byte, call func(...option.RequestOption) error) (dnsprovider.Record, error) {
+// the answer's result: the record as Cloudflare stored it, for a create
+// or an update; the caller decodes it with storedRecord.
+func (p *Provider) write(ctx context.Context, body []byte, call func(...option.RequestOption) error) (json.RawMessage, error) {
 	var (
 		env  envelope
 		raw  *http.Response
@@ -595,7 +608,7 @@ func (p *Provider) write(ctx context.Context, body []byte, call func(...option.R
 	}
 
 	if err := call(opts...); err != nil {
-		return dnsprovider.Record{}, apiError(err, raw)
+		return nil, apiError(err, raw)
 	}
 
 	// Any 2xx is an answer; Cloudflare says in the body when it did not
@@ -604,14 +617,25 @@ func (p *Provider) write(ctx context.Context, body []byte, call func(...option.R
 		e := &dnsprovider.APIError{Provider: "cloudflare", StatusCode: raw.StatusCode}
 		addErrors(e, env.Errors)
 
-		return dnsprovider.Record{}, e
+		return nil, e
 	}
 
-	if body == nil {
-		return dnsprovider.Record{}, nil
+	return env.Result, nil
+}
+
+// storedRecord is the Record a create or update answered with, as
+// Cloudflare stored it. Cloudflare took the write, and its success answer
+// is authoritative (ADR-0001), so an answer without a Record it can read
+// does not fail the write: it is the Record as sent, with the ID the
+// write knows, none for a create, which the next read of the Zone fills
+// in.
+func storedRecord(result json.RawMessage, sent dnsprovider.Record) dnsprovider.Record {
+	rec, err := decodeRecord(result)
+	if err != nil || rec.ID == "" {
+		return sent
 	}
 
-	return decodeRecord(env.Result)
+	return rec
 }
 
 // encodeBody is the JSON body that creates r, or updates a record to it.

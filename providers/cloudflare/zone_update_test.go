@@ -200,3 +200,48 @@ func TestUpdateZoneThatCloudflareDoesNotMarkAsSuccessFails(t *testing.T) {
 		t.Errorf("UpdateZone error = %v, want an APIError", err)
 	}
 }
+
+func TestUpdateZoneThatFailsAfterASettingIsWrittenReturnsThatSettingWithTheError(t *testing.T) {
+	api := &cfAPI{
+		dnssec: map[string]string{"z1": "disabled"},
+		hsts:   map[string]bool{"z1": false},
+		intercept: func(w http.ResponseWriter, r *http.Request) bool {
+			if r.Method != http.MethodPatch || r.URL.Path != "/client/v4/zones/z1/settings/security_header" {
+				return false
+			}
+
+			writeErrors(w, http.StatusForbidden, 9109, "Unauthorized to access requested resource")
+
+			return true
+		},
+	}
+	on := true
+
+	got, err := updateZone(t, newProvider(t, api), dnsprovider.ZoneUpdate{DNSSEC: &on, HSTS: &on})
+	if !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		t.Fatalf("UpdateZone error = %v, want ErrUnauthorized", err)
+	}
+
+	// DNSSEC was written, as Cloudflare answered; HSTS was not.
+	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Pending, HSTS: dnsprovider.Unknown}); got != want {
+		t.Errorf("UpdateZone = %+v, want %+v", got, want)
+	}
+}
+
+func TestUpdateZoneThatFailsBeforeWritingReturnsEverySettingUnknown(t *testing.T) {
+	api := &cfAPI{
+		dnssec:    map[string]string{"z1": "disabled"},
+		hsts:      map[string]bool{"z1": true},
+		forbidden: []string{"/client/v4/zones/z1/dnssec"},
+	}
+	on := true
+
+	got, err := updateZone(t, newProvider(t, api), dnsprovider.ZoneUpdate{DNSSEC: &on})
+	if !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		t.Fatalf("UpdateZone error = %v, want ErrUnauthorized", err)
+	}
+
+	if got != (dnsprovider.ZoneStatus{}) {
+		t.Errorf("UpdateZone = %+v, want every setting Unknown", got)
+	}
+}

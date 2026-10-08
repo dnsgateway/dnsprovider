@@ -923,8 +923,10 @@ func (p *Provider) hstsStatus(ctx context.Context, zone dnsprovider.Zone) (dnspr
 
 // UpdateZone implements dnsprovider.ZoneUpdater: a PATCH of each setting
 // u sets, DNSSEC first, and a read of each it leaves nil. A setting left
-// nil that fails to read, or that the API token may not read, is unknown;
-// a write that fails is the error.
+// nil that fails to read, or that the API token may not read, is Unknown.
+// A write that fails is the error, returned with the Zone Status as far
+// as it is known: DNSSEC as written or read before HSTS failed, and the
+// setting that failed, or every setting when DNSSEC failed, Unknown.
 func (p *Provider) UpdateZone(ctx context.Context, zone dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
 	if u.DNSSEC == nil && u.HSTS == nil {
 		return p.ZoneStatus(ctx, zone)
@@ -937,7 +939,7 @@ func (p *Provider) UpdateZone(ctx context.Context, zone dnsprovider.Zone, u dnsp
 
 	if u.DNSSEC != nil {
 		if status.DNSSEC, err = p.setDNSSEC(ctx, zone, *u.DNSSEC); err != nil {
-			return dnsprovider.ZoneStatus{}, err
+			return dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Unknown, HSTS: dnsprovider.Unknown}, err
 		}
 	} else {
 		status.DNSSEC, _ = p.dnssecStatus(ctx, zone)
@@ -945,7 +947,8 @@ func (p *Provider) UpdateZone(ctx context.Context, zone dnsprovider.Zone, u dnsp
 
 	if u.HSTS != nil {
 		if status.HSTS, err = p.setHSTS(ctx, zone, *u.HSTS); err != nil {
-			return dnsprovider.ZoneStatus{}, err
+			// DNSSEC, written or read before, stays as it is known.
+			return dnsprovider.ZoneStatus{DNSSEC: status.DNSSEC, HSTS: dnsprovider.Unknown}, err
 		}
 	} else {
 		status.HSTS, _ = p.hstsStatus(ctx, zone)

@@ -63,8 +63,12 @@ func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error
 // such as Cloudflare. It is a Zone write: a consumer asks the user first.
 type ZoneUpdater interface {
 	// UpdateZone changes the settings u sets, leaving those it leaves nil
-	// as they are, and returns the Zone Status as it is after the change.
-	// A setting written before one fails stays written.
+	// as they are, and returns the Zone Status as it is after the change:
+	// each setting written as the Provider answered, and each other one
+	// as read, Unknown when it could not be. A setting written before
+	// one fails stays written: the error comes with the Zone Status as
+	// far as it is known, the settings written as answered and the rest
+	// as read or Unknown.
 	UpdateZone(ctx context.Context, zone Zone, u ZoneUpdate) (ZoneStatus, error)
 }
 

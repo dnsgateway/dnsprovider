@@ -59,6 +59,27 @@ func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error
 	return ZoneStatus{DNSSEC: Unknown, HSTS: Unknown}, nil
 }
 
+// ZoneCreator is implemented by a Provider that can Onboard a zone name,
+// such as Cloudflare ("add a site"). It starts DNS hosting only; it never
+// registers the domain. It is a Zone write: a consumer asks the user
+// first.
+type ZoneCreator interface {
+	// CreateZone Onboards a zone name in the Provider's Tenant and returns
+	// the new Zone as Zones reports it: normally Pending, with the
+	// nameservers Delegation must name before the Provider serves it.
+	// ErrConflict when the Tenant already has a Zone of that name, or the
+	// Provider will not host it beside another account's; ErrNoTenant
+	// when the Provider has no Tenant to Onboard it in.
+	CreateZone(ctx context.Context, name string) (Zone, error)
+}
+
+// CanCreateZone reports whether a Provider implements ZoneCreator.
+func CanCreateZone(p Provider) bool {
+	_, ok := p.(ZoneCreator)
+
+	return ok
+}
+
 // ZoneUpdater is implemented by a Provider that changes Zone settings,
 // such as Cloudflare. It is a Zone write: a consumer asks the user first.
 type ZoneUpdater interface {

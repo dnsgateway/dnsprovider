@@ -89,3 +89,20 @@ func TestCanUpdateZoneOnlyForAZoneUpdater(t *testing.T) {
 		t.Error("a ZoneUpdater does not update Zones")
 	}
 }
+
+// zoneCreator is a Provider that Onboards zone names.
+type zoneCreator struct{ oneTenant }
+
+func (zoneCreator) CreateZone(context.Context, string) (dnsprovider.Zone, error) {
+	return dnsprovider.Zone{}, nil
+}
+
+func TestCanCreateZoneOnlyForAZoneCreator(t *testing.T) {
+	if dnsprovider.CanCreateZone(oneTenant{}) {
+		t.Error("a Provider without a ZoneCreator creates Zones")
+	}
+
+	if !dnsprovider.CanCreateZone(zoneCreator{}) {
+		t.Error("a ZoneCreator does not create Zones")
+	}
+}

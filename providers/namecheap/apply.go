@@ -29,15 +29,16 @@ type sendHost struct {
 	TTL    uint32
 }
 
-// ApplyChangeset implements dnsprovider.Batcher. setHosts replaces a domain's whole
-// host list, so Apply reads the list and the EmailType with getHosts, makes
-// the Changeset's changes to it, and sends the result in one call.
+// ApplyChangeset implements dnsprovider.Batcher. setHosts replaces a
+// domain's whole host list, so it reads the list and the EmailType with
+// getHosts, makes the Changeset's changes to it, and sends the result in
+// one call.
 //
 // The Changeset succeeds or fails as a whole. When it fails, nothing was
 // applied (or, when the write's answer was lost, Namecheap may have taken
-// it), so Apply returns an error of its own rather than per-change errors.
-// On success, each added or modified Record is returned as Records reads
-// it back, with its content ID, so a consumer need not read the Zone again.
+// it), so it returns an error of its own rather than per-change errors. On
+// success, each added or modified Record is returned as Records reads it
+// back, with its content ID, so a consumer need not read the Zone again.
 func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 	for i, c := range cs.Changes {

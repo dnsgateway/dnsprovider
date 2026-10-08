@@ -481,10 +481,11 @@ func decodeRecord(data []byte) (dnsprovider.Record, error) {
 	return rec, nil
 }
 
-// ApplyChangeset implements dnsprovider.Batcher. Each change is its own API call,
-// made one at a time: deletions first, then modifications, then additions,
-// so a Record that takes the place of another does not collide with it. A
-// failed change does not stop the others. The results are in Changeset
+// ApplyChangeset implements dnsprovider.Batcher, until the CRUD methods
+// take its place. Each change is its own API call, made one at a time:
+// deletions first, then modifications, then additions, so a Record that
+// takes the place of another does not collide with it. A failed change
+// does not stop the others. The results are in Changeset
 // order, and carry no serial: Cloudflare's API does not report it.
 func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	if err := p.needTenant(); err != nil {
@@ -952,17 +953,20 @@ func (p *Provider) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 	return out, nil
 }
 
-// CreateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+// CreateRecord implements dnsprovider.Provider; not yet:
+// ErrNotImplemented, and dnsprovider.Apply goes through ApplyChangeset.
 func (p *Provider) CreateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) (dnsprovider.Record, error) {
-	return dnsprovider.Record{}, fmt.Errorf("%s: CreateRecord: %w", "cloudflare", dnsprovider.ErrNotImplemented)
+	return dnsprovider.Record{}, fmt.Errorf("cloudflare: CreateRecord: %w", dnsprovider.ErrNotImplemented)
 }
 
-// UpdateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+// UpdateRecord implements dnsprovider.Provider; not yet:
+// ErrNotImplemented, and dnsprovider.Apply goes through ApplyChangeset.
 func (p *Provider) UpdateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record, dnsprovider.Record) (dnsprovider.Record, error) {
-	return dnsprovider.Record{}, fmt.Errorf("%s: UpdateRecord: %w", "cloudflare", dnsprovider.ErrNotImplemented)
+	return dnsprovider.Record{}, fmt.Errorf("cloudflare: UpdateRecord: %w", dnsprovider.ErrNotImplemented)
 }
 
-// DeleteRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+// DeleteRecord implements dnsprovider.Provider; not yet:
+// ErrNotImplemented, and dnsprovider.Apply goes through ApplyChangeset.
 func (p *Provider) DeleteRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) error {
-	return fmt.Errorf("%s: DeleteRecord: %w", "cloudflare", dnsprovider.ErrNotImplemented)
+	return fmt.Errorf("cloudflare: DeleteRecord: %w", dnsprovider.ErrNotImplemented)
 }

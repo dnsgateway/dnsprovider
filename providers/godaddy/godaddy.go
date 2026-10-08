@@ -467,14 +467,15 @@ type rrGroup struct {
 	ops []rrOp
 }
 
-// ApplyChangeset implements dnsprovider.Batcher. GoDaddy has no record IDs, so each
-// RRset a Changeset touches is one call: it is read, has the changes made
-// to it, and is replaced, or deleted when they leave it empty. RRsets left
-// with only deletions go first, so a Record that takes the place of
-// another does not collide with it. Every change of an RRset shares the
-// result of its call; a failed RRset does not stop the others. A
-// modification that moves a Record between RRsets and is made in only
-// one of them is undone. The results are in Changeset order, with no serial.
+// ApplyChangeset implements dnsprovider.Batcher. GoDaddy has no record
+// IDs, so each RRset a Changeset touches is one call: it is read, has the
+// changes made to it, and is replaced, or deleted when they leave it
+// empty. RRsets left with only deletions go first, so a Record that takes
+// the place of another does not collide with it. Every change of an RRset
+// shares the result of its call; a failed RRset does not stop the others.
+// A modification that moves a Record between RRsets and is made in only
+// one of them is undone. The results are in Changeset order, with no
+// serial.
 func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 

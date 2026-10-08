@@ -148,13 +148,15 @@ func (p *Provider) SetAutoTTL(on bool) {
 
 // The fake implements the optional interfaces whose absence the
 // dnsprovider helpers read as their unscripted answer, such as
-// TTLRangeOf's DefaultTTLRange. Only one whose absence a CanX helper
+// TTLRangeOf's DefaultTTLRange or ZoneStatusOf's Unknown settings. Only one whose absence a CanX helper
 // reports, such as TenantLister, needs a wrapper type, built when
 // scripted; see build.
 var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
 	_ dnsprovider.ProxyFlag = (*Provider)(nil)
+
+	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
 )
 
 // TTLRange implements dnsprovider.TTLLimits; the default range when not
@@ -431,7 +433,9 @@ func (p *Provider) applyChange(records []dnsprovider.Record, c dnsprovider.Chang
 	return records, r, nil
 }
 
-// ZoneStatus implements dnsprovider.Provider.
+// ZoneStatus implements dnsprovider.ZoneStatusReader: the scripted Zone
+// Status, every setting Unknown when not scripted, as ZoneStatusOf
+// reports for a Provider without a reader.
 func (p *Provider) ZoneStatus(_ context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
 	if err := p.record(Call{Op: OpZoneStatus, Zone: z}); err != nil {
 		return dnsprovider.ZoneStatus{}, err

@@ -653,12 +653,6 @@ func splitSRVName(name string) (service, protocol, host string) {
 	return labels[0], labels[1], host
 }
 
-// ZoneStatus implements dnsprovider.Provider. The v1 API reports neither
-// DNSSEC nor HSTS, so both are unknown.
-func (p *Provider) ZoneStatus(context.Context, dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Unknown, HSTS: dnsprovider.Unknown}, nil
-}
-
 // Account implements dnsprovider.Provider. GoDaddy has no account
 // endpoint, so it reads the ACTIVE domains, which checks the key and
 // secret even when the Account has none. GoDaddy assigns each Account its

@@ -13,8 +13,25 @@ type Provider interface {
 	Records(ctx context.Context, zone Zone) (RecordSet, error)
 	// Apply applies a Changeset and reports the result of each change.
 	Apply(ctx context.Context, cs Changeset) (ApplyResult, error)
-	// ZoneStatus reads the Provider-side Zone Status.
+}
+
+// ZoneStatusReader is implemented by a Provider that reads the
+// Provider-side Zone Status, such as Cloudflare. A Provider without it has
+// every setting Unknown.
+type ZoneStatusReader interface {
+	// ZoneStatus reads a Zone's Zone Status.
 	ZoneStatus(ctx context.Context, zone Zone) (ZoneStatus, error)
+}
+
+// ZoneStatusOf reads a Zone's Zone Status through the Provider's
+// ZoneStatusReader, without a call when it has none: then every setting
+// is Unknown.
+func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error) {
+	if r, ok := p.(ZoneStatusReader); ok {
+		return r.ZoneStatus(ctx, zone)
+	}
+
+	return ZoneStatus{DNSSEC: Unknown, HSTS: Unknown}, nil
 }
 
 // TenantLister is implemented by a Provider whose credentials can reach

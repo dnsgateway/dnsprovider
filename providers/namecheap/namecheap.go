@@ -302,13 +302,6 @@ func splitDomain(domain string) (sld, tld string) {
 	return sld, tld
 }
 
-// ZoneStatus implements dnsprovider.Provider. getHosts reports neither
-// DNSSEC nor HSTS, and DNSSEC is a registrar setting (ADR-0004), so both
-// are unknown.
-func (p *Provider) ZoneStatus(context.Context, dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Unknown, HSTS: dnsprovider.Unknown}, nil
-}
-
 // basicDNS are Namecheap's BasicDNS nameservers, the same for every Account.
 func basicDNS() []string {
 	return []string{"dns1.registrar-servers.com", "dns2.registrar-servers.com"}

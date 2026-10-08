@@ -750,7 +750,12 @@ func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
 func TestZoneStatusIsUnknownWithoutAsking(t *testing.T) {
 	api := &ncAPI{}
 
-	status, err := newProvider(t, api).ZoneStatus(context.Background(), example)
+	p := newProvider(t, api)
+	if _, ok := p.(dnsprovider.ZoneStatusReader); ok {
+		t.Error("the Provider reads Zone Status it cannot know")
+	}
+
+	status, err := dnsprovider.ZoneStatusOf(context.Background(), p, example)
 	if err != nil {
 		t.Fatalf("ZoneStatus: %v", err)
 	}

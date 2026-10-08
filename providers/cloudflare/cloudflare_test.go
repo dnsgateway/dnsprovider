@@ -855,7 +855,7 @@ func TestZoneStatusReadsDNSSECAndHSTSFromTheZoneSettings(t *testing.T) {
 			api := &cfAPI{dnssec: map[string]string{"z1": tt.dnssec}, hsts: map[string]bool{"z1": tt.hsts}}
 			p := newProvider(t, api)
 
-			got, err := p.ZoneStatus(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			got, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
 			if err != nil {
 				t.Fatalf("ZoneStatus: %v", err)
 			}
@@ -893,7 +893,7 @@ func TestZoneStatusSettingsTheTokenMayNotReadAreUnknown(t *testing.T) {
 			}
 			p := newProvider(t, api)
 
-			got, err := p.ZoneStatus(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			got, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
 			if err != nil {
 				t.Fatalf("ZoneStatus: %v", err)
 			}
@@ -935,7 +935,7 @@ func TestZoneStatusReadsDNSSECAndHSTSConcurrently(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	got, err := p.ZoneStatus(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	got, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
 	if err != nil {
 		t.Fatalf("ZoneStatus: %v", err)
 	}
@@ -976,7 +976,7 @@ func TestAZoneStatusSettingThatFailsToReadIsUnknownOnItsOwn(t *testing.T) {
 				t.Fatalf("New: %v", err)
 			}
 
-			got, err := p.ZoneStatus(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			got, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
 			if err != nil {
 				t.Fatalf("ZoneStatus: %v, want the other setting read", err)
 			}
@@ -995,7 +995,7 @@ func TestZoneStatusErrorsOtherThanAMissingPermissionAreTypedErrors(t *testing.T)
 	}}
 	p := newProvider(t, api)
 
-	_, err := p.ZoneStatus(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	_, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
 
 	if !errors.Is(err, dnsprovider.ErrRateLimited) {
 		t.Fatalf("err = %v, want dnsprovider.ErrRateLimited", err)
@@ -1367,5 +1367,11 @@ func TestCloudflareProxiesAAAAAAndCNAMERecords(t *testing.T) {
 
 	if got, want := dnsprovider.ProxiableTypesOf(p), []string{"A", "AAAA", "CNAME"}; !slices.Equal(got, want) {
 		t.Fatalf("proxiable types = %v, want %v", got, want)
+	}
+}
+
+func TestCloudflareReadsZoneStatus(t *testing.T) {
+	if _, ok := newProvider(t, &cfAPI{}).(dnsprovider.ZoneStatusReader); !ok {
+		t.Error("Cloudflare is not a ZoneStatusReader")
 	}
 }

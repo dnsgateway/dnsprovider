@@ -187,7 +187,8 @@ var (
 	_ dnsprovider.ProxyFlag = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
 
-	_ dnsprovider.TenantLister = (*Provider)(nil)
+	_ dnsprovider.TenantLister     = (*Provider)(nil)
+	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
 )
 
 // AutoTTL implements dnsprovider.AutoTTL: Cloudflare reads TTL 1 as automatic.
@@ -626,7 +627,7 @@ func unquote(s string) string {
 	return s
 }
 
-// ZoneStatus implements dnsprovider.Provider. DNSSEC comes from the Zone's
+// ZoneStatus implements dnsprovider.ZoneStatusReader. DNSSEC comes from the Zone's
 // DNSSEC status and HSTS from its security_header setting, read
 // concurrently. A setting the API token lacks the permission to read
 // (HTTP 403), or that fails to read while the other one is read, is

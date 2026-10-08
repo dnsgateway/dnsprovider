@@ -34,7 +34,7 @@ func TestReaddedZoneStartsClean(t *testing.T) {
 		t.Errorf("serial = %d after re-adding the Zone, want 0", rs.Serial)
 	}
 
-	st, err := p.ZoneStatus(ctx, z)
+	st, err := dnsprovider.ZoneStatusOf(ctx, p, z)
 	if err != nil {
 		t.Fatal(err)
 	}

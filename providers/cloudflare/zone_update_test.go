@@ -245,3 +245,37 @@ func TestUpdateZoneThatFailsBeforeWritingReturnsEverySettingUnknown(t *testing.T
 		t.Errorf("UpdateZone = %+v, want every setting Unknown", got)
 	}
 }
+
+func TestUpdateZoneKeepsTheSecurityHeaderFieldsItDoesNotKnow(t *testing.T) {
+	api := &cfAPI{}
+	api.intercept = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method != http.MethodGet || r.URL.Path != "/client/v4/zones/z1/settings/security_header" {
+			return false
+		}
+
+		writeResult(w, map[string]any{
+			"id": "security_header",
+			"value": map[string]any{
+				"strict_transport_security": map[string]any{"enabled": false, "max_age": 86400, "preload": true, "future_field": "kept"},
+				"future_header":             map[string]any{"enabled": true},
+			},
+			"editable": true,
+		})
+
+		return true
+	}
+	on := true
+
+	if _, err := updateZone(t, newProvider(t, api), dnsprovider.ZoneUpdate{HSTS: &on}); err != nil {
+		t.Fatalf("UpdateZone: %v", err)
+	}
+
+	assertWrites(t, api, []write{{
+		Method: "PATCH",
+		Path:   "/client/v4/zones/z1/settings/security_header",
+		Body: map[string]any{"value": map[string]any{
+			"strict_transport_security": map[string]any{"enabled": true, "max_age": 86400.0, "preload": true, "future_field": "kept"},
+			"future_header":             map[string]any{"enabled": true},
+		}},
+	}})
+}

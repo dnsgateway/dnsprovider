@@ -998,9 +998,10 @@ func (p *Provider) setDNSSEC(ctx context.Context, zone dnsprovider.Zone, on bool
 const hstsMaxAge = 15552000
 
 // setHSTS turns HSTS on or off and returns it as Cloudflare answers.
-// Cloudflare replaces the whole strict_transport_security value, so the
-// one it holds is read first and sent back with enabled changed alone,
-// keeping its max-age, subdomains, preload and nosniff; HSTS turned on
+// Cloudflare replaces the whole security_header value, so the one it
+// holds is read first and sent back with strict_transport_security's
+// enabled changed alone, keeping its max-age, subdomains, preload and
+// nosniff, and any field the adapter does not know; HSTS turned on
 // without a max-age gets hstsMaxAge.
 func (p *Provider) setHSTS(ctx context.Context, zone dnsprovider.Zone, on bool) (dnsprovider.Setting, error) {
 	var get zones.SettingGetParams
@@ -1016,19 +1017,24 @@ func (p *Provider) setHSTS(ctx context.Context, zone dnsprovider.Zone, on bool) 
 	}
 
 	var cur struct {
-		Value struct {
-			StrictTransportSecurity map[string]any `json:"strict_transport_security"`
-		} `json:"value"`
+		Value map[string]any `json:"value"`
 	}
 
 	if err := json.Unmarshal(held, &cur); err != nil {
 		return dnsprovider.Unknown, fmt.Errorf("cloudflare: decode security_header setting: %w", err)
 	}
 
-	sts := cur.Value.StrictTransportSecurity
+	value := cur.Value
+	if value == nil {
+		value = map[string]any{}
+	}
+
+	sts, _ := value["strict_transport_security"].(map[string]any)
 	if sts == nil {
 		sts = map[string]any{}
 	}
+
+	value["strict_transport_security"] = sts
 
 	sts["enabled"] = on
 
@@ -1036,7 +1042,7 @@ func (p *Provider) setHSTS(ctx context.Context, zone dnsprovider.Zone, on bool) 
 		sts["max_age"] = hstsMaxAge
 	}
 
-	body, err := json.Marshal(map[string]any{"value": map[string]any{"strict_transport_security": sts}})
+	body, err := json.Marshal(map[string]any{"value": value})
 	if err != nil {
 		return dnsprovider.Unknown, fmt.Errorf("cloudflare: encode security_header setting: %w", err)
 	}

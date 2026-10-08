@@ -720,7 +720,7 @@ func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rr
 func addTo(records []dnsprovider.Record, ops []rrOp, removed map[int]dnsprovider.Record, failed map[int]error) []dnsprovider.Record {
 	same := func(rs []dnsprovider.Record, rec dnsprovider.Record) bool {
 		return slices.ContainsFunc(rs, func(r dnsprovider.Record) bool {
-			return strings.EqualFold(r.Name, rec.Name) && r.Value == rec.Value
+			return dnsprovider.SameRecord(r, rec)
 		})
 	}
 

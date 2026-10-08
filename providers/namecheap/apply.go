@@ -188,15 +188,15 @@ func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent 
 
 // matches reports whether a host as read is the Record a change was built
 // from: the host whose content is the Record's Provider ID (withID), or,
-// for a Record without one, any host with its type, name and value. A
-// host edited at Namecheap since is not it.
+// for a Record without one, any host that is the same resource record
+// (dnsprovider.SameRecord). A host edited at Namecheap since is not it.
 func matches(zone string, h wireHost, before dnsprovider.Record) bool {
 	r := toRecord(zone, h)
 	if before.ID != "" {
 		return r.ID == before.ID
 	}
 
-	return strings.EqualFold(r.Type, before.Type) && strings.EqualFold(r.Name, before.Name) && r.Value == before.Value
+	return dnsprovider.SameRecord(r, before)
 }
 
 // writeTypes are the Record types Apply adds and modifies. Namecheap-only

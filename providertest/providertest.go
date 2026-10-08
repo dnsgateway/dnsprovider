@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -551,7 +550,7 @@ func (p *Provider) applyChange(records []dnsprovider.Record, c dnsprovider.Chang
 	}
 
 	for j, r := range records {
-		if j != i && identical(r, c.After) {
+		if j != i && dnsprovider.SameRecord(r, c.After) {
 			return records, dnsprovider.Record{}, fmt.Errorf("providertest: %s %s %s: %w", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
 		}
 	}
@@ -569,12 +568,6 @@ func (p *Provider) applyChange(records []dnsprovider.Record, c dnsprovider.Chang
 	records[i] = r
 
 	return records, r, nil
-}
-
-// identical reports whether two Records hold the same type, name and
-// Value, the names ignoring case.
-func identical(a, b dnsprovider.Record) bool {
-	return strings.EqualFold(a.Type, b.Type) && strings.EqualFold(a.Name, b.Name) && a.Value == b.Value
 }
 
 // applyChangeset is the fake's Batcher: it makes each change as the CRUD

@@ -20,8 +20,10 @@ type StaleError struct {
 // Provider since it was read.
 type StaleChange struct {
 	Change Change
-	// Now is the Record with Before's ID as the Provider holds it; empty
-	// when it is gone.
+	// Now is the Record as the Provider holds it now: the one with
+	// Before's ID, or what Before became where the Provider keys Records
+	// by content; empty when it is gone or which it became cannot be
+	// told.
 	Now Record
 }
 
@@ -52,18 +54,21 @@ func describeRecord(r Record) string {
 }
 
 // recheck re-reads the Records a Changeset modifies or deletes and
-// returns a *StaleError when any no longer matches its Before. An
-// addition is built from no Record, so a Changeset of additions alone is
-// not read for; a change of no known kind is left to fail on its own. When every Record re-read has one type, the read is
-// filtered by it.
+// returns a *StaleError when any no longer matches its Before. Every
+// change but an addition is re-checked: a change of no known kind built
+// from a Record too, as it may still be made from it. An addition is
+// built from no Record, so a Changeset of additions alone is not read
+// for. When every Record re-read has one type, the read is filtered by
+// it, and the whole Zone is read again only when that read misses a
+// Before's ID, so the Changeset is stale, for a Record that changed type.
 func recheck(ctx context.Context, p Provider, cs Changeset) error {
 	var (
 		touched []Change
 		f       RecordFilter
 	)
 
-	for i, c := range cs.Changes {
-		if c.Kind != ChangeModify && c.Kind != ChangeDelete {
+	for _, c := range cs.Changes {
+		if !builtFromRecord(c) {
 			continue
 		}
 
@@ -74,7 +79,7 @@ func recheck(ctx context.Context, p Provider, cs Changeset) error {
 			f.Type = ""
 		}
 
-		touched = append(touched, cs.Changes[i])
+		touched = append(touched, c)
 	}
 
 	if len(touched) == 0 {
@@ -87,13 +92,35 @@ func recheck(ctx context.Context, p Provider, cs Changeset) error {
 		return fmt.Errorf("re-check the Records the Changeset was built from: %w", err)
 	}
 
-	stale := staleChanges(touched, live.Records)
+	// A Record whose type changed keeps its ID on some Providers
+	// (Cloudflare), out of the type's read: read the whole Zone for it.
+	if f.Type != "" && slices.ContainsFunc(touched, func(c Change) bool {
+		return c.Before.ID != "" && !slices.ContainsFunc(live.Records, func(r Record) bool { return r.ID == c.Before.ID })
+	}) {
+		if live, err = p.Records(ctx, cs.Zone, RecordFilter{}); err != nil {
+			return fmt.Errorf("re-check the Records the Changeset was built from: %w", err)
+		}
+	}
 
-	if stale != nil {
+	if stale := staleChanges(touched, live.Records); stale != nil {
 		return &StaleError{Changes: stale}
 	}
 
 	return nil
+}
+
+// builtFromRecord reports whether a change was built from a Record read
+// at the Provider: a modification or a deletion, or a change of no known
+// kind that carries a Before.
+func builtFromRecord(c Change) bool {
+	switch c.Kind {
+	case ChangeAdd:
+		return false
+	case ChangeModify, ChangeDelete:
+		return true
+	}
+
+	return c.Before.ID != "" || c.Before.Type != "" || c.Before.Name != ""
 }
 
 // staleChanges are the touched changes whose Before live no longer holds

@@ -469,3 +469,30 @@ func TestApplyNamesWhatAContentKeyedRecordBecameWhenItsIDIsGone(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyNamesARecordWhoseTypeChangedUnderItsID(t *testing.T) {
+	read := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	now := dnsprovider.Record{ID: "r1", Type: "CNAME", Name: "www.example.com", Value: "shop.example.net", TTL: 300}
+	fake := providertest.New().AddZone(applyZone, now)
+
+	got := staleNow(t, fake, dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: read})
+	if len(got) != 1 || got[0].ID != "r1" || got[0].Type != "CNAME" {
+		t.Errorf("Now = %+v, want %+v", got, now)
+	}
+
+	// The read by type misses it; the whole Zone is read for it.
+	if got, want := reads(fake), []dnsprovider.RecordFilter{{Type: "A"}, {}}; !slices.Equal(got, want) {
+		t.Errorf("reads = %+v, want %+v", got, want)
+	}
+}
+
+func TestApplyReChecksAChangeOfNoKnownKindBuiltFromARecord(t *testing.T) {
+	read := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	now := read
+	now.TTL = 600
+
+	got := staleNow(t, providertest.New().AddZone(applyZone, now), dnsprovider.Change{Kind: 99, Before: read, After: read})
+	if len(got) != 1 || got[0].TTL != 600 {
+		t.Errorf("Now = %+v, want %+v", got, now)
+	}
+}

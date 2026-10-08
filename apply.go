@@ -2,6 +2,7 @@ package dnsprovider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 )
@@ -9,9 +10,11 @@ import (
 // Apply applies a Changeset: through the Provider's Batcher when it has
 // one, otherwise one CRUD call per change, deletions first, then
 // modifications, then additions, so a Record that takes another's place
-// does not collide with it. A failed change does not stop the others.
-// The results are in Changeset order; without a Batcher they carry no
-// serial, and the error is always nil.
+// does not collide with it. A failed change does not stop the others,
+// unless it failed with ErrNoTenant: that is the Provider's condition, not
+// the change's, so no other change would succeed, and Apply returns it as
+// the Changeset's error without trying the rest. The results are in
+// Changeset order; without a Batcher they carry no serial.
 func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
 	if b, ok := p.(Batcher); ok {
 		return b.ApplyChangeset(ctx, cs)
@@ -22,6 +25,10 @@ func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
 	for _, i := range ApplyOrder(cs.Changes) {
 		c := cs.Changes[i]
 		rec, err := applyChange(ctx, p, cs.Zone, c)
+		if errors.Is(err, ErrNoTenant) {
+			return ApplyResult{}, err
+		}
+
 		res.Results[i] = ChangeResult{Change: c, Record: rec, Err: err}
 	}
 
@@ -30,8 +37,9 @@ func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
 
 // ApplyOrder is the order Apply makes changes in, as indexes into
 // changes: deletions, then modifications, then additions, each in
-// Changeset order; a change of no known kind goes with the additions. A
-// Batcher that makes one change at a time uses it too.
+// Changeset order; a change of no known kind goes with the additions. It
+// is exported for providertest, whose fake Batcher makes one change at a
+// time in the same order.
 func ApplyOrder(changes []Change) []int {
 	rank := func(k ChangeKind) int {
 		switch k {

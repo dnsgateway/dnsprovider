@@ -3,6 +3,7 @@ package dnsprovider_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"testing"
 
@@ -173,5 +174,22 @@ func TestApplyOrderIsDeletionsThenModificationsThenAdditionsEachInChangesetOrder
 
 	if got, want := dnsprovider.ApplyOrder(changes), []int{2, 4, 1, 5, 0, 3}; !slices.Equal(got, want) {
 		t.Errorf("ApplyOrder = %v, want %v", got, want)
+	}
+}
+
+func TestApplyWithoutABatcherFailsAsAWholeWhenTheProviderHasNoTenant(t *testing.T) {
+	www := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	fake := providertest.New().AddZone(applyZone, www)
+	fake.Fail(providertest.OpDeleteRecord, fmt.Errorf("fake: %w", dnsprovider.ErrNoTenant))
+
+	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "api.example.com", Value: "192.0.2.9", TTL: 300}}
+	del := dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: www}
+
+	if _, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: []dnsprovider.Change{add, del}}); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("Apply: err = %v, want ErrNoTenant for the whole Changeset", err)
+	}
+
+	if got, want := ops(fake), []providertest.Op{providertest.OpDeleteRecord}; !equalOps(got, want) {
+		t.Errorf("calls = %v, want %v: nothing tried after the Provider said it has no Tenant", got, want)
 	}
 }

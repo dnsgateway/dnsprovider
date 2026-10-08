@@ -321,9 +321,8 @@ func TestZoneCallsNeedATenant(t *testing.T) {
 		Kind:  dnsprovider.ChangeAdd,
 		After: dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300},
 	}}}
-	// Apply makes one CRUD call per change, so each change fails on its own.
-	if res, err := dnsprovider.Apply(ctx, p, cs); err != nil || len(res.Results) != 1 || !errors.Is(res.Results[0].Err, dnsprovider.ErrNoTenant) {
-		t.Errorf("Apply: %+v, %v; want the change to fail with ErrNoTenant", res, err)
+	if _, err := dnsprovider.Apply(ctx, p, cs); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("Apply: err = %v, want ErrNoTenant", err)
 	}
 
 	rec := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}

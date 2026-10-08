@@ -42,8 +42,9 @@ const recordsPerPage = 1000
 type Config struct {
 	// Token is a Cloudflare API token. Required.
 	Token string
-	// TenantID is the Cloudflare account the Provider acts within. Empty
-	// until a Tenant is picked.
+	// TenantID is the Cloudflare account the Provider acts within, which
+	// scopes every Zone listing. Empty until a Tenant is picked, when only
+	// Account and Tenants work; see ErrNoTenant.
 	TenantID string
 }
 
@@ -172,7 +173,8 @@ func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 	return 60, 86400
 }
 
-// Zones implements dnsprovider.Provider. Each Zone carries the nameservers
+// Zones implements dnsprovider.Provider: the Zones of the configured
+// Tenant, ErrNoTenant before one is set. Each Zone carries the nameservers
 // Cloudflare assigned to it, which can differ between Zones of one Account.
 func (p *Provider) Zones(ctx context.Context) ([]dnsprovider.Zone, error) {
 	all, err := p.listZones(ctx)
@@ -188,9 +190,18 @@ func (p *Provider) Zones(ctx context.Context) ([]dnsprovider.Zone, error) {
 	return out, nil
 }
 
+// listZones reads every Zone of the Tenant.
 func (p *Provider) listZones(ctx context.Context) ([]zones.Zone, error) {
+	if p.tenantID == "" {
+		return nil, ErrNoTenant
+	}
+
+	var params zones.ZoneListParams
+	params.Account.Value.ID.Value, params.Account.Value.ID.Present = p.tenantID, true
+	params.Account.Present = true
+
 	return listAll(ctx, zonesPerPage, func(opts ...option.RequestOption) (*pagination.V4PagePaginationArray[zones.Zone], error) {
-		return p.zones.List(ctx, zones.ZoneListParams{}, opts...)
+		return p.zones.List(ctx, params, opts...)
 	})
 }
 

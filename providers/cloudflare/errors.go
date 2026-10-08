@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -12,6 +13,10 @@ import (
 
 	"github.com/dnsgateway/dnsprovider"
 )
+
+// ErrNoTenant means a call that is scoped to a Tenant was made before
+// Config.TenantID was set. Tenants lists the ones to pick from.
+var ErrNoTenant = errors.New("cloudflare: no Tenant set; pick one of Tenants")
 
 // reportRateLimits stops cloudflare-go from waiting out a rate limit: its
 // Retry-After can be minutes, so the caller gets dnsprovider.ErrRateLimited

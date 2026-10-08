@@ -175,3 +175,37 @@ func TestTenantsWithABadTokenIsUnauthorized(t *testing.T) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
 	}
 }
+
+func TestZonesAreTheTenantsAlone(t *testing.T) {
+	api := &cfAPI{pageSize: 1, zones: []map[string]any{cfZone("z1", "example.com"), cfZone("z2", "example.net")}}
+
+	var scopes []string
+
+	api.intercept = func(_ http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path == "/client/v4/zones" {
+			scopes = append(scopes, r.URL.Query().Get("account.id"))
+		}
+
+		return false
+	}
+
+	if _, err := newProviderIn(t, api, acme, "acc1").Zones(context.Background()); err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	if want := []string{"acc1", "acc1"}; !reflect.DeepEqual(scopes, want) {
+		t.Errorf("zone lists scoped to account.id %q, want %q", scopes, want)
+	}
+}
+
+func TestZonesNeedATenant(t *testing.T) {
+	api := &cfAPI{zones: []map[string]any{cfZone("z1", "example.com")}}
+
+	if _, err := newProviderIn(t, api, acme, "").Zones(context.Background()); !errors.Is(err, cloudflare.ErrNoTenant) {
+		t.Errorf("err = %v, want ErrNoTenant", err)
+	}
+
+	if got := api.Requests(); len(got) != 0 {
+		t.Errorf("Zones sent %v without a Tenant, want nothing", got)
+	}
+}

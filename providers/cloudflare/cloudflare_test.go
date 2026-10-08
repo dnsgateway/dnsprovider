@@ -93,7 +93,7 @@ func newProvider(t *testing.T, api *cfAPI) dnsprovider.Provider {
 	srv := httptest.NewServer(api.handler(t))
 	t.Cleanup(srv.Close)
 
-	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -942,7 +942,7 @@ func TestZoneStatusReadsDNSSECAndHSTSConcurrently(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -983,7 +983,7 @@ func TestAZoneStatusSettingThatFailsToReadIsUnknownOnItsOwn(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+			p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -1132,7 +1132,7 @@ func TestAStalledConnectionTimesOut(t *testing.T) {
 	t.Cleanup(func() { close(stalled) })
 
 	// The adapter's own client, so its own timeout is what ends the wait.
-	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -1167,7 +1167,7 @@ func TestAConsumersClientKeepsItsOwnTimeouts(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"), dnsprovider.WithHTTPClient(&http.Client{}))
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: "acc1"}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"), dnsprovider.WithHTTPClient(&http.Client{}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

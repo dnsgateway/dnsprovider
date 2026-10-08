@@ -283,3 +283,22 @@ func TestZoneStatusIsReadOnlyOnceScripted(t *testing.T) {
 		t.Error("a fake with scripted Zone Status and Tenants does not do both")
 	}
 }
+
+func TestSetHostingStateHoldsForAZoneAddedLaterUntilItIsRemoved(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingPending}
+
+	fake := providertest.New().SetHostingState("z1", dnsprovider.HostingMoved).AddZone(z)
+	p := newFake(t, fake)
+
+	if got, err := p.Zone(ctx, "example.com"); err != nil || got.State != dnsprovider.HostingMoved {
+		t.Errorf("Zone = %+v, %v; want example.com Moved", got, err)
+	}
+
+	fake.RemoveZone("z1")
+	fake.AddZone(z)
+
+	if got, err := p.Zone(ctx, "example.com"); err != nil || got.State != dnsprovider.HostingPending {
+		t.Errorf("re-added Zone = %+v, %v; want example.com Pending, as added", got, err)
+	}
+}

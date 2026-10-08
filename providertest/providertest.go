@@ -53,6 +53,7 @@ type Provider struct {
 	zones      []dnsprovider.Zone
 	records    map[string][]dnsprovider.Record // by Zone ID
 	serials    map[string]uint32
+	hosting    map[string]dnsprovider.HostingState // by Zone ID, over the State added
 	status     map[string]dnsprovider.ZoneStatus
 	readStatus bool // whether Zone Status is scripted
 	account    dnsprovider.AccountInfo
@@ -73,6 +74,7 @@ func New() *Provider {
 	return &Provider{
 		records: map[string][]dnsprovider.Record{},
 		serials: map[string]uint32{},
+		hosting: map[string]dnsprovider.HostingState{},
 		status:  map[string]dnsprovider.ZoneStatus{},
 		fail:    map[Op]error{},
 	}
@@ -92,17 +94,17 @@ func (p *Provider) AddZone(z dnsprovider.Zone, records ...dnsprovider.Record) *P
 	return p
 }
 
-// SetHostingState changes a scripted Zone's Hosting State, as when
-// Delegation comes to name the Provider's nameservers or leaves them.
-func (p *Provider) SetHostingState(zoneID string, s dnsprovider.HostingState) {
+// SetHostingState scripts a Zone's Hosting State, as when Delegation
+// comes to name the Provider's nameservers or leaves them. Like SetSerial,
+// it holds for a Zone added later with that ID, over the State AddZone
+// was given, until RemoveZone.
+func (p *Provider) SetHostingState(zoneID string, s dnsprovider.HostingState) *Provider {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	for i := range p.zones {
-		if p.zones[i].ID == zoneID {
-			p.zones[i].State = s
-		}
-	}
+	p.hosting[zoneID] = s
+
+	return p
 }
 
 // SetSerial scripts a Zone's SOA serial, which Records reports and each
@@ -117,8 +119,8 @@ func (p *Provider) SetSerial(zoneID string, serial uint32) *Provider {
 }
 
 // RemoveZone drops a scripted Zone, as if it was deleted outside the
-// consumer, with its Records, serial and Zone Status: a Zone added again
-// with the same ID starts clean.
+// consumer, with its Records, serial, Hosting State and Zone Status: a
+// Zone added again with the same ID starts clean.
 func (p *Provider) RemoveZone(zoneID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -126,6 +128,7 @@ func (p *Provider) RemoveZone(zoneID string) {
 	p.zones = slices.DeleteFunc(p.zones, func(z dnsprovider.Zone) bool { return z.ID == zoneID })
 	delete(p.records, zoneID)
 	delete(p.serials, zoneID)
+	delete(p.hosting, zoneID)
 	delete(p.status, zoneID)
 }
 
@@ -375,7 +378,7 @@ func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) ([]dnsprov
 
 	for _, z := range p.zones {
 		if dnsprovider.MatchZone(f, z) {
-			out = append(out, cloneZone(z))
+			out = append(out, p.scripted(z))
 		}
 	}
 
@@ -394,15 +397,20 @@ func (p *Provider) Zone(_ context.Context, name string) (dnsprovider.Zone, error
 
 	for _, z := range p.zones {
 		if strings.EqualFold(z.Name, strings.TrimSuffix(name, ".")) {
-			return cloneZone(z), nil
+			return p.scripted(z), nil
 		}
 	}
 
 	return dnsprovider.Zone{}, fmt.Errorf("providertest: zone %q: %w", name, dnsprovider.ErrNotFound)
 }
 
-// cloneZone is a Zone that shares nothing with the script.
-func cloneZone(z dnsprovider.Zone) dnsprovider.Zone {
+// scripted is a scripted Zone as the fake reports it, with its scripted
+// Hosting State, sharing nothing with the script.
+func (p *Provider) scripted(z dnsprovider.Zone) dnsprovider.Zone {
+	if s, ok := p.hosting[z.ID]; ok {
+		z.State = s
+	}
+
 	z.Nameservers = slices.Clone(z.Nameservers)
 
 	return z

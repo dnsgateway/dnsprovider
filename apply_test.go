@@ -380,3 +380,49 @@ func TestApplyFailsWithoutWritingWhenTheReCheckCannotRead(t *testing.T) {
 		t.Errorf("writes = %v, want none", got)
 	}
 }
+
+// staleNow applies a Changeset to a fake holding records and returns the
+// Now of each stale change, failing the test when Apply is not refused.
+func staleNow(t *testing.T, fake *providertest.Provider, changes ...dnsprovider.Change) []dnsprovider.Record {
+	t.Helper()
+
+	_, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: changes})
+
+	var stale *dnsprovider.StaleError
+	if !errors.As(err, &stale) {
+		t.Fatalf("Apply: err = %v, want a *StaleError", err)
+	}
+
+	now := make([]dnsprovider.Record, len(stale.Changes))
+	for i, s := range stale.Changes {
+		now[i] = s.Now
+	}
+
+	return now
+}
+
+func TestApplyFindsABeforeWithoutAnIDByItsTypeNameAndValue(t *testing.T) {
+	www := dnsprovider.Record{ID: "A www.example.com 300 192.0.2.1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	other := dnsprovider.Record{ID: "A www.example.com 300 192.0.2.2", Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 300}
+
+	// Built without a read: no ID, the name in another case.
+	before := dnsprovider.Record{Type: "a", Name: "WWW.example.com.", Value: "192.0.2.1", TTL: 300}
+
+	fake := providertest.New().AddZone(applyZone, other, www)
+
+	_, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: []dnsprovider.Change{
+		{Kind: dnsprovider.ChangeDelete, Before: before},
+	}})
+	if errors.Is(err, dnsprovider.ErrStale) {
+		t.Fatalf("Apply: err = %v, want the Record found by its content", err)
+	}
+
+	// Its TTL changed since: stale, and Now is the Record as it is.
+	longer := www
+	longer.TTL, longer.ID = 600, "A www.example.com 600 192.0.2.1"
+
+	now := staleNow(t, providertest.New().AddZone(applyZone, other, longer), dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: before})
+	if len(now) != 1 || now[0].ID != longer.ID {
+		t.Errorf("Now = %+v, want %+v", now, longer)
+	}
+}

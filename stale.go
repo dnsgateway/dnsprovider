@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"strings"
 )
 
@@ -86,16 +87,11 @@ func recheck(ctx context.Context, p Provider, cs Changeset) error {
 		return fmt.Errorf("re-check the Records the Changeset was built from: %w", err)
 	}
 
-	byID := make(map[string]Record, len(live.Records))
-	for _, r := range live.Records {
-		byID[r.ID] = r
-	}
-
 	var stale []StaleChange
 
 	for _, c := range touched {
-		now, ok := byID[c.Before.ID]
-		if !ok || !sameRecord(c.Before, now) {
+		now, ok := current(c.Before, live.Records)
+		if !ok || !unchanged(c.Before, now) {
 			stale = append(stale, StaleChange{Change: c, Now: now})
 		}
 	}
@@ -107,13 +103,28 @@ func recheck(ctx context.Context, p Provider, cs Changeset) error {
 	return nil
 }
 
-// sameRecord reports whether a Record is as it was read: the same ID,
-// type, name (ignoring case and a trailing dot), Value, TTL and Extras, a
-// proxy flag that is off counting as none.
-func sameRecord(a, b Record) bool {
-	return a.ID == b.ID && strings.EqualFold(a.Type, b.Type) &&
-		strings.EqualFold(strings.TrimSuffix(a.Name, "."), strings.TrimSuffix(b.Name, ".")) &&
-		a.Value == b.Value && a.TTL == b.TTL && maps.Equal(proxyOffDropped(a.Extras), proxyOffDropped(b.Extras))
+// current is the Record live holds for before: the one with its ID, or,
+// for a Record built without one, the same resource record (SameRecord).
+func current(before Record, live []Record) (Record, bool) {
+	i := slices.IndexFunc(live, func(r Record) bool {
+		if before.ID == "" {
+			return SameRecord(before, r)
+		}
+
+		return r.ID == before.ID
+	})
+	if i < 0 {
+		return Record{}, false
+	}
+
+	return live[i], true
+}
+
+// unchanged reports whether a Record is as it was read: the same
+// resource record (SameRecord), TTL and Extras, a proxy flag that is off
+// counting as none.
+func unchanged(a, b Record) bool {
+	return SameRecord(a, b) && a.TTL == b.TTL && maps.Equal(proxyOffDropped(a.Extras), proxyOffDropped(b.Extras))
 }
 
 // proxyOffDropped returns extras without a proxy flag that is off.

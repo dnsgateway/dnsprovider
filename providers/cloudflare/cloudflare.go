@@ -210,6 +210,10 @@ func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 // its Hosting State and the nameservers Cloudflare assigned to it, which
 // can differ between Zones of one Account.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+	if err := p.needTenant(); err != nil {
+		return nil, err
+	}
+
 	name := ""
 	if f.Contains != "" {
 		name = "contains:" + strings.ToLower(f.Contains)
@@ -233,13 +237,17 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 
 // Zone implements dnsprovider.Provider: the Tenant's Zone of that exact
 // name, read with Cloudflare's name filter; ErrNotFound when the Tenant
-// has none, and ErrNoTenant before a Tenant is set.
+// has none, and ErrNoTenant, first, before a Tenant is set. Of several
+// Zones of the name, such as one Moved and one Onboarded again, it is the
+// Active one, else the Pending one, else the first listed.
 func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	name = names.ZoneName(name)
-
 	if err := p.needTenant(); err != nil {
 		return dnsprovider.Zone{}, err
 	}
+
+	name = names.ZoneName(name)
+
+	var found []dnsprovider.Zone
 
 	if name != "" {
 		all, err := p.listZones(ctx, name)
@@ -248,10 +256,20 @@ func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, err
 		}
 
 		for _, z := range all {
-			if strings.EqualFold(z.Name, name) {
-				return toZone(z), nil
+			if names.ZoneName(z.Name) == name {
+				found = append(found, toZone(z))
 			}
 		}
+	}
+
+	for _, s := range []dnsprovider.HostingState{dnsprovider.HostingActive, dnsprovider.HostingPending} {
+		if i := slices.IndexFunc(found, func(z dnsprovider.Zone) bool { return z.State == s }); i >= 0 {
+			return found[i], nil
+		}
+	}
+
+	if len(found) > 0 {
+		return found[0], nil
 	}
 
 	return dnsprovider.Zone{}, fmt.Errorf("cloudflare: zone %q: %w", name, dnsprovider.ErrNotFound)
@@ -284,12 +302,9 @@ func hostingState(s zones.ZoneStatus) dnsprovider.HostingState {
 }
 
 // listZones reads every Zone of the Tenant whose name matches a Cloudflare
-// name filter; every Zone when it is empty.
+// name filter; every Zone when it is empty. Its callers check the Tenant
+// is set.
 func (p *Provider) listZones(ctx context.Context, name string) ([]zones.Zone, error) {
-	if err := p.needTenant(); err != nil {
-		return nil, err
-	}
-
 	var params zones.ZoneListParams
 	params.Account.Value.ID.Value, params.Account.Value.ID.Present = p.tenantID, true
 	params.Account.Present = true

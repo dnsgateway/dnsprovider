@@ -1536,3 +1536,45 @@ func TestCloudflareReadsZoneStatus(t *testing.T) {
 		t.Error("Cloudflare is not a ZoneStatusReader")
 	}
 }
+
+func TestZoneOfANameSeveralZonesShareIsTheOneCloudflareServes(t *testing.T) {
+	zone := func(id, status string) map[string]any {
+		z := cfZone(id, "example.com")
+		z["status"] = status
+
+		return z
+	}
+
+	cases := []struct {
+		name   string
+		zones  []map[string]any
+		wantID string
+	}{
+		{"active first", []map[string]any{zone("z1", "moved"), zone("z2", "pending"), zone("z3", "active")}, "z3"},
+		{"pending next", []map[string]any{zone("z1", "moved"), zone("z2", "pending")}, "z2"},
+		{"else the first", []map[string]any{zone("z1", "moved"), zone("z2", "moved")}, "z1"},
+	}
+
+	for _, c := range cases {
+		got, err := newProvider(t, &cfAPI{zones: c.zones}).Zone(context.Background(), "example.com")
+		if err != nil || got.ID != c.wantID {
+			t.Errorf("%s: Zone = %+v, %v; want %s", c.name, got, err, c.wantID)
+		}
+	}
+}
+
+func TestZoneOfNoNameNeedsATenantFirst(t *testing.T) {
+	api := &cfAPI{zones: []map[string]any{cfZone("z1", "example.com")}}
+
+	if _, err := newProviderIn(t, api, acme, "").Zone(context.Background(), ""); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("Zone without a Tenant: err = %v, want ErrNoTenant", err)
+	}
+
+	if _, err := newProvider(t, api).Zone(context.Background(), "."); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("Zone(.): err = %v, want ErrNotFound", err)
+	}
+
+	if n := len(api.Requests()); n != 0 {
+		t.Errorf("sent %d requests, want none", n)
+	}
+}

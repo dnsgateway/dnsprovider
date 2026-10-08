@@ -71,8 +71,10 @@ exactly filtered. `Zone(ctx, name)` reads one Zone by its exact name and
 fails with `dnsprovider.ErrNotFound` when the Account has none.
 
 Every Zone carries its `HostingState`: Cloudflare reports Active, Pending
-(also for a Zone still initializing) and Moved; GoDaddy and Namecheap list
-only the Zones they serve, which are Active.
+(also for a Zone still initializing) and Moved (also for a deactivated
+Zone). GoDaddy lists every domain it registers: Active while Delegation
+names one of its nameservers, Moved once it names none, Unknown when GoDaddy
+does not say. Namecheap lists only the Zones on its DNS, which are Active.
 
 Zone Status (DNSSEC, HSTS) is the optional `ZoneStatusReader`, which only
 Cloudflare implements. `dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and

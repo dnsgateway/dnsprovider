@@ -144,8 +144,8 @@ type wireDomain struct {
 
 // Zones implements dnsprovider.Provider: the ACTIVE domains of the
 // Account whose names match the filter. The v1 API has no name filter, so
-// every page is read and filtered with dnsprovider.MatchZone. GoDaddy
-// lists only the domains it serves: every Zone is Active.
+// every page is read and filtered with dnsprovider.MatchZone. A Zone's
+// Hosting State follows its Delegation; see hostingState.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	all, err := p.listDomains(ctx)
 	if err != nil {
@@ -185,9 +185,31 @@ func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, err
 	return toZone(d), nil
 }
 
-// toZone turns a v1 domain into an Active Zone.
+// toZone turns a v1 domain into a Zone.
 func toZone(d wireDomain) dnsprovider.Zone {
-	return dnsprovider.Zone{Name: d.Domain, ID: d.Domain, State: dnsprovider.HostingActive, Nameservers: goDaddyNameservers(d.NameServers)}
+	return dnsprovider.Zone{Name: d.Domain, ID: d.Domain, State: hostingState(d.NameServers), Nameservers: goDaddyNameservers(d.NameServers)}
+}
+
+// hostingState is the Hosting State of a domain delegated to these
+// nameservers. GoDaddy lists every ACTIVE domain it registers, wherever
+// it is delegated: the domain is Active while GoDaddy's nameservers answer
+// for it, even in part, and Moved once Delegation names none of them, as
+// GoDaddy then no longer serves it. Without nameservers it is Unknown.
+func hostingState(ns []string) dnsprovider.HostingState {
+	if len(ns) == 0 {
+		return dnsprovider.HostingUnknown
+	}
+
+	if slices.ContainsFunc(ns, isGoDaddyNameserver) {
+		return dnsprovider.HostingActive
+	}
+
+	return dnsprovider.HostingMoved
+}
+
+// isGoDaddyNameserver reports whether GoDaddy's DNS runs a nameserver.
+func isGoDaddyNameserver(n string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSuffix(n, ".")), nameserverSuffix)
 }
 
 // nameserverSuffix ends the name of every GoDaddy DNS nameserver.
@@ -204,12 +226,11 @@ func goDaddyNameservers(ns []string) []string {
 
 	out := make([]string, 0, len(ns))
 	for _, n := range ns {
-		n = strings.ToLower(strings.TrimSuffix(n, "."))
-		if !strings.HasSuffix(n, nameserverSuffix) {
+		if !isGoDaddyNameserver(n) {
 			return nil
 		}
 
-		out = append(out, n)
+		out = append(out, strings.ToLower(strings.TrimSuffix(n, ".")))
 	}
 
 	return out

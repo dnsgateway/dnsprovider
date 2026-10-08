@@ -322,18 +322,35 @@ func TestZonesFilteredByNameKeepOnlyMatchesFromEveryPage(t *testing.T) {
 	}
 }
 
-func TestZonesAreActive(t *testing.T) {
-	api := &gdAPI{domains: []map[string]any{domain("a.example"), domain("b.example")}}
+func TestZonesAreActiveOnlyWhileDelegationNamesGoDaddy(t *testing.T) {
+	api := &gdAPI{domains: []map[string]any{
+		domain("hosted.example", "ns43.domaincontrol.com", "ns44.domaincontrol.com"),
+		domain("mixed.example", "ns43.domaincontrol.com", "ns1.example.net"),
+		domain("elsewhere.example", "cruz.ns.cloudflare.com", "dee.ns.cloudflare.com"),
+		domain("unknown.example"),
+	}}
 
 	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
 
+	got := map[string]dnsprovider.HostingState{}
 	for _, z := range zones {
-		if z.State != dnsprovider.HostingActive {
-			t.Errorf("Zone %s is %v, want Active: GoDaddy lists only the domains it serves", z.Name, z.State)
-		}
+		got[z.Name] = z.State
+	}
+
+	want := map[string]dnsprovider.HostingState{
+		"hosted.example": dnsprovider.HostingActive,
+		// GoDaddy's nameservers still answer for part of the Delegation.
+		"mixed.example": dnsprovider.HostingActive,
+		// Delegation left GoDaddy, which no longer serves the domain.
+		"elsewhere.example": dnsprovider.HostingMoved,
+		// GoDaddy did not say where the domain is delegated.
+		"unknown.example": dnsprovider.HostingUnknown,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Hosting States = %v, want %v", got, want)
 	}
 }
 

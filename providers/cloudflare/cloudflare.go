@@ -185,7 +185,6 @@ type Provider struct {
 var (
 	_ dnsprovider.Provider  = (*Provider)(nil)
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
-	_ dnsprovider.Batcher   = (*Provider)(nil)
 	_ dnsprovider.ProxyFlag = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
 
@@ -479,43 +478,6 @@ func decodeRecord(data []byte) (dnsprovider.Record, error) {
 	}
 
 	return rec, nil
-}
-
-// ApplyChangeset implements dnsprovider.Batcher, until the CRUD methods
-// take its place. Each change is its own API call, made one at a time:
-// deletions first, then modifications, then additions, so a Record that
-// takes the place of another does not collide with it. A failed change
-// does not stop the others. The results are in Changeset
-// order, and carry no serial: Cloudflare's API does not report it.
-func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	if err := p.needTenant(); err != nil {
-		return dnsprovider.ApplyResult{}, err
-	}
-
-	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
-
-	for _, i := range dnsprovider.ApplyOrder(cs.Changes) {
-		c := cs.Changes[i]
-		rec, err := p.applyChange(ctx, cs.Zone, c)
-		res.Results[i] = dnsprovider.ChangeResult{Change: c, Record: rec, Err: err}
-	}
-
-	return res, nil
-}
-
-// applyChange makes one change through the CRUD methods; an empty
-// Record for a deletion.
-func (p *Provider) applyChange(ctx context.Context, zone dnsprovider.Zone, c dnsprovider.Change) (dnsprovider.Record, error) {
-	switch c.Kind {
-	case dnsprovider.ChangeAdd:
-		return p.CreateRecord(ctx, zone, c.After)
-	case dnsprovider.ChangeModify:
-		return p.UpdateRecord(ctx, zone, c.Before, c.After)
-	case dnsprovider.ChangeDelete:
-		return dnsprovider.Record{}, p.DeleteRecord(ctx, zone, c.Before)
-	default:
-		return dnsprovider.Record{}, fmt.Errorf("cloudflare: unknown change kind %d", c.Kind)
-	}
 }
 
 // CreateRecord implements dnsprovider.Provider: a POST, which is never

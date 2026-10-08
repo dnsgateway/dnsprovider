@@ -191,3 +191,13 @@ func TestCreateRecordOfARecordCloudflareHoldsIsAConflict(t *testing.T) {
 		})
 	}
 }
+
+func TestApplyGoesThroughRecordCRUDNotABatcher(t *testing.T) {
+	// Cloudflare writes one Record at a time, so dnsprovider.Apply orders
+	// a Changeset's changes itself; the atomic batch endpoint is not used.
+	p := newProvider(t, &cfAPI{})
+
+	if _, ok := p.(dnsprovider.Batcher); ok {
+		t.Error("the Cloudflare Provider is a dnsprovider.Batcher, want Apply to go through its Record CRUD")
+	}
+}

@@ -321,8 +321,22 @@ func TestZoneCallsNeedATenant(t *testing.T) {
 		Kind:  dnsprovider.ChangeAdd,
 		After: dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300},
 	}}}
-	if _, err := dnsprovider.Apply(ctx, p, cs); !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("Apply: err = %v, want ErrNoTenant", err)
+	// Apply makes one CRUD call per change, so each change fails on its own.
+	if res, err := dnsprovider.Apply(ctx, p, cs); err != nil || len(res.Results) != 1 || !errors.Is(res.Results[0].Err, dnsprovider.ErrNoTenant) {
+		t.Errorf("Apply: %+v, %v; want the change to fail with ErrNoTenant", res, err)
+	}
+
+	rec := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	if _, err := p.CreateRecord(ctx, zone, rec); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("CreateRecord: err = %v, want ErrNoTenant", err)
+	}
+
+	if _, err := p.UpdateRecord(ctx, zone, rec, rec); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("UpdateRecord: err = %v, want ErrNoTenant", err)
+	}
+
+	if err := p.DeleteRecord(ctx, zone, rec); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("DeleteRecord: err = %v, want ErrNoTenant", err)
 	}
 
 	if _, err := p.ZoneStatus(ctx, zone); !errors.Is(err, dnsprovider.ErrNoTenant) {

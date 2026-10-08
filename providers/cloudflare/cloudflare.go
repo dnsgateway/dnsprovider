@@ -56,16 +56,20 @@ const (
 )
 
 // Factory builds the Cloudflare Provider from a field map, for a
-// dnsprovider.Registry.
+// dnsprovider.Registry. It declares the Zone writes, ZoneCreator and
+// ZoneUpdater, which every Cloudflare Provider implements.
 func Factory() dnsprovider.Factory {
 	fs := []dnsprovider.Field{
 		{Name: FieldToken, Label: "API token", Secret: true},
 		{Name: FieldTenantID, Label: "Account ID", Tenant: true},
 	}
 
-	return fields.Factory("cloudflare", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	f := fields.Factory("cloudflare", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Token: m[FieldToken], TenantID: m[FieldTenantID]}, opts...)
 	})
+	f.Capabilities = []dnsprovider.Capability{dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater}
+
+	return f
 }
 
 // DefaultRequestTimeout bounds each request to the Cloudflare API. A

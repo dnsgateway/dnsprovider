@@ -83,6 +83,28 @@ type Factory struct {
 	// New builds the Provider from the fields, without a network call. A
 	// missing required field and a field not in Fields are errors.
 	New func(fields map[string]string, opts ...Option) (Provider, error)
+	// Capabilities are the optional Zone writes every Provider New builds
+	// implements, which a consumer can offer before it has the
+	// credentials to build one. A hint only: the built Provider still
+	// says, through CanCreateZone and CanUpdateZone.
+	Capabilities []Capability
+}
+
+// Capability names an optional interface a Factory declares its Providers
+// implement.
+type Capability string
+
+// The capabilities a Factory declares.
+const (
+	// CapZoneCreator is ZoneCreator: the Provider Onboards zone names.
+	CapZoneCreator Capability = "ZoneCreator"
+	// CapZoneUpdater is ZoneUpdater: the Provider changes Zone settings.
+	CapZoneUpdater Capability = "ZoneUpdater"
+)
+
+// Can reports whether f declares its Providers implement c.
+func (f Factory) Can(c Capability) bool {
+	return slices.Contains(f.Capabilities, c)
 }
 
 // Registry maps a Provider type, such as "cloudflare", to its Factory.

@@ -106,3 +106,15 @@ func TestCanCreateZoneOnlyForAZoneCreator(t *testing.T) {
 		t.Error("a ZoneCreator does not create Zones")
 	}
 }
+
+func TestAFactoryCanWhatItDeclares(t *testing.T) {
+	f := dnsprovider.Factory{Capabilities: []dnsprovider.Capability{dnsprovider.CapZoneCreator}}
+
+	if !f.Can(dnsprovider.CapZoneCreator) {
+		t.Error("a Factory declaring ZoneCreator cannot create Zones")
+	}
+
+	if f.Can(dnsprovider.CapZoneUpdater) || (dnsprovider.Factory{}).Can(dnsprovider.CapZoneCreator) {
+		t.Error("a Factory can what it does not declare")
+	}
+}

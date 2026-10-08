@@ -4,6 +4,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/providers"
 )
 
@@ -41,5 +42,31 @@ func TestRegistryHasOneFactoryPerProvider(t *testing.T) {
 				t.Error("built a Provider without its required fields")
 			}
 		})
+	}
+}
+
+// validFields are fields each Provider type builds from, without a call.
+var validFields = map[string]map[string]string{
+	"cloudflare": {"token": "t", "tenant_id": "0123456789abcdef0123456789abcdef"},
+	"godaddy":    {"key": "k", "secret": "s"},
+	"namecheap":  {"user": "u", "key": "k", "client_ip": "192.0.2.1"},
+}
+
+func TestEachFactoryDeclaresTheZoneWritesItsProvidersImplement(t *testing.T) {
+	r := providers.Registry()
+
+	for typ, f := range r {
+		p, err := r.New(typ, validFields[typ])
+		if err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+
+		if f.Can(dnsprovider.CapZoneCreator) != dnsprovider.CanCreateZone(p) {
+			t.Errorf("%s: Factory declares ZoneCreator %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneCreator), dnsprovider.CanCreateZone(p))
+		}
+
+		if f.Can(dnsprovider.CapZoneUpdater) != dnsprovider.CanUpdateZone(p) {
+			t.Errorf("%s: Factory declares ZoneUpdater %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneUpdater), dnsprovider.CanUpdateZone(p))
+		}
 	}
 }

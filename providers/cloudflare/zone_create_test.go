@@ -190,7 +190,9 @@ func TestCreateZoneWhoseAnswerHoldsNoZoneAndCannotBeReadBackStillSucceedsPending
 	// make it a failure. Nothing lists the Zone yet, or the list fails.
 	for name, list := range map[string]http.HandlerFunc{
 		"not listed": nil,
-		"list fails": func(w http.ResponseWriter, _ *http.Request) { writeErrors(w, http.StatusForbidden, 9109, "Unauthorized to access requested resource") },
+		"list fails": func(w http.ResponseWriter, _ *http.Request) {
+			writeErrors(w, http.StatusForbidden, 9109, "Unauthorized to access requested resource")
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			api := &cfAPI{}

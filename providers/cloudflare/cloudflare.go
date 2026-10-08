@@ -494,34 +494,13 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 
-	order := make([]int, len(cs.Changes))
-	for i := range order {
-		order[i] = i
-	}
-
-	slices.SortStableFunc(order, func(a, b int) int {
-		return applyRank(cs.Changes[a].Kind) - applyRank(cs.Changes[b].Kind)
-	})
-
-	for _, i := range order {
+	for _, i := range dnsprovider.ApplyOrder(cs.Changes) {
 		c := cs.Changes[i]
 		rec, err := p.applyChange(ctx, cs.Zone, c)
 		res.Results[i] = dnsprovider.ChangeResult{Change: c, Record: rec, Err: err}
 	}
 
 	return res, nil
-}
-
-// applyRank is when Apply makes a change of a kind: lowest first.
-func applyRank(k dnsprovider.ChangeKind) int {
-	switch k {
-	case dnsprovider.ChangeDelete:
-		return 0
-	case dnsprovider.ChangeModify:
-		return 1
-	default:
-		return 2
-	}
 }
 
 // applyChange makes one change and returns the Record as Cloudflare

@@ -596,7 +596,7 @@ func identical(a, b dnsprovider.Record) bool {
 }
 
 // applyChangeset is the fake's Batcher: it makes each change as the CRUD
-// methods do, deletions first, then modifications, then additions, and
+// methods do, in dnsprovider.ApplyOrder, and
 // reports the serial, bumped once when any change succeeded.
 func (p *Provider) applyChangeset(_ context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	if err := p.record(Call{Op: OpApply, Zone: cs.Zone, Changeset: cs}); err != nil {
@@ -613,12 +613,8 @@ func (p *Provider) applyChangeset(_ context.Context, cs dnsprovider.Changeset) (
 
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 
-	for _, kind := range []dnsprovider.ChangeKind{dnsprovider.ChangeDelete, dnsprovider.ChangeModify, dnsprovider.ChangeAdd} {
-		for i, c := range cs.Changes {
-			if c.Kind == kind || (kind == dnsprovider.ChangeAdd && c.Kind != dnsprovider.ChangeDelete && c.Kind != dnsprovider.ChangeModify) {
-				res.Results[i] = p.change(zid, c)
-			}
-		}
+	for _, i := range dnsprovider.ApplyOrder(cs.Changes) {
+		res.Results[i] = p.change(zid, cs.Changes[i])
 	}
 
 	for _, r := range res.Results {

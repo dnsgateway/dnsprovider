@@ -3,6 +3,7 @@ package dnsprovider_test
 import (
 	"context"
 	"errors"
+	"slices"
 	"testing"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -157,5 +158,20 @@ func TestApplyReturnsABatchersWholeChangesetFailure(t *testing.T) {
 
 	if _, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: []dnsprovider.Change{add}}); !errors.Is(err, boom) {
 		t.Errorf("Apply: err = %v, want %v", err, boom)
+	}
+}
+
+func TestApplyOrderIsDeletionsThenModificationsThenAdditionsEachInChangesetOrder(t *testing.T) {
+	changes := []dnsprovider.Change{
+		{Kind: dnsprovider.ChangeAdd},
+		{Kind: dnsprovider.ChangeModify},
+		{Kind: dnsprovider.ChangeDelete},
+		{Kind: dnsprovider.ChangeAdd},
+		{Kind: dnsprovider.ChangeDelete},
+		{Kind: dnsprovider.ChangeModify},
+	}
+
+	if got, want := dnsprovider.ApplyOrder(changes), []int{2, 4, 1, 5, 0, 3}; !slices.Equal(got, want) {
+		t.Errorf("ApplyOrder = %v, want %v", got, want)
 	}
 }

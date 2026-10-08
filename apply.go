@@ -19,7 +19,7 @@ func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
 
 	res := ApplyResult{Results: make([]ChangeResult, len(cs.Changes))}
 
-	for _, i := range applyOrder(cs.Changes) {
+	for _, i := range ApplyOrder(cs.Changes) {
 		c := cs.Changes[i]
 		rec, err := applyChange(ctx, p, cs.Zone, c)
 		res.Results[i] = ChangeResult{Change: c, Record: rec, Err: err}
@@ -28,10 +28,11 @@ func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
 	return res, nil
 }
 
-// applyOrder is the order Apply makes changes in, as indexes into
+// ApplyOrder is the order Apply makes changes in, as indexes into
 // changes: deletions, then modifications, then additions, each in
-// Changeset order.
-func applyOrder(changes []Change) []int {
+// Changeset order; a change of no known kind goes with the additions. A
+// Batcher that makes one change at a time uses it too.
+func ApplyOrder(changes []Change) []int {
 	rank := func(k ChangeKind) int {
 		switch k {
 		case ChangeDelete:

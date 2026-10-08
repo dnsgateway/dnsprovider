@@ -2,12 +2,13 @@
 // tests.
 //
 // It is scripted with Zones, Records and failures, and records every call
-// made to it, including the API token it was built with.
+// made to it, including the fields it was built from.
 package providertest
 
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sync"
 
@@ -30,8 +31,8 @@ const (
 // Call is one recorded call.
 type Call struct {
 	Op Op
-	// Token is set for OpNew.
-	Token string
+	// Fields are the field map, set for OpNew.
+	Fields map[string]string
 	// Zone is set for the Zone operations.
 	Zone dnsprovider.Zone
 	// Changeset is set for OpApply.
@@ -250,10 +251,18 @@ func (p *Provider) Calls() []Call {
 	return slices.Clone(p.calls)
 }
 
-// New is the dnsprovider.Constructor for the fake: every Provider it
-// builds shares this fake's script.
-func (p *Provider) New(token string) (dnsprovider.Provider, error) {
-	if err := p.record(Call{Op: OpNew, Token: token}); err != nil {
+// Factory builds Providers from a field map with one secret "token" field,
+// for a consumer's dnsprovider.Registry. Every Provider it builds shares
+// this fake's script; it records each build as OpNew with its fields.
+func (p *Provider) Factory() dnsprovider.Factory {
+	return dnsprovider.Factory{
+		Fields: []dnsprovider.Field{{Name: "token", Label: "API token", Secret: true}},
+		New:    p.build,
+	}
+}
+
+func (p *Provider) build(fields map[string]string, _ ...dnsprovider.Option) (dnsprovider.Provider, error) {
+	if err := p.record(Call{Op: OpNew, Fields: maps.Clone(fields)}); err != nil {
 		return nil, err
 	}
 

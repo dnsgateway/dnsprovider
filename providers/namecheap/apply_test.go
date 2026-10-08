@@ -538,3 +538,104 @@ func TestApplySplitsAnMXValueOnAnyWhitespace(t *testing.T) {
 
 	wantSetHosts(t, api, "MX", []sentHost{{"@", "MX", "mx.example.net.", "10", "3600"}})
 }
+
+func TestCreateRecordIsOneGetHostsAndOneSetHostsAndReturnsItWithItsID(t *testing.T) {
+	api := zoneAPI()
+	add := dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "v=spf1 -all", TTL: 300}
+
+	got, err := newProvider(t, api).CreateRecord(context.Background(), example, add)
+	if err != nil {
+		t.Fatalf("CreateRecord: %v", err)
+	}
+
+	want := add
+	want.ID = "TXT example.com 300 v=spf1 -all"
+
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("CreateRecord = %+v, want %+v", got, want)
+	}
+
+	wantSetHosts(t, api, "FWD", append(zoneHostsSent(), sentHost{"@", "TXT", "v=spf1 -all", "", "300"}))
+}
+
+func TestUpdateRecordReplacesItInPlace(t *testing.T) {
+	api := zoneAPI()
+	before := dnsprovider.Record{ID: "A example.com 1799 192.0.2.1", Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 1799}
+	after := dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.2", TTL: 1799}
+
+	got, err := newProvider(t, api).UpdateRecord(context.Background(), example, before, after)
+	if err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+
+	if got.ID != "A example.com 1799 192.0.2.2" || got.Value != "192.0.2.2" {
+		t.Errorf("UpdateRecord = %+v, want after with its ID", got)
+	}
+
+	hosts := zoneHostsSent()
+	hosts[0] = sentHost{"@", "A", "192.0.2.2", "", "1799"}
+	wantSetHosts(t, api, "FWD", hosts)
+}
+
+func TestDeleteRecordLeavesItOut(t *testing.T) {
+	api := zoneAPI()
+	r := dnsprovider.Record{ID: "A example.com 1799 192.0.2.1", Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 1799}
+
+	if err := newProvider(t, api).DeleteRecord(context.Background(), example, r); err != nil {
+		t.Fatalf("DeleteRecord: %v", err)
+	}
+
+	wantSetHosts(t, api, "FWD", zoneHostsSent()[1:])
+}
+
+func TestUpdateAndDeleteOfARecordNamecheapNoLongerHoldsAreNotFound(t *testing.T) {
+	api := zoneAPI()
+	p := newProvider(t, api)
+	gone := dnsprovider.Record{ID: "A example.com 1799 192.0.2.7", Type: "A", Name: "example.com", Value: "192.0.2.7", TTL: 1799}
+
+	if _, err := p.UpdateRecord(context.Background(), example, gone, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.2", TTL: 1799}); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("UpdateRecord: err = %v, want ErrNotFound", err)
+	}
+
+	if err := p.DeleteRecord(context.Background(), example, gone); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("DeleteRecord: err = %v, want ErrNotFound", err)
+	}
+
+	wantNoSetHosts(t, api)
+}
+
+func TestCreateRecordOfAHostNamecheapHoldsIsAConflict(t *testing.T) {
+	api := zoneAPI()
+
+	// The same value with another TTL is the same resource record.
+	dup := dnsprovider.Record{Type: "CNAME", Name: "WWW.example.com", Value: "example.com", TTL: 300}
+
+	if _, err := newProvider(t, api).CreateRecord(context.Background(), example, dup); !errors.Is(err, dnsprovider.ErrConflict) {
+		t.Errorf("CreateRecord: err = %v, want ErrConflict", err)
+	}
+
+	wantNoSetHosts(t, api)
+}
+
+func TestApplyFailsWholeWhenTwoChangesAddTheSameRecord(t *testing.T) {
+	api := zoneAPI()
+	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "new.example.com", Value: "192.0.2.9", TTL: 1800}}
+
+	applyFails(t, api, "A new.example.com 192.0.2.9", dnsprovider.ErrConflict, add, add)
+	wantNoSetHosts(t, api)
+}
+
+func TestApplyAddsARecordInThePlaceOfOneItModifies(t *testing.T) {
+	api := zoneAPI()
+	before := dnsprovider.Record{ID: "A example.com 1799 192.0.2.1", Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 1799}
+	moved := dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.2", TTL: 1799}
+	add := dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 1799}
+
+	applyOK(t, api,
+		dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: add},
+		dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: moved})
+
+	hosts := zoneHostsSent()
+	hosts[0] = sentHost{"@", "A", "192.0.2.2", "", "1799"}
+	wantSetHosts(t, api, "FWD", append(hosts, sentHost{"@", "A", "192.0.2.1", "", "1799"}))
+}

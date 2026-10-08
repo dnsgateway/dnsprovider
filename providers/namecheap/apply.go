@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/batch"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
@@ -81,7 +82,8 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 // applyTo makes a Changeset's changes to the hosts as read: each host a
 // change was built from is replaced, in its place, or left out; the hosts
 // added go at the end; every other host is sent back exactly as read. sent
-// are the hosts each addition or modification sends, by change.
+// are the hosts each addition or modification sends, by change. A
+// Changeset that would send a host twice fails with ErrConflict.
 func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent []*sendHost, err error) {
 	type slot struct {
 		read    *wireHost
@@ -122,6 +124,28 @@ func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent 
 		}
 
 		slots[i].matched, slots[i].send = true, sent[ci]
+	}
+
+	// A host a change sends that another host has, by type, name and
+	// value, is the same resource record, whatever its TTL.
+	for _, h := range sent {
+		if h == nil {
+			continue
+		}
+
+		r := h.read(cs.Zone.Name)
+
+		if slices.ContainsFunc(slots, func(s slot) bool {
+			if s.send == nil || s.send == h {
+				return false
+			}
+
+			o := s.send.read(cs.Zone.Name)
+
+			return strings.EqualFold(o.Type, r.Type) && strings.EqualFold(o.Name, r.Name) && o.Value == r.Value
+		}) {
+			return nil, nil, fmt.Errorf("namecheap: nothing was applied: %s %s %s is at Namecheap already (%w)", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
+		}
 	}
 
 	hosts = make([]sendHost, 0, len(slots))
@@ -286,17 +310,21 @@ func (p *Provider) setHosts(ctx context.Context, zone dnsprovider.Zone, emailTyp
 	return nil
 }
 
-// CreateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
-func (p *Provider) CreateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) (dnsprovider.Record, error) {
-	return dnsprovider.Record{}, fmt.Errorf("%s: CreateRecord: %w", "namecheap", dnsprovider.ErrNotImplemented)
+// CreateRecord implements dnsprovider.Provider: a one-change Changeset
+// through ApplyChangeset, so one getHosts and one setHosts.
+func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
+	return batch.Create(ctx, p, zone, r)
 }
 
-// UpdateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
-func (p *Provider) UpdateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record, dnsprovider.Record) (dnsprovider.Record, error) {
-	return dnsprovider.Record{}, fmt.Errorf("%s: UpdateRecord: %w", "namecheap", dnsprovider.ErrNotImplemented)
+// UpdateRecord implements dnsprovider.Provider: a one-change Changeset
+// through ApplyChangeset. Namecheap has no record IDs, so before is found
+// by its content: ErrNotFound when the Zone no longer holds it.
+func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
+	return batch.Update(ctx, p, zone, before, after)
 }
 
-// DeleteRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
-func (p *Provider) DeleteRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) error {
-	return fmt.Errorf("%s: DeleteRecord: %w", "namecheap", dnsprovider.ErrNotImplemented)
+// DeleteRecord implements dnsprovider.Provider: a one-change Changeset
+// through ApplyChangeset, found as UpdateRecord finds before.
+func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) error {
+	return batch.Delete(ctx, p, zone, r)
 }

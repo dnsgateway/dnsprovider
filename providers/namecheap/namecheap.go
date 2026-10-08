@@ -179,24 +179,32 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 
 // Zone implements dnsprovider.Provider: the domain of that exact name on
 // Namecheap's DNS, found through getList's SearchTerm; ErrNotFound when
-// the Account has none, or has it delegated elsewhere.
+// the Account has none, or has it delegated elsewhere. Reading stops at
+// the page that holds the name.
 func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	name = names.ZoneName(name)
 
+	var (
+		found wireDomain
+		ok    bool
+	)
+
 	if name != "" {
-		all, err := p.listDomains(ctx, name)
+		err := p.pageDomains(ctx, name, func(d wireDomain) bool {
+			found, ok = d, names.ZoneName(d.Name) == name
+
+			return ok
+		})
 		if err != nil {
 			return dnsprovider.Zone{}, err
 		}
-
-		for _, d := range all {
-			if strings.EqualFold(d.Name, name) {
-				return toZone(d), nil
-			}
-		}
 	}
 
-	return dnsprovider.Zone{}, fmt.Errorf("namecheap: zone %q: %w", name, dnsprovider.ErrNotFound)
+	if !ok || !found.IsOurDNS {
+		return dnsprovider.Zone{}, fmt.Errorf("namecheap: zone %q: %w", name, dnsprovider.ErrNotFound)
+	}
+
+	return toZone(found), nil
 }
 
 // toZone turns a domain on Namecheap's DNS into an Active Zone.
@@ -207,8 +215,27 @@ func toZone(d wireDomain) dnsprovider.Zone {
 // listDomains reads every page of the Account's domains on Namecheap's
 // DNS that getList finds for a SearchTerm; all of them when it is empty.
 func (p *Provider) listDomains(ctx context.Context, search string) ([]wireDomain, error) {
+	var out []wireDomain
+
+	err := p.pageDomains(ctx, search, func(d wireDomain) bool {
+		if d.IsOurDNS {
+			out = append(out, d)
+		}
+
+		return false
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return out, nil
+}
+
+// pageDomains reads the pages of the Account's domains that getList finds
+// for a SearchTerm, all of them when it is empty, and hands each domain,
+// wherever its DNS is, to each, until each returns true or the list ends.
+func (p *Provider) pageDomains(ctx context.Context, search string, each func(wireDomain) bool) error {
 	var (
-		out  []wireDomain
 		read int
 		last []wireDomain
 	)
@@ -225,20 +252,20 @@ func (p *Provider) listDomains(ctx context.Context, search string) ([]wireDomain
 
 		res, err := call[getListResult](ctx, p, "namecheap.domains.getList", params)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		if len(res.Domains) == 0 {
-			return out, nil
+			return nil
 		}
 
 		if slices.Equal(res.Domains, last) {
-			return nil, errors.New("namecheap: the domain list answered the same page twice")
+			return errors.New("namecheap: the domain list answered the same page twice")
 		}
 
 		for _, d := range res.Domains {
-			if d.IsOurDNS {
-				out = append(out, d)
+			if each(d) {
+				return nil
 			}
 		}
 
@@ -253,7 +280,7 @@ func (p *Provider) listDomains(ctx context.Context, search string) ([]wireDomain
 		}
 
 		if len(res.Domains) < size || (res.Paging.TotalItems > 0 && read >= res.Paging.TotalItems) {
-			return out, nil
+			return nil
 		}
 
 		last = res.Domains

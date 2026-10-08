@@ -937,3 +937,17 @@ func TestZonesFilteredByAnAbsoluteNameSearchForItWithoutTheDot(t *testing.T) {
 		t.Errorf("requests = %v, want one getList with SearchTerm example.com", reqs)
 	}
 }
+
+func TestZoneStopsReadingTheListAtItsName(t *testing.T) {
+	api := &ncAPI{ignoreSearch: true}
+	api.domains, _ = domains(250)
+
+	got, err := newProvider(t, api).Zone(context.Background(), "d005.example")
+	if err != nil || got.Name != "d005.example" {
+		t.Fatalf("Zone = %+v, %v; want d005.example", got, err)
+	}
+
+	if n := len(api.Requests()); n != 1 {
+		t.Errorf("sent %d getList requests, want one: the name is on the first page", n)
+	}
+}

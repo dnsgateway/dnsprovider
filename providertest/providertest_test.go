@@ -302,3 +302,14 @@ func TestSetHostingStateHoldsForAZoneAddedLaterUntilItIsRemoved(t *testing.T) {
 		t.Errorf("re-added Zone = %+v, %v; want example.com Pending, as added", got, err)
 	}
 }
+
+func TestZoneMatchesNamesAsTheAdaptersDo(t *testing.T) {
+	z := dnsprovider.Zone{ID: "z1", Name: "Example.COM."}
+	p := newFake(t, providertest.New().AddZone(z))
+
+	for _, name := range []string{"example.com", "EXAMPLE.com."} {
+		if got, err := p.Zone(context.Background(), name); err != nil || got.ID != "z1" {
+			t.Errorf("Zone(%s) = %+v, %v; want z1", name, got, err)
+		}
+	}
+}

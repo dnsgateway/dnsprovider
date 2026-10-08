@@ -11,11 +11,11 @@ import (
 	"fmt"
 	"maps"
 	"slices"
-	"strings"
 	"sync"
 
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
+	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
 // Op names a Provider operation, for scripted failures and recorded calls.
@@ -386,7 +386,8 @@ func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) ([]dnsprov
 }
 
 // Zone implements dnsprovider.Provider: the scripted Zone of that name,
-// ignoring case and a trailing dot; ErrNotFound when none is.
+// matched as the adapters match it, ignoring case and a trailing dot;
+// ErrNotFound when none is.
 func (p *Provider) Zone(_ context.Context, name string) (dnsprovider.Zone, error) {
 	if err := p.record(Call{Op: OpZone, Zone: dnsprovider.Zone{Name: name}}); err != nil {
 		return dnsprovider.Zone{}, err
@@ -396,7 +397,7 @@ func (p *Provider) Zone(_ context.Context, name string) (dnsprovider.Zone, error
 	defer p.mu.Unlock()
 
 	for _, z := range p.zones {
-		if strings.EqualFold(z.Name, strings.TrimSuffix(name, ".")) {
+		if names.ZoneName(z.Name) == names.ZoneName(name) {
 			return p.scripted(z), nil
 		}
 	}

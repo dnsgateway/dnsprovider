@@ -18,7 +18,13 @@ import (
 type cfTenants struct {
 	// tokenStatus is the token's status; "active" when empty.
 	tokenStatus string
-	accounts    []map[string]any
+	// owner is the Cloudflare account that owns an account-owned token,
+	// which reaches that account alone; empty for a user's token.
+	owner string
+	// listForbidden answers the account list 403, as for a token
+	// without Account Settings Read, such as a DNS-only one.
+	listForbidden bool
+	accounts      []map[string]any
 }
 
 func cfAccount(id, name string) map[string]any {
@@ -36,39 +42,66 @@ func cfAccount(id, name string) map[string]any {
 func newProviderIn(t *testing.T, api *cfAPI, tenants cfTenants, tenantID string) *cloudflare.Provider {
 	t.Helper()
 
-	next := api.intercept
-	api.intercept = func(w http.ResponseWriter, r *http.Request) bool {
-		if r.Method == http.MethodGet {
-			switch path := strings.TrimPrefix(r.URL.Path, "/client/v4/"); {
-			case path == "user/tokens/verify":
-				status := tenants.tokenStatus
-				if status == "" {
-					status = "active"
-				}
-
-				writeResult(w, map[string]any{"id": "tok1", "status": status})
-
-				return true
-			case path == "accounts":
-				api.page(w, r, tenants.accounts)
-
-				return true
-			case strings.HasPrefix(path, "accounts/"):
-				for _, a := range tenants.accounts {
-					if a["id"] == strings.TrimPrefix(path, "accounts/") {
-						writeResult(w, a)
-
-						return true
-					}
-				}
-
-				writeErrors(w, http.StatusForbidden, 9109, "Unauthorized to access requested resource")
-
-				return true
-			}
+	verified := func(w http.ResponseWriter) {
+		status := tenants.tokenStatus
+		if status == "" {
+			status = "active"
 		}
 
-		return next != nil && next(w, r)
+		writeResult(w, map[string]any{"id": "tok1", "status": status})
+	}
+
+	// Each verify endpoint knows only its own kind of token.
+	invalid := func(w http.ResponseWriter) {
+		writeErrors(w, http.StatusUnauthorized, 1000, "Invalid API Token")
+	}
+
+	next := api.intercept
+	api.intercept = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method != http.MethodGet {
+			return next != nil && next(w, r)
+		}
+
+		path := strings.TrimPrefix(r.URL.Path, "/client/v4/")
+		switch {
+		case path == "user/tokens/verify":
+			if tenants.owner != "" {
+				invalid(w)
+			} else {
+				verified(w)
+			}
+		case strings.HasPrefix(path, "accounts/") && strings.HasSuffix(path, "/tokens/verify"):
+			if id := strings.TrimSuffix(strings.TrimPrefix(path, "accounts/"), "/tokens/verify"); tenants.owner == "" || id != tenants.owner {
+				invalid(w)
+			} else {
+				verified(w)
+			}
+		case path == "accounts":
+			if tenants.listForbidden {
+				writeErrors(w, http.StatusForbidden, 9109, "Unauthorized to access requested resource")
+
+				break
+			}
+
+			reached := tenants.accounts
+			if tenants.owner != "" {
+				reached = nil
+				for _, a := range tenants.accounts {
+					if a["id"] == tenants.owner {
+						reached = append(reached, a)
+					}
+				}
+			}
+
+			api.page(w, r, reached)
+		case strings.HasPrefix(path, "accounts/"):
+			// Reading one account needs Account Settings Read.
+			writeErrors(w, http.StatusForbidden, 9109, "Unauthorized to access requested resource")
+		default:
+			return next != nil && next(w, r)
+		}
+
+		return true
 	}
 
 	srv := httptest.NewServer(api.handler(t))
@@ -84,10 +117,18 @@ func newProviderIn(t *testing.T, api *cfAPI, tenants cfTenants, tenantID string)
 
 var acme = cfTenants{accounts: []map[string]any{cfAccount(acc1, "Acme Ltd"), cfAccount(acc2, "Side project")}}
 
-func TestAccountVerifiesTheTokenAndNamesTheTenant(t *testing.T) {
-	api := &cfAPI{}
+// accountOf returns what Account reports and the requests it sent.
+func accountOf(t *testing.T, tenants cfTenants, tenantID string) (dnsprovider.AccountInfo, error, string) {
+	t.Helper()
 
-	info, err := newProviderIn(t, api, acme, acc1).Account(context.Background())
+	api := &cfAPI{}
+	info, err := newProviderIn(t, api, tenants, tenantID).Account(context.Background())
+
+	return info, err, strings.Join(api.Requests(), " ")
+}
+
+func TestAccountOfAUserTokenVerifiesItAndNamesTheTenant(t *testing.T) {
+	info, err, reqs := accountOf(t, acme, acc1)
 	if err != nil {
 		t.Fatalf("Account: %v", err)
 	}
@@ -96,15 +137,51 @@ func TestAccountVerifiesTheTokenAndNamesTheTenant(t *testing.T) {
 		t.Errorf("Account = %+v, want %+v", info, want)
 	}
 
-	if got, want := strings.Join(api.Requests(), " "), "/client/v4/user/tokens/verify?page= /client/v4/accounts/"+acc1+"?page="; got != want {
-		t.Errorf("requests = %s, want %s", got, want)
+	want := "/client/v4/accounts/" + acc1 + "/tokens/verify?page= /client/v4/user/tokens/verify?page= /client/v4/accounts?page=1"
+	if reqs != want {
+		t.Errorf("requests = %s, want %s", reqs, want)
+	}
+}
+
+func TestAccountOfAnAccountOwnedTokenVerifiesItWithinTheTenant(t *testing.T) {
+	tenants := acme
+	tenants.owner = acc2
+
+	info, err, reqs := accountOf(t, tenants, acc2)
+	if err != nil {
+		t.Fatalf("Account: %v", err)
+	}
+
+	if want := (dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{ID: acc2, Name: "Side project"}}); !reflect.DeepEqual(info, want) {
+		t.Errorf("Account = %+v, want %+v", info, want)
+	}
+
+	if want := "/client/v4/accounts/" + acc2 + "/tokens/verify?page= /client/v4/accounts?page=1"; reqs != want {
+		t.Errorf("requests = %s, want %s", reqs, want)
+	}
+}
+
+func TestAccountOfATokenThatCannotReadAccountsIsTheTenantIDAlone(t *testing.T) {
+	for name, owner := range map[string]string{"user token": "", "account-owned token": acc1} {
+		t.Run(name, func(t *testing.T) {
+			tenants := acme
+			tenants.owner = owner
+			tenants.listForbidden = true
+
+			info, err, _ := accountOf(t, tenants, acc1)
+			if err != nil {
+				t.Fatalf("Account: %v", err)
+			}
+
+			if want := (dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{ID: acc1}}); !reflect.DeepEqual(info, want) {
+				t.Errorf("Account = %+v, want %+v", info, want)
+			}
+		})
 	}
 }
 
 func TestAccountBeforeATenantIsSetVerifiesTheTokenAlone(t *testing.T) {
-	api := &cfAPI{}
-
-	info, err := newProviderIn(t, api, acme, "").Account(context.Background())
+	info, err, reqs := accountOf(t, acme, "")
 	if err != nil {
 		t.Fatalf("Account: %v", err)
 	}
@@ -113,33 +190,45 @@ func TestAccountBeforeATenantIsSetVerifiesTheTokenAlone(t *testing.T) {
 		t.Errorf("Account = %+v, want no Tenant", info)
 	}
 
-	if got, want := strings.Join(api.Requests(), " "), "/client/v4/user/tokens/verify?page="; got != want {
-		t.Errorf("requests = %s, want %s", got, want)
+	if want := "/client/v4/user/tokens/verify?page="; reqs != want {
+		t.Errorf("requests = %s, want %s", reqs, want)
 	}
 }
 
 func TestAccountWithABadTokenIsUnauthorized(t *testing.T) {
-	invalid := &cfAPI{fail: func(w http.ResponseWriter, _ *http.Request) {
-		writeErrors(w, http.StatusUnauthorized, 1000, "Invalid API Token")
-	}}
+	for _, tenantID := range []string{"", acc1} {
+		invalid := &cfAPI{fail: func(w http.ResponseWriter, _ *http.Request) {
+			writeErrors(w, http.StatusUnauthorized, 1000, "Invalid API Token")
+		}}
 
-	if _, err := newProviderIn(t, invalid, acme, acc1).Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
-		t.Errorf("invalid token: err = %v, want ErrUnauthorized", err)
+		if _, err := newProviderIn(t, invalid, acme, tenantID).Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+			t.Errorf("invalid token, Tenant %q: err = %v, want ErrUnauthorized", tenantID, err)
+		}
 	}
 
-	for _, status := range []string{"disabled", "expired"} {
-		tenants := acme
-		tenants.tokenStatus = status
+	for _, owner := range []string{"", acc1} {
+		for _, status := range []string{"disabled", "expired"} {
+			tenants := acme
+			tenants.owner = owner
+			tenants.tokenStatus = status
 
-		if _, err := newProviderIn(t, &cfAPI{}, tenants, acc1).Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
-			t.Errorf("%s token: err = %v, want ErrUnauthorized", status, err)
+			if _, err, _ := accountOf(t, tenants, acc1); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+				t.Errorf("%s token owned by %q: err = %v, want ErrUnauthorized", status, owner, err)
+			}
 		}
 	}
 }
 
 func TestAccountOfATenantTheTokenCannotReachIsUnauthorized(t *testing.T) {
-	if _, err := newProviderIn(t, &cfAPI{}, acme, accOther).Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
-		t.Errorf("err = %v, want ErrUnauthorized", err)
+	for name, owner := range map[string]string{"user token": "", "account-owned token": acc2} {
+		t.Run(name, func(t *testing.T) {
+			tenants := acme
+			tenants.owner = owner
+
+			if _, err, _ := accountOf(t, tenants, accOther); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+				t.Errorf("err = %v, want ErrUnauthorized", err)
+			}
+		})
 	}
 }
 

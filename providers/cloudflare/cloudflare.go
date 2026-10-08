@@ -133,14 +133,15 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 	}
 
 	return &Provider{
-		tenantID: cfg.TenantID,
-		log:      o.Logger,
-		tokens:   user.NewTokenService(ropts...),
-		accounts: accounts.NewAccountService(ropts...),
-		zones:    zones.NewZoneService(ropts...),
-		settings: zones.NewSettingService(ropts...),
-		records:  cfdns.NewRecordService(ropts...),
-		dnssec:   cfdns.NewDNSSECService(ropts...),
+		tenantID:      cfg.TenantID,
+		log:           o.Logger,
+		tokens:        user.NewTokenService(ropts...),
+		accountTokens: accounts.NewTokenService(ropts...),
+		accounts:      accounts.NewAccountService(ropts...),
+		zones:         zones.NewZoneService(ropts...),
+		settings:      zones.NewSettingService(ropts...),
+		records:       cfdns.NewRecordService(ropts...),
+		dnssec:        cfdns.NewDNSSECService(ropts...),
 	}, nil
 }
 
@@ -171,11 +172,13 @@ type Provider struct {
 	tenantID string
 	log      *slog.Logger
 	tokens   *user.TokenService
-	accounts *accounts.AccountService
-	zones    *zones.ZoneService
-	settings *zones.SettingService
-	records  *cfdns.RecordService
-	dnssec   *cfdns.DNSSECService
+	// accountTokens verifies an account-owned token.
+	accountTokens *accounts.TokenService
+	accounts      *accounts.AccountService
+	zones         *zones.ZoneService
+	settings      *zones.SettingService
+	records       *cfdns.RecordService
+	dnssec        *cfdns.DNSSECService
 }
 
 var (
@@ -736,39 +739,90 @@ func settingError(err error, res *http.Response) (dnsprovider.Setting, error) {
 	return dnsprovider.Unknown, apiError(err, res)
 }
 
-// Account implements dnsprovider.Provider. It verifies the API token and,
-// once a Tenant is set, reads the Tenant's name, which also checks the
-// token reaches it. Cloudflare assigns nameservers per Zone, so the
-// Account expects none of its own.
+// Account implements dnsprovider.Provider. It verifies the API token
+// and, once a Tenant is set, names it. Cloudflare assigns nameservers per
+// Zone, so the Account expects none of its own.
+//
+// With a Tenant set, the token is verified within it first, as an
+// account-owned token can only be, then as a user's token. The Tenant's
+// name comes from the accounts the token reaches; a token that may not
+// list them, such as a DNS-only one, gets the Tenant ID alone. A Tenant a
+// user's token lists no account for, or an account-owned token does not
+// belong to, is ErrUnauthorized.
 func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error) {
-	var raw *http.Response
-
-	tok, err := p.tokens.Verify(ctx, option.WithResponseInto(&raw))
+	owned, err := p.verifyToken(ctx)
 	if err != nil {
-		return dnsprovider.AccountInfo{}, apiError(err, raw)
-	}
-
-	if tok.Status != user.TokenVerifyResponseStatusActive {
-		return dnsprovider.AccountInfo{}, &dnsprovider.APIError{
-			Provider: "cloudflare",
-			Messages: []string{fmt.Sprintf("the API token is %s", tok.Status)},
-			Kind:     dnsprovider.ErrUnauthorized,
-		}
+		return dnsprovider.AccountInfo{}, err
 	}
 
 	if p.tenantID == "" {
 		return dnsprovider.AccountInfo{}, nil
 	}
 
-	var params accounts.AccountGetParams
-	params.AccountID.Value, params.AccountID.Present = p.tenantID, true
+	tenant := dnsprovider.Tenant{ID: p.tenantID}
 
-	acc, err := p.accounts.Get(ctx, params, option.WithResponseInto(&raw))
-	if err != nil {
-		return dnsprovider.AccountInfo{}, apiError(err, raw)
+	tenants, err := p.Tenants(ctx)
+	if errors.Is(err, dnsprovider.ErrUnauthorized) {
+		return dnsprovider.AccountInfo{Tenant: tenant}, nil
 	}
 
-	return dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{ID: acc.ID, Name: acc.Name}}, nil
+	if err != nil {
+		return dnsprovider.AccountInfo{}, err
+	}
+
+	if i := slices.IndexFunc(tenants, func(t dnsprovider.Tenant) bool { return t.ID == p.tenantID }); i >= 0 {
+		tenant.Name = tenants[i].Name
+	} else if !owned {
+		return dnsprovider.AccountInfo{}, &dnsprovider.APIError{
+			Provider: "cloudflare",
+			Messages: []string{fmt.Sprintf("the API token does not reach account %s", p.tenantID)},
+			Kind:     dnsprovider.ErrUnauthorized,
+		}
+	}
+
+	return dnsprovider.AccountInfo{Tenant: tenant}, nil
+}
+
+// verifyToken checks the API token is active, and reports whether it is
+// owned by the Tenant: verified within it. Before a Tenant is set, only a
+// user's token can be verified.
+func (p *Provider) verifyToken(ctx context.Context) (owned bool, err error) {
+	var raw *http.Response
+
+	if p.tenantID != "" {
+		var params accounts.TokenVerifyParams
+		params.AccountID.Value, params.AccountID.Present = p.tenantID, true
+
+		tok, err := p.accountTokens.Verify(ctx, params, option.WithResponseInto(&raw))
+		if err == nil {
+			return true, tokenActive(string(tok.Status))
+		}
+
+		// A user's token is not the Tenant's: it is verified below.
+		if err = apiError(err, raw); !errors.Is(err, dnsprovider.ErrUnauthorized) && !errors.Is(err, dnsprovider.ErrNotFound) {
+			return false, err
+		}
+	}
+
+	tok, err := p.tokens.Verify(ctx, option.WithResponseInto(&raw))
+	if err != nil {
+		return false, apiError(err, raw)
+	}
+
+	return false, tokenActive(string(tok.Status))
+}
+
+// tokenActive is ErrUnauthorized for a token whose status is not active.
+func tokenActive(status string) error {
+	if status == "active" {
+		return nil
+	}
+
+	return &dnsprovider.APIError{
+		Provider: "cloudflare",
+		Messages: []string{fmt.Sprintf("the API token is %s", status)},
+		Kind:     dnsprovider.ErrUnauthorized,
+	}
 }
 
 // Tenants implements dnsprovider.TenantLister: every Cloudflare account

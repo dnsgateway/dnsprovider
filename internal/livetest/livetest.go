@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,7 +22,8 @@ func Env(typ, field string) string {
 
 // Run builds a Provider from its Factory's fields, read from the
 // environment (see Env), and reads its Account, its Zones, the first of
-// them by name and its Records, without writing to the Account. It skips
+// them by name and its Records, unfiltered and then filtered by the
+// first Record's type and name, without writing to the Account. It skips
 // the test unless every secret field is set. A Provider that lists
 // Tenants has them listed, and its Zones read only when its Tenant is set
 // too: Zones failing with dnsprovider.ErrNoTenant ends the test there.
@@ -97,7 +99,30 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		t.Errorf("Zone(%s) = %+v, want %+v as Zones listed it", zones[0].Name, z, zones[0])
 	}
 
-	if _, err := p.Records(ctx, zones[0], dnsprovider.RecordFilter{}); err != nil {
+	rs, err := p.Records(ctx, zones[0], dnsprovider.RecordFilter{})
+	if err != nil {
 		t.Fatalf("Records(%s): %v", zones[0].Name, err)
+	}
+
+	if len(rs.Records) == 0 {
+		return
+	}
+
+	first := rs.Records[0]
+	rf := dnsprovider.RecordFilter{Type: first.Type, Contains: first.Name}
+
+	filtered, err := p.Records(ctx, zones[0], rf)
+	if err != nil {
+		t.Fatalf("Records(%s, %+v): %v", zones[0].Name, rf, err)
+	}
+
+	if !slices.ContainsFunc(filtered.Records, func(r dnsprovider.Record) bool { return r.ID == first.ID }) {
+		t.Errorf("Records(%s, %+v) = %+v, want it to hold %+v", zones[0].Name, rf, filtered.Records, first)
+	}
+
+	for _, r := range filtered.Records {
+		if !dnsprovider.MatchRecord(rf, r) {
+			t.Errorf("Records(%s, %+v) holds %+v, which the filter does not match", zones[0].Name, rf, r)
+		}
 	}
 }

@@ -322,9 +322,12 @@ func (p *Provider) SetZoneUpdater(on bool) {
 // dnsprovider.ZoneCreator, recorded as OpCreateZone: CreateZone adds a
 // Zone of the name, without Records, Pending, with a new ID and the
 // scripted Account's nameservers, as Cloudflare Onboards a zone name, and
-// returns it. A name the fake holds in a Hosting State other than Moved
+// returns it. The fake's Zones are one Tenant's, the one a Provider is
+// built within: a name the fake holds in a Hosting State other than Moved
 // is dnsprovider.ErrConflict; a Moved Zone's name is Onboarded again
-// beside it. Unscripted, they do not implement it.
+// beside it. A Provider of a fake scripted with Tenants built without
+// one (see Factory) has nowhere to Onboard it: dnsprovider.ErrNoTenant,
+// recorded. Unscripted, they do not implement it.
 func (p *Provider) SetZoneCreator(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -378,13 +381,44 @@ func (p *Provider) Calls() []Call {
 	return slices.Clone(p.calls)
 }
 
+// FieldTenant is the Tenant field of a fake scripted with Tenants.
+const FieldTenant = "tenant"
+
 // Factory builds Providers from a field map with one required, secret
-// "token" field, for a consumer's dnsprovider.Registry. As the Factory
-// contract wants, a missing token or a field other than "token" is an
-// error. Every Provider it builds shares this fake's script; it records
-// each build of valid fields as OpNew with its fields.
+// "token" field, for a consumer's dnsprovider.Registry, and, once Tenants
+// are scripted (SetTenants), an optional FieldTenant marked Tenant, as
+// Cloudflare takes one. As the Factory contract wants, a missing token or
+// a field it does not take is an error. It declares the Zone writes
+// scripted by then (SetZoneUpdater, SetZoneCreator) as its Capabilities.
+// Every Provider it builds shares this fake's script; it records each
+// build of valid fields as OpNew with its fields.
 func (p *Provider) Factory() dnsprovider.Factory {
-	return fields.Factory("providertest", []dnsprovider.Field{{Name: "token", Label: "API token", Secret: true}}, p.build)
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	fs := []dnsprovider.Field{{Name: "token", Label: "API token", Secret: true}}
+	if p.tenants != nil {
+		fs = append(fs, dnsprovider.Field{Name: FieldTenant, Label: "Tenant", Tenant: true})
+	}
+
+	f := fields.Factory("providertest", fs, p.build)
+
+	if p.updater {
+		f.Capabilities = append(f.Capabilities, dnsprovider.CapZoneUpdater)
+	}
+
+	if p.creator {
+		f.Capabilities = append(f.Capabilities, dnsprovider.CapZoneCreator)
+	}
+
+	return f
+}
+
+// scope is the Tenant a Provider the fake built acts within.
+type scope struct {
+	// unscoped is set for a Provider of a fake scripted with Tenants,
+	// built without one: like Cloudflare's, it acts within no Tenant.
+	unscoped bool
 }
 
 func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovider.Provider, error) {
@@ -421,7 +455,7 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 		set |= optZoneCreator
 	}
 
-	return wrap(p, set), nil
+	return wrap(p, set, scope{unscoped: p.tenants != nil && m[FieldTenant] == ""}), nil
 }
 
 // record logs a call and returns its scripted failure, if any.
@@ -697,9 +731,13 @@ func (p *Provider) updateZone(_ context.Context, z dnsprovider.Zone, u dnsprovid
 }
 
 // createZone is the fake's dnsprovider.ZoneCreator; see SetZoneCreator.
-func (p *Provider) createZone(_ context.Context, name string) (dnsprovider.Zone, error) {
+func (p *Provider) createZone(_ context.Context, unscoped bool, name string) (dnsprovider.Zone, error) {
 	if err := p.record(Call{Op: OpCreateZone, Zone: dnsprovider.Zone{Name: name}}); err != nil {
 		return dnsprovider.Zone{}, err
+	}
+
+	if unscoped {
+		return dnsprovider.Zone{}, fmt.Errorf("providertest: Onboard %q: %w", name, dnsprovider.ErrNoTenant)
 	}
 
 	p.mu.Lock()

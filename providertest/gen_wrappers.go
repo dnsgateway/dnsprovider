@@ -50,7 +50,7 @@ var options = []option{
 	{
 		Name:   "ZoneCreator",
 		Iface:  "ZoneCreator",
-		Method: "CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) { return p.createZone(ctx, name) }",
+		Method: "CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) { return p.createZone(ctx, p.unscoped, name) }",
 	},
 }
 
@@ -101,7 +101,7 @@ const (
 		}
 
 		fmt.Fprintf(&b, "// %s is the fake as a %s.\n", typ, joinIfaces(in))
-		fmt.Fprintf(&b, "type %s struct {\n\t*Provider\n}\n\n", typ)
+		fmt.Fprintf(&b, "type %s struct {\n\t*Provider\n\tscope\n}\n\n", typ)
 
 		for _, o := range in {
 			fmt.Fprintf(&b, "// %s implements dnsprovider.%s.\n", strings.SplitN(o.Method, "(", 2)[0], o.Iface)
@@ -109,12 +109,13 @@ const (
 			fmt.Fprintf(&asserts, "\t_ dnsprovider.%s = %s{}\n", o.Iface, typ)
 		}
 
-		fmt.Fprintf(&cases, "\tcase %s:\n\t\treturn %s{p}\n", strings.Join(names, " | "), typ)
+		fmt.Fprintf(&cases, "\tcase %s:\n\t\treturn %s{p, sc}\n", strings.Join(names, " | "), typ)
 	}
 
 	fmt.Fprintf(&b, "var (\n%s)\n\n", asserts.String())
-	fmt.Fprintf(&b, `// wrap is the fake implementing the optional interfaces in set.
-func wrap(p *Provider, set opts) dnsprovider.Provider {
+	fmt.Fprintf(&b, `// wrap is the fake implementing the optional interfaces in set, built
+// within scope sc.
+func wrap(p *Provider, set opts, sc scope) dnsprovider.Provider {
 	switch set {
 %s	}
 

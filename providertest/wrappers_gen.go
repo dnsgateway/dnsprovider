@@ -24,6 +24,7 @@ const (
 // withTenants is the fake as a dnsprovider.TenantLister.
 type withTenants struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -34,6 +35,7 @@ func (p withTenants) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) 
 // withZoneStatus is the fake as a dnsprovider.ZoneStatusReader.
 type withZoneStatus struct {
 	*Provider
+	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
@@ -44,6 +46,7 @@ func (p withZoneStatus) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dns
 // withTenantsZoneStatus is the fake as a dnsprovider.TenantLister and dnsprovider.ZoneStatusReader.
 type withTenantsZoneStatus struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -59,6 +62,7 @@ func (p withTenantsZoneStatus) ZoneStatus(ctx context.Context, z dnsprovider.Zon
 // withBatcher is the fake as a dnsprovider.Batcher.
 type withBatcher struct {
 	*Provider
+	scope
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -69,6 +73,7 @@ func (p withBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.Changese
 // withTenantsBatcher is the fake as a dnsprovider.TenantLister and dnsprovider.Batcher.
 type withTenantsBatcher struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -84,6 +89,7 @@ func (p withTenantsBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.C
 // withZoneStatusBatcher is the fake as a dnsprovider.ZoneStatusReader and dnsprovider.Batcher.
 type withZoneStatusBatcher struct {
 	*Provider
+	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
@@ -99,6 +105,7 @@ func (p withZoneStatusBatcher) ApplyChangeset(ctx context.Context, cs dnsprovide
 // withTenantsZoneStatusBatcher is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader and dnsprovider.Batcher.
 type withTenantsZoneStatusBatcher struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -119,6 +126,7 @@ func (p withTenantsZoneStatusBatcher) ApplyChangeset(ctx context.Context, cs dns
 // withZoneUpdater is the fake as a dnsprovider.ZoneUpdater.
 type withZoneUpdater struct {
 	*Provider
+	scope
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
@@ -129,6 +137,7 @@ func (p withZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zone, u d
 // withTenantsZoneUpdater is the fake as a dnsprovider.TenantLister and dnsprovider.ZoneUpdater.
 type withTenantsZoneUpdater struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -144,6 +153,7 @@ func (p withTenantsZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zo
 // withZoneStatusZoneUpdater is the fake as a dnsprovider.ZoneStatusReader and dnsprovider.ZoneUpdater.
 type withZoneStatusZoneUpdater struct {
 	*Provider
+	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
@@ -159,6 +169,7 @@ func (p withZoneStatusZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider
 // withTenantsZoneStatusZoneUpdater is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader and dnsprovider.ZoneUpdater.
 type withTenantsZoneStatusZoneUpdater struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -179,6 +190,7 @@ func (p withTenantsZoneStatusZoneUpdater) UpdateZone(ctx context.Context, z dnsp
 // withBatcherZoneUpdater is the fake as a dnsprovider.Batcher and dnsprovider.ZoneUpdater.
 type withBatcherZoneUpdater struct {
 	*Provider
+	scope
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -194,6 +206,7 @@ func (p withBatcherZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zo
 // withTenantsBatcherZoneUpdater is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher and dnsprovider.ZoneUpdater.
 type withTenantsBatcherZoneUpdater struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -214,6 +227,7 @@ func (p withTenantsBatcherZoneUpdater) UpdateZone(ctx context.Context, z dnsprov
 // withZoneStatusBatcherZoneUpdater is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneUpdater.
 type withZoneStatusBatcherZoneUpdater struct {
 	*Provider
+	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
@@ -234,6 +248,7 @@ func (p withZoneStatusBatcherZoneUpdater) UpdateZone(ctx context.Context, z dnsp
 // withTenantsZoneStatusBatcherZoneUpdater is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneUpdater.
 type withTenantsZoneStatusBatcherZoneUpdater struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -259,16 +274,18 @@ func (p withTenantsZoneStatusBatcherZoneUpdater) UpdateZone(ctx context.Context,
 // withZoneCreator is the fake as a dnsprovider.ZoneCreator.
 type withZoneCreator struct {
 	*Provider
+	scope
 }
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withTenantsZoneCreator is the fake as a dnsprovider.TenantLister and dnsprovider.ZoneCreator.
 type withTenantsZoneCreator struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -278,12 +295,13 @@ func (p withTenantsZoneCreator) Tenants(ctx context.Context) ([]dnsprovider.Tena
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withTenantsZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withZoneStatusZoneCreator is the fake as a dnsprovider.ZoneStatusReader and dnsprovider.ZoneCreator.
 type withZoneStatusZoneCreator struct {
 	*Provider
+	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
@@ -293,12 +311,13 @@ func (p withZoneStatusZoneCreator) ZoneStatus(ctx context.Context, z dnsprovider
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withZoneStatusZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withTenantsZoneStatusZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader and dnsprovider.ZoneCreator.
 type withTenantsZoneStatusZoneCreator struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -313,12 +332,13 @@ func (p withTenantsZoneStatusZoneCreator) ZoneStatus(ctx context.Context, z dnsp
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withTenantsZoneStatusZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withBatcherZoneCreator is the fake as a dnsprovider.Batcher and dnsprovider.ZoneCreator.
 type withBatcherZoneCreator struct {
 	*Provider
+	scope
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -328,12 +348,13 @@ func (p withBatcherZoneCreator) ApplyChangeset(ctx context.Context, cs dnsprovid
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withBatcherZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withTenantsBatcherZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher and dnsprovider.ZoneCreator.
 type withTenantsBatcherZoneCreator struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -348,12 +369,13 @@ func (p withTenantsBatcherZoneCreator) ApplyChangeset(ctx context.Context, cs dn
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withTenantsBatcherZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withZoneStatusBatcherZoneCreator is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneCreator.
 type withZoneStatusBatcherZoneCreator struct {
 	*Provider
+	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
@@ -368,12 +390,13 @@ func (p withZoneStatusBatcherZoneCreator) ApplyChangeset(ctx context.Context, cs
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withZoneStatusBatcherZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withTenantsZoneStatusBatcherZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneCreator.
 type withTenantsZoneStatusBatcherZoneCreator struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -393,12 +416,13 @@ func (p withTenantsZoneStatusBatcherZoneCreator) ApplyChangeset(ctx context.Cont
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withTenantsZoneStatusBatcherZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withZoneUpdaterZoneCreator is the fake as a dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
 type withZoneUpdaterZoneCreator struct {
 	*Provider
+	scope
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
@@ -408,12 +432,13 @@ func (p withZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dnsprovide
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withTenantsZoneUpdaterZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
 type withTenantsZoneUpdaterZoneCreator struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -428,12 +453,13 @@ func (p withTenantsZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dns
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withTenantsZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withZoneStatusZoneUpdaterZoneCreator is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
 type withZoneStatusZoneUpdaterZoneCreator struct {
 	*Provider
+	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
@@ -448,12 +474,13 @@ func (p withZoneStatusZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z 
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withZoneStatusZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withTenantsZoneStatusZoneUpdaterZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
 type withTenantsZoneStatusZoneUpdaterZoneCreator struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -473,12 +500,13 @@ func (p withTenantsZoneStatusZoneUpdaterZoneCreator) UpdateZone(ctx context.Cont
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withTenantsZoneStatusZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withBatcherZoneUpdaterZoneCreator is the fake as a dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
 type withBatcherZoneUpdaterZoneCreator struct {
 	*Provider
+	scope
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -493,12 +521,13 @@ func (p withBatcherZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dns
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withBatcherZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withTenantsBatcherZoneUpdaterZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
 type withTenantsBatcherZoneUpdaterZoneCreator struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -518,12 +547,13 @@ func (p withTenantsBatcherZoneUpdaterZoneCreator) UpdateZone(ctx context.Context
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withTenantsBatcherZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withZoneStatusBatcherZoneUpdaterZoneCreator is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
 type withZoneStatusBatcherZoneUpdaterZoneCreator struct {
 	*Provider
+	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
@@ -543,12 +573,13 @@ func (p withZoneStatusBatcherZoneUpdaterZoneCreator) UpdateZone(ctx context.Cont
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withZoneStatusBatcherZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 // withTenantsZoneStatusBatcherZoneUpdaterZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
 type withTenantsZoneStatusBatcherZoneUpdaterZoneCreator struct {
 	*Provider
+	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
@@ -573,7 +604,7 @@ func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreator) UpdateZone(ctx conte
 
 // CreateZone implements dnsprovider.ZoneCreator.
 func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, name)
+	return p.createZone(ctx, p.unscoped, name)
 }
 
 var (
@@ -659,71 +690,72 @@ var (
 	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusBatcherZoneUpdaterZoneCreator{}
 )
 
-// wrap is the fake implementing the optional interfaces in set.
-func wrap(p *Provider, set opts) dnsprovider.Provider {
+// wrap is the fake implementing the optional interfaces in set, built
+// within scope sc.
+func wrap(p *Provider, set opts, sc scope) dnsprovider.Provider {
 	switch set {
 	case optTenants:
-		return withTenants{p}
+		return withTenants{p, sc}
 	case optZoneStatus:
-		return withZoneStatus{p}
+		return withZoneStatus{p, sc}
 	case optTenants | optZoneStatus:
-		return withTenantsZoneStatus{p}
+		return withTenantsZoneStatus{p, sc}
 	case optBatcher:
-		return withBatcher{p}
+		return withBatcher{p, sc}
 	case optTenants | optBatcher:
-		return withTenantsBatcher{p}
+		return withTenantsBatcher{p, sc}
 	case optZoneStatus | optBatcher:
-		return withZoneStatusBatcher{p}
+		return withZoneStatusBatcher{p, sc}
 	case optTenants | optZoneStatus | optBatcher:
-		return withTenantsZoneStatusBatcher{p}
+		return withTenantsZoneStatusBatcher{p, sc}
 	case optZoneUpdater:
-		return withZoneUpdater{p}
+		return withZoneUpdater{p, sc}
 	case optTenants | optZoneUpdater:
-		return withTenantsZoneUpdater{p}
+		return withTenantsZoneUpdater{p, sc}
 	case optZoneStatus | optZoneUpdater:
-		return withZoneStatusZoneUpdater{p}
+		return withZoneStatusZoneUpdater{p, sc}
 	case optTenants | optZoneStatus | optZoneUpdater:
-		return withTenantsZoneStatusZoneUpdater{p}
+		return withTenantsZoneStatusZoneUpdater{p, sc}
 	case optBatcher | optZoneUpdater:
-		return withBatcherZoneUpdater{p}
+		return withBatcherZoneUpdater{p, sc}
 	case optTenants | optBatcher | optZoneUpdater:
-		return withTenantsBatcherZoneUpdater{p}
+		return withTenantsBatcherZoneUpdater{p, sc}
 	case optZoneStatus | optBatcher | optZoneUpdater:
-		return withZoneStatusBatcherZoneUpdater{p}
+		return withZoneStatusBatcherZoneUpdater{p, sc}
 	case optTenants | optZoneStatus | optBatcher | optZoneUpdater:
-		return withTenantsZoneStatusBatcherZoneUpdater{p}
+		return withTenantsZoneStatusBatcherZoneUpdater{p, sc}
 	case optZoneCreator:
-		return withZoneCreator{p}
+		return withZoneCreator{p, sc}
 	case optTenants | optZoneCreator:
-		return withTenantsZoneCreator{p}
+		return withTenantsZoneCreator{p, sc}
 	case optZoneStatus | optZoneCreator:
-		return withZoneStatusZoneCreator{p}
+		return withZoneStatusZoneCreator{p, sc}
 	case optTenants | optZoneStatus | optZoneCreator:
-		return withTenantsZoneStatusZoneCreator{p}
+		return withTenantsZoneStatusZoneCreator{p, sc}
 	case optBatcher | optZoneCreator:
-		return withBatcherZoneCreator{p}
+		return withBatcherZoneCreator{p, sc}
 	case optTenants | optBatcher | optZoneCreator:
-		return withTenantsBatcherZoneCreator{p}
+		return withTenantsBatcherZoneCreator{p, sc}
 	case optZoneStatus | optBatcher | optZoneCreator:
-		return withZoneStatusBatcherZoneCreator{p}
+		return withZoneStatusBatcherZoneCreator{p, sc}
 	case optTenants | optZoneStatus | optBatcher | optZoneCreator:
-		return withTenantsZoneStatusBatcherZoneCreator{p}
+		return withTenantsZoneStatusBatcherZoneCreator{p, sc}
 	case optZoneUpdater | optZoneCreator:
-		return withZoneUpdaterZoneCreator{p}
+		return withZoneUpdaterZoneCreator{p, sc}
 	case optTenants | optZoneUpdater | optZoneCreator:
-		return withTenantsZoneUpdaterZoneCreator{p}
+		return withTenantsZoneUpdaterZoneCreator{p, sc}
 	case optZoneStatus | optZoneUpdater | optZoneCreator:
-		return withZoneStatusZoneUpdaterZoneCreator{p}
+		return withZoneStatusZoneUpdaterZoneCreator{p, sc}
 	case optTenants | optZoneStatus | optZoneUpdater | optZoneCreator:
-		return withTenantsZoneStatusZoneUpdaterZoneCreator{p}
+		return withTenantsZoneStatusZoneUpdaterZoneCreator{p, sc}
 	case optBatcher | optZoneUpdater | optZoneCreator:
-		return withBatcherZoneUpdaterZoneCreator{p}
+		return withBatcherZoneUpdaterZoneCreator{p, sc}
 	case optTenants | optBatcher | optZoneUpdater | optZoneCreator:
-		return withTenantsBatcherZoneUpdaterZoneCreator{p}
+		return withTenantsBatcherZoneUpdaterZoneCreator{p, sc}
 	case optZoneStatus | optBatcher | optZoneUpdater | optZoneCreator:
-		return withZoneStatusBatcherZoneUpdaterZoneCreator{p}
+		return withZoneStatusBatcherZoneUpdaterZoneCreator{p, sc}
 	case optTenants | optZoneStatus | optBatcher | optZoneUpdater | optZoneCreator:
-		return withTenantsZoneStatusBatcherZoneUpdaterZoneCreator{p}
+		return withTenantsZoneStatusBatcherZoneUpdaterZoneCreator{p, sc}
 	}
 
 	return p

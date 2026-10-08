@@ -5,6 +5,7 @@ import (
 	"errors"
 	"maps"
 	"reflect"
+	"slices"
 	"testing"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -666,5 +667,62 @@ func TestCreateZoneFailsAsScriptedAndForNoName(t *testing.T) {
 
 	if zs, _ := c.(dnsprovider.Provider).Zones(ctx, dnsprovider.ZoneFilter{}); len(zs) != 0 {
 		t.Errorf("Zones after failed creates = %+v, want none", zs)
+	}
+}
+
+func TestAFakeWithTenantsTakesOneAndOnboardsOnlyWithinIt(t *testing.T) {
+	ctx := context.Background()
+
+	fake := providertest.New()
+	fake.SetTenants(dnsprovider.Tenant{ID: "t1", Name: "Acme"}, dnsprovider.Tenant{ID: "t2", Name: "Side"})
+	fake.SetZoneCreator(true)
+
+	f := fake.Factory()
+	if i := slices.IndexFunc(f.Fields, func(fd dnsprovider.Field) bool { return fd.Tenant }); i < 0 || f.Fields[i].Name != providertest.FieldTenant {
+		t.Fatalf("Fields = %+v, want a Tenant field %q", f.Fields, providertest.FieldTenant)
+	}
+
+	// Built without its Tenant, the Provider is unscoped, as Cloudflare's.
+	unscoped, err := f.New(map[string]string{"token": "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := unscoped.(dnsprovider.ZoneCreator).CreateZone(ctx, "example.org"); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("unscoped CreateZone: err = %v, want ErrNoTenant", err)
+	}
+
+	if zs, _ := unscoped.Zones(ctx, dnsprovider.ZoneFilter{}); len(zs) != 0 {
+		t.Errorf("Zones after an unscoped create = %+v, want none", zs)
+	}
+
+	scoped, err := f.New(map[string]string{"token": "t", providertest.FieldTenant: "t1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := scoped.(dnsprovider.ZoneCreator).CreateZone(ctx, "example.org"); err != nil {
+		t.Errorf("CreateZone within a Tenant: %v", err)
+	}
+}
+
+func TestAFakeWithoutTenantsTakesNoTenantField(t *testing.T) {
+	if f := providertest.New().Factory(); slices.ContainsFunc(f.Fields, func(fd dnsprovider.Field) bool { return fd.Tenant }) {
+		t.Errorf("Fields = %+v, want no Tenant field", f.Fields)
+	}
+}
+
+func TestTheFakesFactoryDeclaresTheZoneWritesScripted(t *testing.T) {
+	for set := range 4 {
+		updater, creator := set&1 != 0, set&2 != 0
+
+		fake := providertest.New()
+		fake.SetZoneUpdater(updater)
+		fake.SetZoneCreator(creator)
+
+		f := fake.Factory()
+		if f.Can(dnsprovider.CapZoneUpdater) != updater || f.Can(dnsprovider.CapZoneCreator) != creator {
+			t.Errorf("updater %v, creator %v: Factory declares %v", updater, creator, f.Capabilities)
+		}
 	}
 }

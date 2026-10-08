@@ -108,21 +108,47 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		return
 	}
 
+	// A filtered read holds just the Records of the whole read that the
+	// filter matches, whatever the Provider's API filtered itself. A type
+	// no Provider holds finds none rather than failing.
 	first := rs.Records[0]
-	rf := dnsprovider.RecordFilter{Type: first.Type, Contains: first.Name}
+	for _, rf := range []dnsprovider.RecordFilter{
+		{Type: first.Type, Contains: first.Name},
+		{Type: first.Type},
+		{Contains: first.Name},
+		{Type: "NOSUCHTYPE"},
+	} {
+		filtered, err := p.Records(ctx, zones[0], rf)
+		if err != nil {
+			t.Fatalf("Records(%s, %+v): %v", zones[0].Name, rf, err)
+		}
 
-	filtered, err := p.Records(ctx, zones[0], rf)
-	if err != nil {
-		t.Fatalf("Records(%s, %+v): %v", zones[0].Name, rf, err)
-	}
+		var want []string
+		for _, r := range rs.Records {
+			if dnsprovider.MatchRecord(rf, r) {
+				want = append(want, r.ID)
+			}
+		}
 
-	if !slices.ContainsFunc(filtered.Records, func(r dnsprovider.Record) bool { return r.ID == first.ID }) {
-		t.Errorf("Records(%s, %+v) = %+v, want it to hold %+v", zones[0].Name, rf, filtered.Records, first)
-	}
-
-	for _, r := range filtered.Records {
-		if !dnsprovider.MatchRecord(rf, r) {
-			t.Errorf("Records(%s, %+v) holds %+v, which the filter does not match", zones[0].Name, rf, r)
+		if got := recordIDs(filtered.Records); !slices.Equal(got, sorted(want)) {
+			t.Errorf("Records(%s, %+v) = %v, want %v from the whole read", zones[0].Name, rf, got, sorted(want))
 		}
 	}
+}
+
+// recordIDs returns the Records' IDs, sorted.
+func recordIDs(records []dnsprovider.Record) []string {
+	ids := make([]string, 0, len(records))
+	for _, r := range records {
+		ids = append(ids, r.ID)
+	}
+
+	return sorted(ids)
+}
+
+func sorted(s []string) []string {
+	s = append([]string{}, s...)
+	slices.Sort(s)
+
+	return s
 }

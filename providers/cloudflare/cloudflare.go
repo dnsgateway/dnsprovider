@@ -366,10 +366,12 @@ func listAll[T any](ctx context.Context, perPage int, list func(...option.Reques
 	}
 }
 
-// Records implements dnsprovider.Provider. The v4 API reports no SOA serial
-// short of a BIND export of the whole Zone, so the RecordSet has none:
-// A consumer asks the Zone's nameservers for it.
-func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.RecordSet, error) {
+// Records implements dnsprovider.Provider. Cloudflare filters by type and
+// by name itself, the name "contains" ignoring case; the answer is
+// filtered again with dnsprovider.MatchRecord. The v4 API reports no SOA
+// serial short of a BIND export of the whole Zone, so the RecordSet has
+// none: A consumer asks the Zone's nameservers for it.
+func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	if err := p.needTenant(); err != nil {
 		return dnsprovider.RecordSet{}, err
 	}
@@ -378,6 +380,15 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone) (dnsprovi
 	// build with F(); importing that package compiles the whole SDK.
 	var params cfdns.RecordListParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	if f.Type != "" {
+		params.Type.Value, params.Type.Present = cfdns.RecordListParamsType(strings.ToUpper(f.Type)), true
+	}
+
+	if text := names.ZoneName(f.Contains); text != "" {
+		params.Name.Value.Contains.Value, params.Name.Value.Contains.Present = text, true
+		params.Name.Present = true
+	}
 
 	all, err := listAll(ctx, recordsPerPage, func(opts ...option.RequestOption) (*pagination.V4PagePaginationArray[cfdns.RecordResponse], error) {
 		return p.records.List(ctx, params, opts...)
@@ -393,7 +404,9 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone) (dnsprovi
 			return dnsprovider.RecordSet{}, err
 		}
 
-		records = append(records, rec)
+		if dnsprovider.MatchRecord(f, rec) {
+			records = append(records, rec)
+		}
 	}
 
 	return dnsprovider.RecordSet{Records: records}, nil

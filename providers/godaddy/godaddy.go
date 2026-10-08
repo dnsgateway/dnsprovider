@@ -336,7 +336,7 @@ type wireRecord struct {
 
 // Records implements dnsprovider.Provider. GoDaddy reports no SOA serial:
 // A consumer asks the Zone's nameservers for it.
-func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.RecordSet, error) {
+func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, _ dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	all, err := p.listRecords(ctx, zone)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

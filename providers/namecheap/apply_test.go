@@ -402,7 +402,7 @@ func TestApplySendsRelativeNamesTheMXPriorityApartAndQualifiedTargets(t *testing
 func records(t *testing.T, p dnsprovider.Provider) []dnsprovider.Record {
 	t.Helper()
 
-	set, err := p.Records(context.Background(), example)
+	set, err := p.Records(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}

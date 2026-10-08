@@ -418,7 +418,7 @@ func (p *Provider) scripted(z dnsprovider.Zone) dnsprovider.Zone {
 }
 
 // Records implements dnsprovider.Provider.
-func (p *Provider) Records(_ context.Context, z dnsprovider.Zone) (dnsprovider.RecordSet, error) {
+func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, _ dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	if err := p.record(Call{Op: OpRecords, Zone: z}); err != nil {
 		return dnsprovider.RecordSet{}, err
 	}

@@ -97,7 +97,7 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		t.Errorf("Zone(%s) = %+v, want %+v as Zones listed it", zones[0].Name, z, zones[0])
 	}
 
-	if _, err := p.Records(ctx, zones[0]); err != nil {
+	if _, err := p.Records(ctx, zones[0], dnsprovider.RecordFilter{}); err != nil {
 		t.Fatalf("Records(%s): %v", zones[0].Name, err)
 	}
 }

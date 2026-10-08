@@ -25,7 +25,7 @@ func TestReaddedZoneStartsClean(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rs, err := p.Records(ctx, z)
+	rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

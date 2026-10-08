@@ -483,7 +483,7 @@ func TestRecordsListsEveryPageWithAbsoluteNamesAndThePriorityFirst(t *testing.T)
 		{"type": "CAA", "name": "@", "data": "0 issue \"letsencrypt.org\"", "ttl": 3600},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "example.com"})
+	set, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -712,7 +712,7 @@ func TestApplySplitsThePriorityAndSRVFieldsOutOfTheValue(t *testing.T) {
 	}
 
 	// The records read back as they were written.
-	set, err := newProvider(t, api).Records(context.Background(), example)
+	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -905,7 +905,7 @@ func TestApplyDeletesTheSRVRecordOfItsOwnService(t *testing.T) {
 		t.Fatalf("Apply: %v, %+v", err, res.Results)
 	}
 
-	set, err := newProvider(t, api).Records(context.Background(), example)
+	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -941,7 +941,7 @@ func TestRecordsTurnAnAtTargetIntoTheZoneName(t *testing.T) {
 		{"type": "SRV", "name": "@", "service": "_sip", "protocol": "_tcp", "data": "@", "priority": 1, "weight": 2, "port": 5060, "ttl": 3600},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example)
+	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -963,7 +963,7 @@ func TestRecordsStopAtAShortPage(t *testing.T) {
 
 	api := &gdAPI{pageSize: 2, records: map[string][]map[string]any{"example.com": recs}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example)
+	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 3 {
 		t.Fatalf("Records = %v, %v; want 3 Records", set.Records, err)
 	}
@@ -994,7 +994,7 @@ func TestListsThatIgnorePagingFailInsteadOfLoopingForever(t *testing.T) {
 		t.Errorf("Zones = %v, want an error about paging", err)
 	}
 
-	if _, err := p.Records(ctx, example); err == nil || errors.Is(err, context.DeadlineExceeded) {
+	if _, err := p.Records(ctx, example, dnsprovider.RecordFilter{}); err == nil || errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Records = %v, want an error about paging", err)
 	}
 }
@@ -1049,7 +1049,7 @@ func TestRecordsCarryAProviderIDThatTellsThemApartInTheirRRset(t *testing.T) {
 		{"type": "A", "name": "WWW", "data": "192.0.2.1", "ttl": 600},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example)
+	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}

@@ -15,8 +15,9 @@ type Provider interface {
 	// Zone reads one Zone by its name, in any Hosting State, set as Zones
 	// sets it: ErrNotFound when the Account has no Zone of that name.
 	Zone(ctx context.Context, name string) (Zone, error)
-	// Records lists a Zone's Records, with the SOA serial when available.
-	Records(ctx context.Context, zone Zone) (RecordSet, error)
+	// Records lists a Zone's Records that match the filter, exactly
+	// filtered, with the SOA serial when the Provider reports it.
+	Records(ctx context.Context, zone Zone, f RecordFilter) (RecordSet, error)
 	// Apply applies a Changeset and reports the result of each change.
 	Apply(ctx context.Context, cs Changeset) (ApplyResult, error)
 }

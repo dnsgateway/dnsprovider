@@ -61,10 +61,15 @@ type cfAPI struct {
 	// ignoreName, when set, lists Zones without the name filter, as an
 	// API that does not honour it would.
 	ignoreName bool
+	// ignoreRecordFilter, when set, lists Records without the type and
+	// name filters, as an API that does not honour them would.
+	ignoreRecordFilter bool
 
 	mu sync.Mutex
 	// queries records each zone list's query.
 	queries []url.Values
+	// recordQueries records each record list's query.
+	recordQueries []url.Values
 	// requests records each request's path and page.
 	requests []string
 	// writes records each record write.
@@ -98,6 +103,38 @@ func (api *cfAPI) ZoneQueries() []url.Values {
 	defer api.mu.Unlock()
 
 	return slices.Clone(api.queries)
+}
+
+// RecordQueries returns each record list's query, in order.
+func (api *cfAPI) RecordQueries() []url.Values {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+
+	return slices.Clone(api.recordQueries)
+}
+
+// recordsMatching are the Records the type and name.contains filters
+// match, as Cloudflare reads them: the type exactly, the name ignoring case.
+func (api *cfAPI) recordsMatching(records []map[string]any, q url.Values) []map[string]any {
+	if api.ignoreRecordFilter {
+		return records
+	}
+
+	var out []map[string]any
+
+	for _, r := range records {
+		typ, _ := r["type"].(string)
+		name, _ := r["name"].(string)
+
+		if q.Has("type") && typ != q.Get("type") ||
+			!strings.Contains(strings.ToLower(name), strings.ToLower(q.Get("name.contains"))) {
+			continue
+		}
+
+		out = append(out, r)
+	}
+
+	return out
 }
 
 // zonesNamed are the scripted Zones a name filter matches, as Cloudflare
@@ -154,6 +191,10 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 		api.page(w, r, api.zonesNamed(r.URL.Query().Get("name")))
 	})
 	mux.HandleFunc("GET /client/v4/zones/{zone}/dns_records", func(w http.ResponseWriter, r *http.Request) {
+		api.mu.Lock()
+		api.recordQueries = append(api.recordQueries, r.URL.Query())
+		api.mu.Unlock()
+
 		records, ok := api.records[r.PathValue("zone")]
 		if !ok {
 			writeErrors(w, http.StatusNotFound, 7003, "Could not route to /zones/x/dns_records, perhaps your object identifier is invalid?")
@@ -161,7 +202,7 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 			return
 		}
 
-		api.page(w, r, records)
+		api.page(w, r, api.recordsMatching(records, r.URL.Query()))
 	})
 	mux.HandleFunc("POST /client/v4/zones/{zone}/dns_records", api.writeRecord)
 	mux.HandleFunc("PUT /client/v4/zones/{zone}/dns_records/{id}", api.writeRecord)
@@ -957,7 +998,7 @@ func TestApplySplitsThePriorityAndDataOutOfTheValue(t *testing.T) {
 			rec.ID = "new1"
 			assertResults(t, res, []dnsprovider.ChangeResult{{Change: add, Record: rec}})
 
-			rs, err := p.Records(context.Background(), zone)
+			rs, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
 			if err != nil {
 				t.Fatalf("Records: %v", err)
 			}
@@ -1198,7 +1239,7 @@ func TestEdgeRateLimitWithoutAJSONBodyIsATypedError(t *testing.T) {
 	}}
 	p := newProvider(t, api)
 
-	_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 
 	if !errors.Is(err, dnsprovider.ErrRateLimited) {
 		t.Fatalf("err = %v, want dnsprovider.ErrRateLimited", err)
@@ -1235,7 +1276,7 @@ func TestErrorResponsesAreTypedErrors(t *testing.T) {
 			}}
 			p := newProvider(t, api)
 
-			_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "nope"})
+			_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "nope"}, dnsprovider.RecordFilter{})
 
 			var apiErr *dnsprovider.APIError
 			if !errors.As(err, &apiErr) {
@@ -1406,7 +1447,7 @@ func TestRecordsListsEveryPageWithTheProxyFlag(t *testing.T) {
 	}
 	p := newProvider(t, api)
 
-	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -1437,7 +1478,7 @@ func TestRecordsPutThePriorityInTheValue(t *testing.T) {
 	api := &cfAPI{records: map[string][]map[string]any{"z1": {mx, srv, uri}}}
 	p := newProvider(t, api)
 
-	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -1455,7 +1496,7 @@ func TestRecordsAreOneListingWithNoSerial(t *testing.T) {
 	api := &cfAPI{records: map[string][]map[string]any{"z1": {cfRecord("r1", "A", "example.com", "192.0.2.1", 1, true, true)}}}
 	p := newProvider(t, api)
 
-	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -1597,4 +1638,78 @@ func TestZonesFilteredByAnAbsoluteNamePushItWithoutTheDot(t *testing.T) {
 	if q := api.ZoneQueries(); len(q) != 1 || q[0].Get("name") != "contains:example.com" {
 		t.Errorf("zone list queries = %v, want name=contains:example.com", q)
 	}
+}
+
+func TestRecordsFilteredByTypeAndNamePushBothToCloudflare(t *testing.T) {
+	cases := []struct {
+		name       string
+		filter     dnsprovider.RecordFilter
+		wantIDs    []string
+		wantType   string
+		wantName   string
+		hasNameArg bool
+	}{
+		{"type", dnsprovider.RecordFilter{Type: "MX"}, []string{"r3"}, "MX", "", false},
+		{"lower-case type", dnsprovider.RecordFilter{Type: "mx"}, []string{"r3"}, "MX", "", false},
+		{"name", dnsprovider.RecordFilter{Contains: "WWW."}, []string{"r1", "r2", "r4"}, "", "www", true},
+		{"absolute name", dnsprovider.RecordFilter{Contains: "www.example.com."}, []string{"r1", "r2"}, "", "www.example.com", true},
+		{"type and name", dnsprovider.RecordFilter{Type: "A", Contains: "www"}, []string{"r1", "r4"}, "A", "www", true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			for _, ignore := range []bool{false, true} {
+				api := &cfAPI{ignoreRecordFilter: ignore, records: map[string][]map[string]any{"z1": {
+					cfRecord("r1", "A", "www.example.com", "192.0.2.1", 300, true, false),
+					cfRecord("r2", "AAAA", "www.example.com", "2001:db8::1", 300, true, false),
+					mxRecord("r3", "example.com", "10 mail.example.com"),
+					cfRecord("r4", "A", "www.example.community", "192.0.2.2", 300, true, false),
+					cfRecord("r5", "TXT", "wwwx.example.com", "\"x\"", 300, false, false),
+				}}}
+
+				rs, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, c.filter)
+				if err != nil {
+					t.Fatalf("Records: %v", err)
+				}
+
+				if got := recordIDs(rs.Records); !slices.Equal(got, c.wantIDs) {
+					t.Errorf("ignoring the filter %v: Records = %v, want %v", ignore, got, c.wantIDs)
+				}
+
+				q := api.RecordQueries()
+				if len(q) != 1 || q[0].Get("type") != c.wantType || q[0].Has("name.contains") != c.hasNameArg || q[0].Get("name.contains") != c.wantName {
+					t.Errorf("record list queries = %v, want type=%q name.contains=%q", q, c.wantType, c.wantName)
+				}
+			}
+		})
+	}
+}
+
+func TestRecordsWithTheZeroFilterSendNoFilter(t *testing.T) {
+	api := &cfAPI{records: map[string][]map[string]any{"z1": {cfRecord("r1", "A", "example.com", "192.0.2.1", 1, true, true)}}}
+
+	if _, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{}); err != nil {
+		t.Fatalf("Records: %v", err)
+	}
+
+	if q := api.RecordQueries(); len(q) != 1 || q[0].Has("type") || q[0].Has("name.contains") {
+		t.Errorf("record list queries = %v, want no type or name filter", q)
+	}
+}
+
+func mxRecord(id, name, value string) map[string]any {
+	prio, target, _ := strings.Cut(value, " ")
+	r := cfRecord(id, "MX", name, target, 3600, false, false)
+	r["priority"], _ = strconv.Atoi(prio)
+
+	return r
+}
+
+func recordIDs(records []dnsprovider.Record) []string {
+	ids := make([]string, 0, len(records))
+	for _, r := range records {
+		ids = append(ids, r.ID)
+	}
+
+	return ids
 }

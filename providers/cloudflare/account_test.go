@@ -312,7 +312,7 @@ func TestZoneCallsNeedATenant(t *testing.T) {
 		t.Errorf("Zone: err = %v, want ErrNoTenant", err)
 	}
 
-	_, err := p.Records(ctx, zone)
+	_, err := p.Records(ctx, zone, dnsprovider.RecordFilter{})
 	if !errors.Is(err, dnsprovider.ErrNoTenant) {
 		t.Errorf("Records: err = %v, want ErrNoTenant", err)
 	}

@@ -308,7 +308,7 @@ type getHostsResult struct {
 
 // Records implements dnsprovider.Provider. getHosts answers the whole host
 // list at once. Namecheap reports no SOA serial.
-func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.RecordSet, error) {
+func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, _ dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	res, err := p.getHosts(ctx, zone)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

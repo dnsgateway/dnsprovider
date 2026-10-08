@@ -42,6 +42,11 @@ var options = []option{
 		Iface:  "Batcher",
 		Method: "ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) { return p.applyChangeset(ctx, cs) }",
 	},
+	{
+		Name:   "ZoneUpdater",
+		Iface:  "ZoneUpdater",
+		Method: "UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) { return p.updateZone(ctx, z, u) }",
+	},
 }
 
 func main() {

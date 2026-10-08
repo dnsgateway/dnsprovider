@@ -38,6 +38,8 @@ const (
 	OpZoneStatus   Op = "ZoneStatus"
 	OpAccount      Op = "Account"
 	OpTenants      Op = "Tenants"
+	// OpUpdateZone is the ZoneUpdater's UpdateZone; see SetZoneUpdater.
+	OpUpdateZone Op = "UpdateZone"
 )
 
 // Call is one recorded call.
@@ -56,6 +58,8 @@ type Call struct {
 	Changeset dnsprovider.Changeset
 	// Change is the change a CRUD operation makes.
 	Change dnsprovider.Change
+	// ZoneUpdate is set for OpUpdateZone.
+	ZoneUpdate dnsprovider.ZoneUpdate
 }
 
 // Provider is the fake. Its zero value is not usable; call New.
@@ -77,6 +81,7 @@ type Provider struct {
 	proxiable  []string // nil when not scripted
 	autoTTL    bool
 	batcher    bool
+	updater    bool
 	calls      []Call
 	nextID     int
 }
@@ -191,7 +196,8 @@ func (p *Provider) SetAutoTTL(on bool) {
 // consumer may branch on, and Batcher, which changes how
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted: one type per combination, generated (see
-// gen_wrappers.go) and picked by build.
+// gen_wrappers.go) and picked by build. So is ZoneUpdater, which a
+// consumer offers its Zone settings by.
 var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
@@ -294,6 +300,18 @@ func (p *Provider) SetBatcher(on bool) {
 	p.batcher = on
 }
 
+// SetZoneUpdater makes the Providers New builds implement
+// dnsprovider.ZoneUpdater, recorded as OpUpdateZone: UpdateZone turns
+// each setting it is given On or Off in the scripted Zone Status, which a
+// fake that reads Zone Status (see SetZoneStatus) then reports, and
+// returns that Zone Status. Unscripted, they do not implement it.
+func (p *Provider) SetZoneUpdater(on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.updater = on
+}
+
 // FailChanges makes each write fail a change for which fn returns an
 // error, while the Batcher applies the rest: a partial failure. The CRUD
 // methods are handed their call as a Change.
@@ -373,6 +391,10 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 
 	if p.batcher {
 		set |= optBatcher
+	}
+
+	if p.updater {
+		set |= optZoneUpdater
 	}
 
 	return wrap(p, set), nil
@@ -617,6 +639,45 @@ func (p *Provider) zoneStatus(_ context.Context, z dnsprovider.Zone) (dnsprovide
 	defer p.mu.Unlock()
 
 	return p.status[z.ID], nil
+}
+
+// updateZone is the fake's dnsprovider.ZoneUpdater: it turns the settings
+// u sets On or Off in the scripted Zone Status and returns it;
+// ErrNotFound for a Zone not scripted.
+func (p *Provider) updateZone(_ context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if err := p.record(Call{Op: OpUpdateZone, Zone: z, ZoneUpdate: u}); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if !slices.ContainsFunc(p.zones, func(s dnsprovider.Zone) bool { return s.ID == z.ID }) {
+		return dnsprovider.ZoneStatus{}, fmt.Errorf("providertest: zone %s (%s): %w", z.Name, z.ID, dnsprovider.ErrNotFound)
+	}
+
+	st := p.status[z.ID]
+
+	if u.DNSSEC != nil {
+		st.DNSSEC = setting(*u.DNSSEC)
+	}
+
+	if u.HSTS != nil {
+		st.HSTS = setting(*u.HSTS)
+	}
+
+	p.status[z.ID] = st
+
+	return st, nil
+}
+
+// setting is On or Off.
+func setting(on bool) dnsprovider.Setting {
+	if on {
+		return dnsprovider.On
+	}
+
+	return dnsprovider.Off
 }
 
 // Account implements dnsprovider.Provider: the scripted AccountInfo.

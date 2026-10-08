@@ -480,3 +480,82 @@ func TestBatcherFailsAChangeOfNoKnownKindAlone(t *testing.T) {
 		t.Errorf("addition = %+v, want it made", r)
 	}
 }
+
+func TestZoneUpdaterIsImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.T) {
+	for set := range 16 {
+		tenants, status, batcher, updater := set&1 != 0, set&2 != 0, set&4 != 0, set&8 != 0
+
+		fake := providertest.New()
+		if tenants {
+			fake.SetTenants(dnsprovider.Tenant{ID: "t1"})
+		}
+
+		if status {
+			fake.SetZoneStatus("z1", dnsprovider.ZoneStatus{})
+		}
+
+		fake.SetBatcher(batcher)
+		fake.SetZoneUpdater(updater)
+
+		p := newFake(t, fake)
+
+		_, isBatcher := p.(dnsprovider.Batcher)
+		_, readsStatus := p.(dnsprovider.ZoneStatusReader)
+
+		if dnsprovider.CanUpdateZone(p) != updater || isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
+			t.Errorf("tenants %v, status %v, batcher %v, updater %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v, updating Zones %v",
+				tenants, status, batcher, updater, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.CanUpdateZone(p))
+		}
+	}
+}
+
+func TestUpdateZoneChangesTheSettingsItIsGivenAndRecordsTheUpdate(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+
+	fake := providertest.New().AddZone(z)
+	fake.SetZoneStatus("z1", dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Off, HSTS: dnsprovider.On})
+	fake.SetZoneUpdater(true)
+
+	p := newFake(t, fake)
+	on := true
+	u := dnsprovider.ZoneUpdate{DNSSEC: &on}
+
+	got, err := p.(dnsprovider.ZoneUpdater).UpdateZone(ctx, z, u)
+	if err != nil {
+		t.Fatalf("UpdateZone: %v", err)
+	}
+
+	want := dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On}
+	if got != want {
+		t.Errorf("UpdateZone = %+v, want %+v", got, want)
+	}
+
+	calls := fake.Calls()
+	if c := calls[len(calls)-1]; c.Op != providertest.OpUpdateZone || c.Zone.ID != z.ID || c.ZoneUpdate != u {
+		t.Errorf("last call = %+v, want UpdateZone of %v with %+v", c, z, u)
+	}
+
+	if st, err := dnsprovider.ZoneStatusOf(ctx, p, z); err != nil || st != want {
+		t.Errorf("Zone Status after UpdateZone = %+v, %v; want %+v", st, err, want)
+	}
+}
+
+func TestUpdateZoneFailsAsScriptedAndForAZoneNotScripted(t *testing.T) {
+	ctx := context.Background()
+	fake := providertest.New().AddZone(dnsprovider.Zone{ID: "z1", Name: "example.com"})
+	fake.SetZoneUpdater(true)
+
+	up := newFake(t, fake).(dnsprovider.ZoneUpdater)
+	off := false
+
+	if _, err := up.UpdateZone(ctx, dnsprovider.Zone{ID: "z2", Name: "example.org"}, dnsprovider.ZoneUpdate{HSTS: &off}); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("UpdateZone of a Zone not scripted: error = %v, want ErrNotFound", err)
+	}
+
+	fake.Fail(providertest.OpUpdateZone, dnsprovider.ErrUnauthorized)
+
+	if _, err := up.UpdateZone(ctx, dnsprovider.Zone{ID: "z1", Name: "example.com"}, dnsprovider.ZoneUpdate{HSTS: &off}); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		t.Errorf("UpdateZone error = %v, want the scripted ErrUnauthorized", err)
+	}
+}

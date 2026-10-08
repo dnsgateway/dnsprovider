@@ -32,6 +32,9 @@ const DefaultBaseURL = "https://api.cloudflare.com/client/v4/"
 // zonesPerPage is the largest page Cloudflare serves for Zones.
 const zonesPerPage = 50
 
+// accountsPerPage is the largest page Cloudflare serves for accounts.
+const accountsPerPage = 50
+
 // recordsPerPage keeps reading a large Zone's Records to a few requests.
 const recordsPerPage = 1000
 
@@ -154,6 +157,8 @@ var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
 	_ dnsprovider.ProxyFlag = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
+
+	_ dnsprovider.TenantLister = (*Provider)(nil)
 )
 
 // AutoTTL implements dnsprovider.AutoTTL: Cloudflare reads TTL 1 as automatic.
@@ -707,6 +712,24 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 	}
 
 	return dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{ID: acc.ID, Name: acc.Name}}, nil
+}
+
+// Tenants implements dnsprovider.TenantLister: every Cloudflare account
+// the API token reaches. It works before a Tenant is set.
+func (p *Provider) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
+	all, err := listAll(ctx, accountsPerPage, func(opts ...option.RequestOption) (*pagination.V4PagePaginationArray[accounts.Account], error) {
+		return p.accounts.List(ctx, accounts.AccountListParams{}, opts...)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]dnsprovider.Tenant, 0, len(all))
+	for _, a := range all {
+		out = append(out, dnsprovider.Tenant{ID: a.ID, Name: a.Name})
+	}
+
+	return out, nil
 }
 
 // Nameservers implements dnsprovider.Provider. Cloudflare assigns nameservers

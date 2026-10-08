@@ -142,3 +142,36 @@ func TestAccountOfATenantTheTokenCannotReachIsUnauthorized(t *testing.T) {
 		t.Errorf("err = %v, want ErrUnauthorized", err)
 	}
 }
+
+func TestTenantsListsEveryAccountTheTokenReachesBeforeATenantIsSet(t *testing.T) {
+	api := &cfAPI{pageSize: 1}
+	p := newProviderIn(t, api, acme, "")
+
+	if !dnsprovider.CanListTenants(p) {
+		t.Fatal("Cloudflare does not list Tenants")
+	}
+
+	tenants, err := p.Tenants(context.Background())
+	if err != nil {
+		t.Fatalf("Tenants: %v", err)
+	}
+
+	want := []dnsprovider.Tenant{{ID: "acc1", Name: "Acme Ltd"}, {ID: "acc2", Name: "Side project"}}
+	if !reflect.DeepEqual(tenants, want) {
+		t.Errorf("Tenants = %+v, want %+v", tenants, want)
+	}
+
+	if got, want := strings.Join(api.Requests(), " "), "/client/v4/accounts?page=1 /client/v4/accounts?page=2"; got != want {
+		t.Errorf("requests = %s, want %s", got, want)
+	}
+}
+
+func TestTenantsWithABadTokenIsUnauthorized(t *testing.T) {
+	api := &cfAPI{fail: func(w http.ResponseWriter, _ *http.Request) {
+		writeErrors(w, http.StatusUnauthorized, 1000, "Invalid API Token")
+	}}
+
+	if _, err := newProviderIn(t, api, acme, "").Tenants(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		t.Errorf("err = %v, want ErrUnauthorized", err)
+	}
+}

@@ -657,29 +657,7 @@ func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rr
 		records = slices.Delete(records, i, i+1)
 	}
 
-	for _, op := range ops {
-		if op.remove || failed[op.index] != nil {
-			continue
-		}
-
-		// A Record of the same name and Value is the same resource
-		// record, whatever its TTL.
-		if slices.ContainsFunc(records, func(r dnsprovider.Record) bool {
-			return strings.EqualFold(r.Name, op.rec.Name) && r.Value == op.rec.Value
-		}) {
-			failed[op.index] = fmt.Errorf("godaddy: %s %s %s is there already: %w", op.rec.Type, op.rec.Name, op.rec.Value, dnsprovider.ErrConflict)
-
-			// A modification within the RRset keeps the Record it was
-			// to replace.
-			if r, ok := removed[op.index]; ok {
-				records = append(records, r)
-			}
-
-			continue
-		}
-
-		records = append(records, op.rec)
-	}
+	records = addTo(records, ops, removed, failed)
 
 	if !slices.ContainsFunc(ops, func(op rrOp) bool { return failed[op.index] == nil }) {
 		return failed, nil
@@ -700,6 +678,49 @@ func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rr
 	}
 
 	return failed, p.api().Do(ctx, http.MethodPut, path, nil, body, nil)
+}
+
+// addTo adds the Records the ops add to an RRset's records, those its
+// ops remove taken out. A Record of the same name and Value as one the
+// RRset holds is the same resource record, whatever its TTL: its op
+// fails with ErrConflict, and a modification within the RRset that fails
+// keeps the Record it was to replace. That Record may be one an earlier
+// op added, so the additions are made again until none is kept back.
+func addTo(records []dnsprovider.Record, ops []rrOp, removed map[int]dnsprovider.Record, failed map[int]error) []dnsprovider.Record {
+	same := func(rs []dnsprovider.Record, rec dnsprovider.Record) bool {
+		return slices.ContainsFunc(rs, func(r dnsprovider.Record) bool {
+			return strings.EqualFold(r.Name, rec.Name) && r.Value == rec.Value
+		})
+	}
+
+	for {
+		out := slices.Clone(records)
+		kept := false
+
+		for _, op := range ops {
+			if op.remove || failed[op.index] != nil {
+				continue
+			}
+
+			if !same(out, op.rec) {
+				out = append(out, op.rec)
+
+				continue
+			}
+
+			failed[op.index] = fmt.Errorf("godaddy: %s %s %s is there already: %w", op.rec.Type, op.rec.Name, op.rec.Value, dnsprovider.ErrConflict)
+
+			if r, ok := removed[op.index]; ok {
+				records, kept = append(records, r), true
+
+				break
+			}
+		}
+
+		if !kept {
+			return out
+		}
+	}
 }
 
 // putRecord is one record of an RRset replace.

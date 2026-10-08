@@ -1330,3 +1330,40 @@ func TestApplyWritesNamesThatDifferOnlyInCaseAsOneRRset(t *testing.T) {
 		t.Errorf("writes = %v, want %v", got, want)
 	}
 }
+
+func TestApplyAddingTheRecordAFailedModificationKeepsIsAConflict(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
+		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+		{"type": "A", "name": "www", "data": "192.0.2.2", "ttl": 600},
+		{"type": "A", "name": "www", "data": "192.0.2.3", "ttl": 600},
+	}}}
+
+	a := func(v string) dnsprovider.Record {
+		return dnsprovider.Record{Type: "A", Name: "www.example.com", Value: v, TTL: 600}
+	}
+
+	// The modification into 192.0.2.2 fails, so 192.0.2.1 stays, and
+	// adding it again is a conflict, not a second copy.
+	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+		{Kind: dnsprovider.ChangeAdd, After: a("192.0.2.1")},
+		{Kind: dnsprovider.ChangeModify, Before: a("192.0.2.1"), After: a("192.0.2.2")},
+		{Kind: dnsprovider.ChangeDelete, Before: a("192.0.2.3")},
+	}})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	for i, want := range []error{dnsprovider.ErrConflict, dnsprovider.ErrConflict, nil} {
+		if got := res.Results[i].Err; !errors.Is(got, want) || (want == nil && got != nil) {
+			t.Errorf("result %d: err = %v, want %v", i, got, want)
+		}
+	}
+
+	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
+		{"data": "192.0.2.2", "ttl": 600.0},
+		{"data": "192.0.2.1", "ttl": 600.0},
+	}}}
+	if got := api.Writes(); !reflect.DeepEqual(got, want) {
+		t.Errorf("writes = %v, want %v", got, want)
+	}
+}

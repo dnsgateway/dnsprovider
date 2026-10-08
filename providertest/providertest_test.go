@@ -183,3 +183,51 @@ func TestOptionalInterfacesAreScriptedIndependently(t *testing.T) {
 		t.Error("a fake with scripted options and Tenants does not list Tenants")
 	}
 }
+
+func newFake(t *testing.T, fake *providertest.Provider) dnsprovider.Provider {
+	t.Helper()
+
+	p, err := fake.Factory().New(map[string]string{"token": "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return p
+}
+
+func TestZonesAreFilteredAndRecordTheFilter(t *testing.T) {
+	fake := providertest.New().
+		AddZone(dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingActive}).
+		AddZone(dnsprovider.Zone{ID: "z2", Name: "other.org", State: dnsprovider.HostingPending})
+	p := newFake(t, fake)
+
+	f := dnsprovider.ZoneFilter{Contains: "AMPLE"}
+
+	zones, err := p.Zones(context.Background(), f)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []dnsprovider.Zone{{ID: "z1", Name: "example.com", State: dnsprovider.HostingActive}}
+	if !reflect.DeepEqual(zones, want) {
+		t.Errorf("Zones = %+v, want %+v", zones, want)
+	}
+
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZones || calls[len(calls)-1].ZoneFilter != f {
+		t.Errorf("last call = %+v, want Zones with the filter", calls[len(calls)-1])
+	}
+}
+
+func TestSetHostingStateChangesAScriptedZone(t *testing.T) {
+	fake := providertest.New().AddZone(dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingPending})
+	fake.SetHostingState("z1", dnsprovider.HostingActive)
+
+	zones, err := newFake(t, fake).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(zones) != 1 || zones[0].State != dnsprovider.HostingActive {
+		t.Errorf("Zones = %+v, want example.com Active", zones)
+	}
+}

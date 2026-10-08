@@ -38,6 +38,8 @@ type Call struct {
 	Fields map[string]string
 	// Zone is set for the Zone operations.
 	Zone dnsprovider.Zone
+	// ZoneFilter is set for OpZones.
+	ZoneFilter dnsprovider.ZoneFilter
 	// Changeset is set for OpApply.
 	Changeset dnsprovider.Changeset
 }
@@ -72,7 +74,9 @@ func New() *Provider {
 	}
 }
 
-// AddZone scripts a Zone, identified by its ID, with its Records.
+// AddZone scripts a Zone, identified by its ID, with its Records. The
+// Zone keeps its State as given: set it to the Hosting State the
+// Provider under test would report.
 func (p *Provider) AddZone(z dnsprovider.Zone, records ...dnsprovider.Record) *Provider {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -82,6 +86,19 @@ func (p *Provider) AddZone(z dnsprovider.Zone, records ...dnsprovider.Record) *P
 	p.records[z.ID] = slices.Clone(records)
 
 	return p
+}
+
+// SetHostingState changes a scripted Zone's Hosting State, as when
+// Delegation comes to name the Provider's nameservers or leaves them.
+func (p *Provider) SetHostingState(zoneID string, s dnsprovider.HostingState) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for i := range p.zones {
+		if p.zones[i].ID == zoneID {
+			p.zones[i].State = s
+		}
+	}
 }
 
 // SetSerial scripts a Zone's SOA serial, which Records reports and each
@@ -328,16 +345,32 @@ func (p *Provider) record(c Call) error {
 	return p.fail[c.Op]
 }
 
-// Zones implements dnsprovider.Provider.
-func (p *Provider) Zones(context.Context, dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
-	if err := p.record(Call{Op: OpZones}); err != nil {
+// Zones implements dnsprovider.Provider: the scripted Zones the filter
+// matches, in the order added, with their scripted Hosting State.
+func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+	if err := p.record(Call{Op: OpZones, ZoneFilter: f}); err != nil {
 		return nil, err
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return slices.Clone(p.zones), nil
+	var out []dnsprovider.Zone
+
+	for _, z := range p.zones {
+		if dnsprovider.MatchZone(f, z) {
+			out = append(out, cloneZone(z))
+		}
+	}
+
+	return out, nil
+}
+
+// cloneZone is a Zone that shares nothing with the script.
+func cloneZone(z dnsprovider.Zone) dnsprovider.Zone {
+	z.Nameservers = slices.Clone(z.Nameservers)
+
+	return z
 }
 
 // Records implements dnsprovider.Provider.

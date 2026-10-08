@@ -3,7 +3,6 @@ package godaddy
 import (
 	"encoding/json"
 	"net/http"
-	"strconv"
 	"time"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -22,14 +21,10 @@ type wireError struct {
 }
 
 // apiError turns an error response into a *dnsprovider.APIError, classified
-// by its HTTP status. A rate limit is reported, never waited out: the
-// caller decides when to try again.
+// by its HTTP status, for rest.Client.Decode. A wait the body does not
+// give is the Retry-After header's, which rest reads.
 func apiError(res *http.Response, data []byte) error {
 	e := &dnsprovider.APIError{Provider: "godaddy", StatusCode: res.StatusCode}
-
-	if s, err := strconv.Atoi(res.Header.Get("Retry-After")); err == nil && s > 0 {
-		e.RetryAfter = time.Duration(s) * time.Second
-	}
 
 	var body wireError
 	if json.Unmarshal(data, &body) != nil {

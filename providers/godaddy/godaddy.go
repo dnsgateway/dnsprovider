@@ -3,12 +3,9 @@
 package godaddy
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -17,9 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
 	"github.com/dnsgateway/dnsprovider/internal/names"
+	"github.com/dnsgateway/dnsprovider/rest"
 )
 
 // DefaultBaseURL is the GoDaddy production API.
@@ -86,16 +86,35 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		baseURL: strings.TrimSuffix(baseURL, "/"),
 		auth:    "sso-key " + cfg.Key + ":" + cfg.Secret,
 		client:  client,
+		limit:   rest.PerMinute(RequestsPerMinute),
 		log:     o.Logger,
 	}, nil
 }
+
+// RequestsPerMinute is GoDaddy's published rate limit for an Account.
+const RequestsPerMinute = 60
 
 // Provider is one GoDaddy Account.
 type Provider struct {
 	baseURL string
 	auth    string
 	client  *http.Client
+	limit   *rate.Limiter
 	log     *slog.Logger
+}
+
+// api is the Account's rest.Client. It is built per call so a Provider
+// holds plain values alone, and two built alike are equal.
+func (p *Provider) api() *rest.Client {
+	return &rest.Client{
+		Provider: "godaddy",
+		BaseURL:  p.baseURL,
+		HTTP:     p.client,
+		Auth:     func(r *http.Request) { r.Header.Set("Authorization", p.auth) },
+		Limit:    p.limit,
+		Decode:   apiError,
+		Log:      p.log,
+	}
 }
 
 var (
@@ -156,93 +175,28 @@ func goDaddyNameservers(ns []string) []string {
 }
 
 // listDomains reads every page of the Account's ACTIVE domains. A page
-// starts after the marker, the last domain of the page before; a page
-// shorter than asked for is the last.
+// starts after the marker, the last domain of the page before.
 func (p *Provider) listDomains(ctx context.Context) ([]wireDomain, error) {
-	var out []wireDomain
+	domains, err := rest.Pages(domainsPerPage, func(d wireDomain) string { return d.Domain }, func(pg rest.Page) ([]wireDomain, error) {
+		q := url.Values{
+			"statuses": {"ACTIVE"},
+			"includes": {"nameServers"},
+			"limit":    {strconv.Itoa(pg.Size)},
+		}
 
-	q := url.Values{
-		"statuses": {"ACTIVE"},
-		"includes": {"nameServers"},
-		"limit":    {strconv.Itoa(domainsPerPage)},
-	}
+		if pg.Marker != "" {
+			q.Set("marker", pg.Marker)
+		}
 
-	for {
 		var page []wireDomain
-		if err := p.get(ctx, "/v1/domains", q, &page); err != nil {
-			return nil, err
-		}
 
-		out = append(out, page...)
-
-		if len(page) < domainsPerPage {
-			return out, nil
-		}
-
-		marker := page[len(page)-1].Domain
-		if marker == q.Get("marker") {
-			return nil, errors.New("godaddy: the domain list answered the same page twice")
-		}
-
-		q.Set("marker", marker)
-	}
-}
-
-// get sends a GET and decodes its JSON answer into v.
-func (p *Provider) get(ctx context.Context, path string, q url.Values, v any) error {
-	return p.do(ctx, http.MethodGet, path+"?"+q.Encode(), nil, v)
-}
-
-// do sends a request with an optional JSON body, and decodes a JSON answer
-// into v unless v is nil. Any 2xx is success.
-func (p *Provider) do(ctx context.Context, method, path string, body, v any) error {
-	var reader io.Reader
-
-	if body != nil {
-		data, err := json.Marshal(body)
-		if err != nil {
-			return fmt.Errorf("godaddy: encode %s: %w", path, err)
-		}
-
-		reader = bytes.NewReader(data)
+		return page, p.api().Do(ctx, http.MethodGet, "/v1/domains", q, nil, &page)
+	})
+	if errors.Is(err, rest.ErrSamePage) {
+		return nil, fmt.Errorf("godaddy: the domain list: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, p.baseURL+path, reader)
-	if err != nil {
-		return fmt.Errorf("godaddy: %w", err)
-	}
-
-	req.Header.Set("Authorization", p.auth)
-	req.Header.Set("Accept", "application/json")
-
-	if body != nil {
-		req.Header.Set("Content-Type", "application/json")
-	}
-
-	res, err := p.client.Do(req)
-	if err != nil {
-		return fmt.Errorf("godaddy: %w", err)
-	}
-	defer func() { _ = res.Body.Close() }()
-
-	data, err := io.ReadAll(res.Body)
-	if err != nil {
-		return fmt.Errorf("godaddy: %w", err)
-	}
-
-	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return apiError(res, data)
-	}
-
-	if v == nil {
-		return nil
-	}
-
-	if err := json.Unmarshal(data, v); err != nil {
-		return fmt.Errorf("godaddy: decode %s: %w", path, err)
-	}
-
-	return nil
+	return domains, err
 }
 
 // recordsPerPage is the largest page GoDaddy serves for records.
@@ -280,39 +234,29 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone) (dnsprovi
 }
 
 // listRecords reads every page of a domain's records. The offset is the
-// page, from 1; a page shorter than asked for is the last, and GoDaddy
-// answers a page past the last one with 422.
+// page, from 1; GoDaddy answers a page past the last one with 422.
 func (p *Provider) listRecords(ctx context.Context, zone dnsprovider.Zone) ([]wireRecord, error) {
-	var out, last []wireRecord
+	path := "/v1/domains/" + url.PathEscape(zone.ID) + "/records"
 
-	for page := 1; ; page++ {
-		q := url.Values{"offset": {strconv.Itoa(page)}, "limit": {strconv.Itoa(recordsPerPage)}}
+	records, err := rest.Pages(recordsPerPage, nil, func(pg rest.Page) ([]wireRecord, error) {
+		q := url.Values{"offset": {strconv.Itoa(pg.Number)}, "limit": {strconv.Itoa(pg.Size)}}
 
-		var res []wireRecord
+		var page []wireRecord
 
-		err := p.get(ctx, "/v1/domains/"+url.PathEscape(zone.ID)+"/records", q, &res)
+		err := p.api().Do(ctx, http.MethodGet, path, q, nil, &page)
 
 		var apiErr *dnsprovider.APIError
-		if page > 1 && errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnprocessableEntity {
-			return out, nil
+		if pg.Number > 1 && errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnprocessableEntity {
+			return nil, nil
 		}
 
-		if err != nil {
-			return nil, err
-		}
-
-		if page > 1 && slices.Equal(res, last) {
-			return nil, fmt.Errorf("godaddy: the records of %s answered the same page twice", zone.Name)
-		}
-
-		out = append(out, res...)
-
-		if len(res) < recordsPerPage {
-			return out, nil
-		}
-
-		last = res
+		return page, err
+	})
+	if errors.Is(err, rest.ErrSamePage) {
+		return nil, fmt.Errorf("godaddy: the records of %s: %w", zone.Name, err)
 	}
+
+	return records, err
 }
 
 // toRecord turns a v1 record into a Record of a Zone, with an absolute
@@ -527,7 +471,7 @@ func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rr
 	path := "/v1/domains/" + url.PathEscape(zone.ID) + "/records/" + url.PathEscape(set.typ) + "/" + url.PathEscape(set.name)
 
 	var current []wireRecord
-	if err := p.do(ctx, http.MethodGet, path, nil, &current); err != nil && !errors.Is(err, dnsprovider.ErrNotFound) {
+	if err := p.api().Do(ctx, http.MethodGet, path, nil, nil, &current); err != nil && !errors.Is(err, dnsprovider.ErrNotFound) {
 		return nil, err
 	}
 
@@ -577,7 +521,7 @@ func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rr
 	}
 
 	if len(records) == 0 {
-		return failed, p.do(ctx, http.MethodDelete, path, nil, nil)
+		return failed, p.api().Do(ctx, http.MethodDelete, path, nil, nil, nil)
 	}
 
 	body := make([]putRecord, 0, len(records))
@@ -590,7 +534,7 @@ func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rr
 		body = append(body, w)
 	}
 
-	return failed, p.do(ctx, http.MethodPut, path, body, nil)
+	return failed, p.api().Do(ctx, http.MethodPut, path, nil, body, nil)
 }
 
 // putRecord is one record of an RRset replace.

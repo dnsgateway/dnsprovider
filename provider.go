@@ -59,6 +59,29 @@ func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error
 	return ZoneStatus{DNSSEC: Unknown, HSTS: Unknown}, nil
 }
 
+// ZoneUpdater is implemented by a Provider that changes Zone settings,
+// such as Cloudflare. It is a Zone write: a consumer asks the user first.
+type ZoneUpdater interface {
+	// UpdateZone changes the settings u sets, leaving those it leaves nil
+	// as they are, and returns the Zone Status as it is after the change.
+	// A setting written before one fails stays written.
+	UpdateZone(ctx context.Context, zone Zone, u ZoneUpdate) (ZoneStatus, error)
+}
+
+// ZoneUpdate is the settings an UpdateZone changes: a nil one is left as
+// it is.
+type ZoneUpdate struct {
+	DNSSEC *bool
+	HSTS   *bool
+}
+
+// CanUpdateZone reports whether a Provider implements ZoneUpdater.
+func CanUpdateZone(p Provider) bool {
+	_, ok := p.(ZoneUpdater)
+
+	return ok
+}
+
 // TenantLister is implemented by a Provider whose credentials can reach
 // several Tenants, such as Cloudflare. It works before a Tenant is set.
 type TenantLister interface {

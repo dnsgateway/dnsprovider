@@ -72,3 +72,20 @@ func TestZoneStatusOfAReaderIsWhatItReads(t *testing.T) {
 		t.Errorf("ZoneStatusOf error = %v, want ErrUnauthorized", err)
 	}
 }
+
+// zoneUpdater is a Provider that changes Zone settings.
+type zoneUpdater struct{ dnsprovider.Provider }
+
+func (zoneUpdater) UpdateZone(context.Context, dnsprovider.Zone, dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	return dnsprovider.ZoneStatus{}, nil
+}
+
+func TestCanUpdateZoneOnlyForAZoneUpdater(t *testing.T) {
+	if dnsprovider.CanUpdateZone(oneTenant{}) {
+		t.Error("a Provider without a ZoneUpdater updates Zones")
+	}
+
+	if !dnsprovider.CanUpdateZone(zoneUpdater{}) {
+		t.Error("a ZoneUpdater does not update Zones")
+	}
+}

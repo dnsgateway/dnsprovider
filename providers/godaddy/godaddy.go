@@ -334,26 +334,34 @@ type wireRecord struct {
 	Protocol string `json:"protocol,omitempty"`
 }
 
-// Records implements dnsprovider.Provider. GoDaddy reports no SOA serial:
-// A consumer asks the Zone's nameservers for it.
-func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, _ dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
-	all, err := p.listRecords(ctx, zone)
+// Records implements dnsprovider.Provider. GoDaddy lists the Records of
+// one type itself; the name filter, and the type again, are applied with
+// dnsprovider.MatchRecord. GoDaddy reports no SOA serial: A consumer asks
+// the Zone's nameservers for it.
+func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+	all, err := p.listRecords(ctx, zone, strings.ToUpper(f.Type))
 	if err != nil {
 		return dnsprovider.RecordSet{}, err
 	}
 
 	records := make([]dnsprovider.Record, 0, len(all))
 	for _, w := range all {
-		records = append(records, toRecord(zone.Name, w))
+		if rec := toRecord(zone.Name, w); dnsprovider.MatchRecord(f, rec) {
+			records = append(records, rec)
+		}
 	}
 
 	return dnsprovider.RecordSet{Records: records}, nil
 }
 
-// listRecords reads every page of a domain's records. The offset is the
-// page, from 1; GoDaddy answers a page past the last one with 422.
-func (p *Provider) listRecords(ctx context.Context, zone dnsprovider.Zone) ([]wireRecord, error) {
+// listRecords reads every page of a domain's records, only those of a
+// type when typ is set. The offset is the page, from 1; GoDaddy answers a
+// page past the last one with 422.
+func (p *Provider) listRecords(ctx context.Context, zone dnsprovider.Zone, typ string) ([]wireRecord, error) {
 	path := "/v1/domains/" + url.PathEscape(zone.ID) + "/records"
+	if typ != "" {
+		path += "/" + url.PathEscape(typ)
+	}
 
 	records, err := rest.Pages(recordsPerPage, nil, func(pg rest.Page) ([]wireRecord, error) {
 		q := url.Values{"offset": {strconv.Itoa(pg.Number)}, "limit": {strconv.Itoa(pg.Size)}}

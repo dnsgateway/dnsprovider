@@ -134,12 +134,16 @@ func (api *gdAPI) handler(t *testing.T) http.Handler {
 		writeJSON(w, http.StatusOK, api.domains[i])
 	})
 
-	mux.HandleFunc("GET /v1/domains/{domain}/records", func(w http.ResponseWriter, r *http.Request) {
+	listRecords := func(w http.ResponseWriter, r *http.Request) {
 		records, ok := api.records[r.PathValue("domain")]
 		if !ok {
 			writeError(w, http.StatusNotFound, "UNKNOWN_DOMAIN", "The given domain is not registered, or does not have a zone file")
 
 			return
+		}
+
+		if typ := r.PathValue("type"); typ != "" {
+			records = slices.DeleteFunc(slices.Clone(records), func(rec map[string]any) bool { return rec["type"] != typ })
 		}
 
 		// offset is the page, from 1; GoDaddy answers 422 past the last one.
@@ -157,8 +161,10 @@ func (api *gdAPI) handler(t *testing.T) http.Handler {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, records[start:min(start+size, len(records))])
-	})
+		writeJSON(w, http.StatusOK, append([]map[string]any{}, records[start:min(start+size, len(records))]...))
+	}
+	mux.HandleFunc("GET /v1/domains/{domain}/records", listRecords)
+	mux.HandleFunc("GET /v1/domains/{domain}/records/{type}", listRecords)
 
 	mux.HandleFunc("GET /v1/domains/{domain}/records/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
 		api.mu.Lock()
@@ -1066,5 +1072,50 @@ func TestRecordsCarryAProviderIDThatTellsThemApartInTheirRRset(t *testing.T) {
 	// The ID survives a change of case in the name.
 	if www := set.Records[3]; www.ID != godaddy.WithID(dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}).ID {
 		t.Errorf("www ID = %q, want it the same whatever the name's case", www.ID)
+	}
+}
+
+func TestRecordsFilteredByTypeAskGoDaddyForTheTypeAndByNameFilterHere(t *testing.T) {
+	cases := []struct {
+		name     string
+		filter   dnsprovider.RecordFilter
+		wantPath string
+		want     []string // type and name of each Record
+	}{
+		{"type", dnsprovider.RecordFilter{Type: "mx"}, "/v1/domains/example.com/records/MX", []string{"MX example.com"}},
+		{"name", dnsprovider.RecordFilter{Contains: "WWW."}, "/v1/domains/example.com/records", []string{"A www.example.com", "AAAA www.example.com"}},
+		{"type and name", dnsprovider.RecordFilter{Type: "A", Contains: "www.example.com."}, "/v1/domains/example.com/records/A", []string{"A www.example.com"}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			api := &gdAPI{pageSize: 2, records: map[string][]map[string]any{"example.com": {
+				{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+				{"type": "AAAA", "name": "www", "data": "2001:db8::1", "ttl": 600},
+				{"type": "MX", "name": "@", "data": "mail.example.com", "priority": 10, "ttl": 3600},
+				{"type": "A", "name": "wwwx", "data": "192.0.2.2", "ttl": 600},
+				{"type": "A", "name": "@", "data": "192.0.2.3", "ttl": 600},
+			}}}
+
+			set, err := newProvider(t, api).Records(context.Background(), example, c.filter)
+			if err != nil {
+				t.Fatalf("Records: %v", err)
+			}
+
+			got := make([]string, 0, len(set.Records))
+			for _, r := range set.Records {
+				got = append(got, r.Type+" "+r.Name)
+			}
+
+			if !slices.Equal(got, c.want) {
+				t.Errorf("Records = %v, want %v", got, c.want)
+			}
+
+			for _, u := range api.Requests() {
+				if u.Path != c.wantPath {
+					t.Errorf("request %s, want only %s", u, c.wantPath)
+				}
+			}
+		})
 	}
 }

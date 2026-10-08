@@ -514,12 +514,12 @@ func TestUpdateZoneChangesTheSettingsItIsGivenAndRecordsTheUpdate(t *testing.T) 
 	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
 
 	fake := providertest.New().AddZone(z)
-	fake.SetZoneStatus("z1", dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Off, HSTS: dnsprovider.On})
+	fake.SetZoneStatus("z1", dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.Off})
 	fake.SetZoneUpdater(true)
 
 	p := newFake(t, fake)
 	on := true
-	u := dnsprovider.ZoneUpdate{DNSSEC: &on}
+	u := dnsprovider.ZoneUpdate{HSTS: &on}
 
 	got, err := p.(dnsprovider.ZoneUpdater).UpdateZone(ctx, z, u)
 	if err != nil {
@@ -557,5 +557,32 @@ func TestUpdateZoneFailsAsScriptedAndForAZoneNotScripted(t *testing.T) {
 
 	if _, err := up.UpdateZone(ctx, dnsprovider.Zone{ID: "z1", Name: "example.com"}, dnsprovider.ZoneUpdate{HSTS: &off}); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 		t.Errorf("UpdateZone error = %v, want the scripted ErrUnauthorized", err)
+	}
+}
+
+func TestUpdateZoneLeavesDNSSECPendingAsCloudflareSignsOrUnsignsOverTime(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+
+	for _, on := range []bool{true, false} {
+		fake := providertest.New().AddZone(z)
+		fake.SetZoneStatus("z1", dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Off, HSTS: dnsprovider.On})
+		fake.SetZoneUpdater(true)
+
+		p := newFake(t, fake)
+
+		got, err := p.(dnsprovider.ZoneUpdater).UpdateZone(ctx, z, dnsprovider.ZoneUpdate{DNSSEC: &on})
+		if err != nil {
+			t.Fatalf("UpdateZone: %v", err)
+		}
+
+		want := dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Pending, HSTS: dnsprovider.On}
+		if got != want {
+			t.Errorf("DNSSEC %v: UpdateZone = %+v, want %+v", on, got, want)
+		}
+
+		if st, err := dnsprovider.ZoneStatusOf(ctx, p, z); err != nil || st != want {
+			t.Errorf("DNSSEC %v: Zone Status after UpdateZone = %+v, %v; want %+v", on, st, err, want)
+		}
 	}
 }

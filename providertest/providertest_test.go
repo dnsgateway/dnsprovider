@@ -313,3 +313,37 @@ func TestZoneMatchesNamesAsTheAdaptersDo(t *testing.T) {
 		}
 	}
 }
+
+func TestRecordsAreFilteredAndRecordTheFilter(t *testing.T) {
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	a := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	aaaa := dnsprovider.Record{ID: "r2", Type: "AAAA", Name: "www.example.com", Value: "2001:db8::1", TTL: 300}
+	mx := dnsprovider.Record{ID: "r3", Type: "MX", Name: "example.com", Value: "10 mail.example.com", TTL: 3600}
+	fake := providertest.New().AddZone(z, a, aaaa, mx).SetSerial("z1", 7)
+	p := newFake(t, fake)
+
+	cases := []struct {
+		filter dnsprovider.RecordFilter
+		want   []dnsprovider.Record
+	}{
+		{dnsprovider.RecordFilter{}, []dnsprovider.Record{a, aaaa, mx}},
+		{dnsprovider.RecordFilter{Type: "mx"}, []dnsprovider.Record{mx}},
+		{dnsprovider.RecordFilter{Contains: "WWW."}, []dnsprovider.Record{a, aaaa}},
+		{dnsprovider.RecordFilter{Type: "AAAA", Contains: "www"}, []dnsprovider.Record{aaaa}},
+	}
+
+	for _, c := range cases {
+		rs, err := p.Records(context.Background(), z, c.filter)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if !reflect.DeepEqual(rs.Records, c.want) || rs.Serial != 7 {
+			t.Errorf("Records(%+v) = %+v serial %d, want %+v serial 7", c.filter, rs.Records, rs.Serial, c.want)
+		}
+
+		if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpRecords || calls[len(calls)-1].RecordFilter != c.filter {
+			t.Errorf("last call = %+v, want Records with the filter %+v", calls[len(calls)-1], c.filter)
+		}
+	}
+}

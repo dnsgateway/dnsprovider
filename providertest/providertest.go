@@ -43,6 +43,8 @@ type Call struct {
 	Zone dnsprovider.Zone
 	// ZoneFilter is set for OpZones.
 	ZoneFilter dnsprovider.ZoneFilter
+	// RecordFilter is set for OpRecords.
+	RecordFilter dnsprovider.RecordFilter
 	// Changeset is set for OpApply.
 	Changeset dnsprovider.Changeset
 }
@@ -417,9 +419,10 @@ func (p *Provider) scripted(z dnsprovider.Zone) dnsprovider.Zone {
 	return z
 }
 
-// Records implements dnsprovider.Provider.
-func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, _ dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
-	if err := p.record(Call{Op: OpRecords, Zone: z}); err != nil {
+// Records implements dnsprovider.Provider: the scripted Records that
+// match the filter, by dnsprovider.MatchRecord.
+func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+	if err := p.record(Call{Op: OpRecords, Zone: z, RecordFilter: f}); err != nil {
 		return dnsprovider.RecordSet{}, err
 	}
 
@@ -431,7 +434,15 @@ func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, _ dnsprovider.
 		return dnsprovider.RecordSet{}, fmt.Errorf("zone %s (%s) not found", z.Name, z.ID)
 	}
 
-	return dnsprovider.RecordSet{Records: slices.Clone(records), Serial: p.serial(z.ID)}, nil
+	var matched []dnsprovider.Record
+
+	for _, r := range records {
+		if dnsprovider.MatchRecord(f, r) {
+			matched = append(matched, r)
+		}
+	}
+
+	return dnsprovider.RecordSet{Records: matched, Serial: p.serial(z.ID)}, nil
 }
 
 // Apply implements dnsprovider.Provider. It applies each change to the

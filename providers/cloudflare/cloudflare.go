@@ -491,7 +491,12 @@ func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 		return dnsprovider.Record{}, err
 	}
 
-	body, err := encodeBody(r, false)
+	b, err := writeBody(r)
+	if err != nil {
+		return dnsprovider.Record{}, err
+	}
+
+	body, err := encodeBody(b)
 	if err != nil {
 		return dnsprovider.Record{}, err
 	}
@@ -499,7 +504,7 @@ func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 	var params cfdns.RecordNewParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	result, err := p.write(ctx, body, func(opts ...option.RequestOption) error {
+	result, err := p.do(ctx, body, func(opts ...option.RequestOption) error {
 		_, err := p.records.New(ctx, params, append(opts, option.WithMaxRetries(0))...)
 
 		return err
@@ -513,7 +518,9 @@ func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 
 // UpdateRecord implements dnsprovider.Provider: a PATCH of before, found
 // by its ID, so the fields the module does not model, such as a comment
-// or tags, are kept. It returns after as Cloudflare stored it.
+// or tags, are kept, and so is the proxy flag when after sets none. A
+// Record that changes type is replaced instead; see replaceRecord. It
+// returns after as Cloudflare stored it.
 func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
 	if err := p.needTenant(); err != nil {
 		return dnsprovider.Record{}, err
@@ -523,24 +530,18 @@ func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, befo
 		return dnsprovider.Record{}, noID(before)
 	}
 
-	// A PATCH keeps what it does not send, so a Record without a proxy
-	// flag keeps the one Cloudflare holds; only a Record that changes to a
-	// type that cannot be proxied has the flag it had turned off.
-	_, hadFlag := before.Extras[ExtraProxied]
-
-	body, err := encodeBody(after, hadFlag && !slices.Contains(p.ProxiableTypes(), strings.ToUpper(after.Type)))
+	b, err := writeBody(after)
 	if err != nil {
 		return dnsprovider.Record{}, err
 	}
 
-	var params cfdns.RecordEditParams
-	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+	var result json.RawMessage
+	if strings.EqualFold(before.Type, after.Type) {
+		result, err = p.patchRecord(ctx, zone, before.ID, b)
+	} else {
+		result, err = p.replaceRecord(ctx, zone, before.ID, b)
+	}
 
-	result, err := p.write(ctx, body, func(opts ...option.RequestOption) error {
-		_, err := p.records.Edit(ctx, before.ID, params, opts...)
-
-		return err
-	})
 	if err != nil {
 		return dnsprovider.Record{}, err
 	}
@@ -549,6 +550,81 @@ func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, befo
 	sent.ID = before.ID
 
 	return storedRecord(result, sent), nil
+}
+
+// patchRecord PATCHes the record id to b; Cloudflare keeps what b does
+// not send.
+func (p *Provider) patchRecord(ctx context.Context, zone dnsprovider.Zone, id string, b recordBody) (json.RawMessage, error) {
+	body, err := encodeBody(b)
+	if err != nil {
+		return nil, err
+	}
+
+	var params cfdns.RecordEditParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	return p.do(ctx, body, func(opts ...option.RequestOption) error {
+		_, err := p.records.Edit(ctx, id, params, opts...)
+
+		return err
+	})
+}
+
+// replaceRecord writes the record id whole as b, with a PUT, for a Record
+// that changes type: a PATCH would keep the old type's fields that b does
+// not send, such as an MX priority or a CAA Record's data. A PUT drops
+// everything it does not send, so the comment and tags Cloudflare holds
+// are read first and sent along, and so is the proxy flag when b sets
+// none and its type can be proxied. The record's settings belong to its
+// old type and are dropped.
+func (p *Provider) replaceRecord(ctx context.Context, zone dnsprovider.Zone, id string, b recordBody) (json.RawMessage, error) {
+	var get cfdns.RecordGetParams
+	get.ZoneID.Value, get.ZoneID.Present = zone.ID, true
+
+	held, err := p.do(ctx, nil, func(opts ...option.RequestOption) error {
+		_, err := p.records.Get(ctx, id, get, opts...)
+
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	var cur struct {
+		Comment json.RawMessage `json:"comment"`
+		Tags    json.RawMessage `json:"tags"`
+		Proxied *bool           `json:"proxied"`
+	}
+
+	if err := json.Unmarshal(held, &cur); err != nil {
+		return nil, fmt.Errorf("cloudflare: decode record: %w", err)
+	}
+
+	if string(cur.Comment) != "null" {
+		b.Comment = cur.Comment
+	}
+
+	if string(cur.Tags) != "null" {
+		b.Tags = cur.Tags
+	}
+
+	if b.Proxied == nil && slices.Contains(p.ProxiableTypes(), strings.ToUpper(b.Type)) {
+		b.Proxied = cur.Proxied
+	}
+
+	body, err := encodeBody(b)
+	if err != nil {
+		return nil, err
+	}
+
+	var params cfdns.RecordUpdateParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	return p.do(ctx, body, func(opts ...option.RequestOption) error {
+		_, err := p.records.Update(ctx, id, params, opts...)
+
+		return err
+	})
 }
 
 // DeleteRecord implements dnsprovider.Provider: a DELETE of the Record by
@@ -576,7 +652,7 @@ func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 		return next(req)
 	})
 
-	_, err := p.write(ctx, nil, func(opts ...option.RequestOption) error {
+	_, err := p.do(ctx, nil, func(opts ...option.RequestOption) error {
 		_, err := p.records.Delete(ctx, r.ID, params, append(opts, count)...)
 
 		return err
@@ -593,10 +669,10 @@ func noID(r dnsprovider.Record) error {
 	return fmt.Errorf("cloudflare: %s %s has no record ID", r.Type, r.Name)
 }
 
-// write makes one record write, sending body when it is set, and returns
-// the answer's result: the record as Cloudflare stored it, for a create
-// or an update; the caller decodes it with storedRecord.
-func (p *Provider) write(ctx context.Context, body []byte, call func(...option.RequestOption) error) (json.RawMessage, error) {
+// do makes one request about a record, sending body when it is set, and
+// returns the answer's result: the record as Cloudflare holds it, for a
+// read, a create or an update, which storedRecord decodes after a write.
+func (p *Provider) do(ctx context.Context, body []byte, call func(...option.RequestOption) error) (json.RawMessage, error) {
 	var (
 		env  envelope
 		raw  *http.Response
@@ -638,20 +714,9 @@ func storedRecord(result json.RawMessage, sent dnsprovider.Record) dnsprovider.R
 	return rec
 }
 
-// encodeBody is the JSON body that creates r, or updates a record to it.
-// offProxy turns the proxy flag off when r sets none, for a PATCH of a
-// Record that had one.
-func encodeBody(r dnsprovider.Record, offProxy bool) ([]byte, error) {
-	wb, err := writeBody(r)
-	if err != nil {
-		return nil, err
-	}
-
-	if offProxy && wb.Proxied == nil {
-		wb.Proxied = new(bool)
-	}
-
-	body, err := json.Marshal(wb)
+// encodeBody is the JSON of a record write's body.
+func encodeBody(b recordBody) ([]byte, error) {
+	body, err := json.Marshal(b)
 	if err != nil {
 		return nil, fmt.Errorf("cloudflare: encode record: %w", err)
 	}
@@ -675,6 +740,10 @@ type recordBody struct {
 	Data     any     `json:"data,omitempty"`
 	TTL      uint32  `json:"ttl"`
 	Proxied  *bool   `json:"proxied,omitempty"`
+	// Comment and Tags are sent only to keep the ones Cloudflare holds
+	// through a PUT.
+	Comment json.RawMessage `json:"comment,omitempty"`
+	Tags    json.RawMessage `json:"tags,omitempty"`
 }
 
 type srvData struct {

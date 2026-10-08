@@ -309,3 +309,59 @@ func TestUpdateRecordWithoutAProxyFlagKeepsTheOneCloudflareHolds(t *testing.T) {
 	want.Extras = map[string]string{cloudflare.ExtraProxied: "true"}
 	assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{want})
 }
+
+func TestUpdateRecordChangingItsTypeReplacesItAndKeepsItsCommentAndTags(t *testing.T) {
+	// A PATCH would keep the old type's fields, such as an MX priority, so
+	// a Record changing type is written whole with a PUT, which drops
+	// whatever it does not send: the comment and tags Cloudflare holds are
+	// read first and sent along.
+	stored := cfRecord("r1", "MX", "example.com", "mail.example.com", 300, false, false)
+	stored["priority"] = 10
+	stored["comment"] = "mail"
+	stored["tags"] = []any{"team:mail"}
+	api := &cfAPI{records: map[string][]map[string]any{"z1": {stored}}}
+	p := newProvider(t, api)
+
+	before := dnsprovider.Record{ID: "r1", Type: "MX", Name: "example.com", Value: "10 mail.example.com", TTL: 300}
+	after := dnsprovider.Record{ID: "r1", Type: "TXT", Name: "example.com", Value: `"hi"`, TTL: 300}
+
+	got, err := p.UpdateRecord(context.Background(), crudZone, before, after)
+	if err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+
+	assertWrites(t, api, []write{{Method: "PUT", Path: "/client/v4/zones/z1/dns_records/r1", Body: map[string]any{
+		"type": "TXT", "name": "example.com", "content": `"hi"`, "ttl": 300.0, "comment": "mail", "tags": []any{"team:mail"},
+	}}})
+	assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{after})
+
+	rec := api.records["z1"][0]
+	if _, ok := rec["priority"]; ok {
+		t.Errorf("record = %v, want the MX priority gone", rec)
+	}
+
+	if rec["comment"] != "mail" || !reflect.DeepEqual(rec["tags"], []any{"team:mail"}) {
+		t.Errorf("comment, tags = %v, %v; want the ones Cloudflare held kept", rec["comment"], rec["tags"])
+	}
+}
+
+func TestUpdateRecordChangingItsTypeWithoutAProxyFlagKeepsTheOneCloudflareHolds(t *testing.T) {
+	api := &cfAPI{records: map[string][]map[string]any{"z1": {cfRecord("r1", "CNAME", "www.example.com", "example.com", 300, true, true)}}}
+	p := newProvider(t, api)
+
+	before := dnsprovider.Record{ID: "r1", Type: "CNAME", Name: "www.example.com", Value: "example.com", TTL: 300, Extras: map[string]string{cloudflare.ExtraProxied: "true"}}
+	after := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+
+	got, err := p.UpdateRecord(context.Background(), crudZone, before, after)
+	if err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+
+	if w := api.Writes(); len(w) != 1 || w[0].Method != "PUT" || w[0].Body["proxied"] != true {
+		t.Errorf("writes = %+v, want one PUT keeping the proxy on", w)
+	}
+
+	want := after
+	want.Extras = map[string]string{cloudflare.ExtraProxied: "true"}
+	assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{want})
+}

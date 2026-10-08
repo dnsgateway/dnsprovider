@@ -212,6 +212,19 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 		api.page(w, r, api.recordsMatching(records, r.URL.Query()))
 	})
 	mux.HandleFunc("POST /client/v4/zones/{zone}/dns_records", api.writeRecord)
+	mux.HandleFunc("GET /client/v4/zones/{zone}/dns_records/{id}", func(w http.ResponseWriter, r *http.Request) {
+		api.mu.Lock()
+		defer api.mu.Unlock()
+
+		i := slices.IndexFunc(api.records[r.PathValue("zone")], func(rec map[string]any) bool { return rec["id"] == r.PathValue("id") })
+		if i < 0 {
+			writeErrors(w, http.StatusNotFound, 81044, "Record does not exist.")
+
+			return
+		}
+
+		writeResult(w, api.records[r.PathValue("zone")][i])
+	})
 	mux.HandleFunc("PUT /client/v4/zones/{zone}/dns_records/{id}", api.writeRecord)
 	mux.HandleFunc("PATCH /client/v4/zones/{zone}/dns_records/{id}", api.writeRecord)
 	mux.HandleFunc("DELETE /client/v4/zones/{zone}/dns_records/{id}", api.writeRecord)
@@ -665,12 +678,12 @@ func TestApplyUpdatesARecordInPlaceAndTurnsTheProxyOff(t *testing.T) {
 }
 
 func TestApplyTurnsTheProxyOffWhenARecordChangesToATypeThatCannotHaveIt(t *testing.T) {
-	// A PATCH keeps what it does not send, so a proxied CNAME patched into
-	// a TXT Record would stay proxied, which Cloudflare refuses.
+	// A proxied CNAME that becomes a TXT Record is written whole, and
+	// not proxied, which Cloudflare refuses for a TXT Record.
 	api := &cfAPI{
 		records: map[string][]map[string]any{"z1": {cfRecord("r1", "CNAME", "www.example.com", "example.com", 1, true, true)}},
 		reject: func(_ string, body map[string]any) string {
-			if body["type"] == "TXT" && body["proxied"] != false {
+			if body["type"] == "TXT" && body["proxied"] == true {
 				return "TXT records cannot be proxied."
 			}
 
@@ -689,6 +702,9 @@ func TestApplyTurnsTheProxyOffWhenARecordChangesToATypeThatCannotHaveIt(t *testi
 	}
 
 	assertResults(t, res, []dnsprovider.ChangeResult{{Change: modify, Record: after}})
+	if got := api.records["z1"][0]["proxied"]; got != false {
+		t.Errorf("proxied = %v, want the TXT Record not proxied", got)
+	}
 }
 
 func TestApplyDeletesARecord(t *testing.T) {

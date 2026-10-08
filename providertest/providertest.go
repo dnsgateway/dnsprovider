@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -40,6 +41,8 @@ const (
 	OpTenants      Op = "Tenants"
 	// OpUpdateZone is the ZoneUpdater's UpdateZone; see SetZoneUpdater.
 	OpUpdateZone Op = "UpdateZone"
+	// OpCreateZone is the ZoneCreator's CreateZone; see SetZoneCreator.
+	OpCreateZone Op = "CreateZone"
 )
 
 // Call is one recorded call.
@@ -47,8 +50,8 @@ type Call struct {
 	Op Op
 	// Fields are the field map, set for OpNew.
 	Fields map[string]string
-	// Zone is set for the Zone operations; for OpZone, its Name alone,
-	// as asked for.
+	// Zone is set for the Zone operations; for OpZone and OpCreateZone,
+	// its Name alone, as asked for.
 	Zone dnsprovider.Zone
 	// ZoneFilter is set for OpZones.
 	ZoneFilter dnsprovider.ZoneFilter
@@ -82,6 +85,7 @@ type Provider struct {
 	autoTTL    bool
 	batcher    bool
 	updater    bool
+	creator    bool
 	calls      []Call
 	nextID     int
 }
@@ -196,8 +200,8 @@ func (p *Provider) SetAutoTTL(on bool) {
 // consumer may branch on, and Batcher, which changes how
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted: one type per combination, generated (see
-// gen_wrappers.go) and picked by build. So is ZoneUpdater, which a
-// consumer offers its Zone settings by.
+// gen_wrappers.go) and picked by build. So are ZoneUpdater and
+// ZoneCreator, which a consumer offers its Zone writes by.
 var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
@@ -314,6 +318,20 @@ func (p *Provider) SetZoneUpdater(on bool) {
 	p.updater = on
 }
 
+// SetZoneCreator makes the Providers New builds implement
+// dnsprovider.ZoneCreator, recorded as OpCreateZone: CreateZone adds a
+// Zone of the name, without Records, Pending, with a new ID and the
+// scripted Account's nameservers, as Cloudflare Onboards a zone name, and
+// returns it. A name the fake holds in a Hosting State other than Moved
+// is dnsprovider.ErrConflict; a Moved Zone's name is Onboarded again
+// beside it. Unscripted, they do not implement it.
+func (p *Provider) SetZoneCreator(on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.creator = on
+}
+
 // FailChanges makes each write fail a change for which fn returns an
 // error, while the Batcher applies the rest: a partial failure. The CRUD
 // methods are handed their call as a Change.
@@ -397,6 +415,10 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 
 	if p.updater {
 		set |= optZoneUpdater
+	}
+
+	if p.creator {
+		set |= optZoneCreator
 	}
 
 	return wrap(p, set), nil
@@ -672,6 +694,41 @@ func (p *Provider) updateZone(_ context.Context, z dnsprovider.Zone, u dnsprovid
 	p.status[z.ID] = st
 
 	return st, nil
+}
+
+// createZone is the fake's dnsprovider.ZoneCreator; see SetZoneCreator.
+func (p *Provider) createZone(_ context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.record(Call{Op: OpCreateZone, Zone: dnsprovider.Zone{Name: name}}); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	key := names.ZoneName(strings.TrimSpace(name))
+	if key == "" {
+		return dnsprovider.Zone{}, errors.New("providertest: Onboard: no zone name")
+	}
+
+	for _, z := range p.zones {
+		if names.ZoneName(z.Name) == key && p.scripted(z).State != dnsprovider.HostingMoved {
+			return dnsprovider.Zone{}, fmt.Errorf("providertest: zone %q: %w", key, dnsprovider.ErrConflict)
+		}
+	}
+
+	p.nextID++
+
+	z := dnsprovider.Zone{
+		ID:          fmt.Sprintf("fake-zone-%d", p.nextID),
+		Name:        key,
+		State:       dnsprovider.HostingPending,
+		Nameservers: slices.Clone(p.account.Nameservers),
+	}
+
+	p.zones = append(p.zones, z)
+	p.records[z.ID] = []dnsprovider.Record{}
+
+	return p.scripted(z), nil
 }
 
 // setting is On or Off.

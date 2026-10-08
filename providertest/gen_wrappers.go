@@ -47,6 +47,11 @@ var options = []option{
 		Iface:  "ZoneUpdater",
 		Method: "UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) { return p.updateZone(ctx, z, u) }",
 	},
+	{
+		Name:   "ZoneCreator",
+		Iface:  "ZoneCreator",
+		Method: "CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) { return p.createZone(ctx, name) }",
+	},
 }
 
 func main() {

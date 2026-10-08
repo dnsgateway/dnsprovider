@@ -481,9 +481,9 @@ func TestBatcherFailsAChangeOfNoKnownKindAlone(t *testing.T) {
 	}
 }
 
-func TestZoneUpdaterIsImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.T) {
-	for set := range 16 {
-		tenants, status, batcher, updater := set&1 != 0, set&2 != 0, set&4 != 0, set&8 != 0
+func TestZoneWritersAreImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.T) {
+	for set := range 32 {
+		tenants, status, batcher, updater, creator := set&1 != 0, set&2 != 0, set&4 != 0, set&8 != 0, set&16 != 0
 
 		fake := providertest.New()
 		if tenants {
@@ -496,15 +496,16 @@ func TestZoneUpdaterIsImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.T
 
 		fake.SetBatcher(batcher)
 		fake.SetZoneUpdater(updater)
+		fake.SetZoneCreator(creator)
 
 		p := newFake(t, fake)
 
 		_, isBatcher := p.(dnsprovider.Batcher)
 		_, readsStatus := p.(dnsprovider.ZoneStatusReader)
 
-		if dnsprovider.CanUpdateZone(p) != updater || isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
-			t.Errorf("tenants %v, status %v, batcher %v, updater %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v, updating Zones %v",
-				tenants, status, batcher, updater, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.CanUpdateZone(p))
+		if dnsprovider.CanUpdateZone(p) != updater || dnsprovider.CanCreateZone(p) != creator || isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
+			t.Errorf("tenants %v, status %v, batcher %v, updater %v, creator %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v, updating Zones %v, creating Zones %v",
+				tenants, status, batcher, updater, creator, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.CanUpdateZone(p), dnsprovider.CanCreateZone(p))
 		}
 	}
 }
@@ -584,5 +585,86 @@ func TestUpdateZoneLeavesDNSSECPendingAsCloudflareSignsOrUnsignsOverTime(t *test
 		if st, err := dnsprovider.ZoneStatusOf(ctx, p, z); err != nil || st != want {
 			t.Errorf("DNSSEC %v: Zone Status after UpdateZone = %+v, %v; want %+v", on, st, err, want)
 		}
+	}
+}
+
+func TestCreateZoneAddsTheZonePendingWithTheAccountsNameserversAndRecordsTheName(t *testing.T) {
+	ctx := context.Background()
+
+	fake := providertest.New()
+	fake.SetAccount(dnsprovider.AccountInfo{Nameservers: []string{"ns1.example.net", "ns2.example.net"}})
+	fake.SetZoneCreator(true)
+
+	p := newFake(t, fake)
+
+	got, err := p.(dnsprovider.ZoneCreator).CreateZone(ctx, "Example.ORG.")
+	if err != nil {
+		t.Fatalf("CreateZone: %v", err)
+	}
+
+	if got.ID == "" || got.Name != "example.org" || got.State != dnsprovider.HostingPending ||
+		!reflect.DeepEqual(got.Nameservers, []string{"ns1.example.net", "ns2.example.net"}) {
+		t.Errorf("CreateZone = %+v, want example.org Pending with an ID and the Account's nameservers", got)
+	}
+
+	calls := fake.Calls()
+	if c := calls[len(calls)-1]; c.Op != providertest.OpCreateZone || c.Zone.Name != "Example.ORG." {
+		t.Errorf("last call = %+v, want CreateZone of Example.ORG.", c)
+	}
+
+	listed, err := p.Zone(ctx, "example.org")
+	if err != nil || !reflect.DeepEqual(listed, got) {
+		t.Errorf("Zone after CreateZone = %+v, %v; want %+v", listed, err, got)
+	}
+
+	rs, err := p.Records(ctx, got, dnsprovider.RecordFilter{})
+	if err != nil || len(rs.Records) != 0 {
+		t.Errorf("Records of the new Zone = %+v, %v; want none", rs, err)
+	}
+}
+
+func TestCreateZoneOfANameTheFakeServesOrAwaitsIsAConflict(t *testing.T) {
+	ctx := context.Background()
+
+	fake := providertest.New().
+		AddZone(dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingActive}).
+		AddZone(dnsprovider.Zone{ID: "z2", Name: "example.net", State: dnsprovider.HostingPending}).
+		AddZone(dnsprovider.Zone{ID: "z3", Name: "example.org", State: dnsprovider.HostingMoved})
+	fake.SetZoneCreator(true)
+
+	c := newFake(t, fake).(dnsprovider.ZoneCreator)
+
+	for _, name := range []string{"EXAMPLE.com.", "example.net"} {
+		if _, err := c.CreateZone(ctx, name); !errors.Is(err, dnsprovider.ErrConflict) {
+			t.Errorf("CreateZone(%q): err = %v, want ErrConflict", name, err)
+		}
+	}
+
+	// A Moved Zone's name is Onboarded again beside it.
+	if z, err := c.CreateZone(ctx, "example.org"); err != nil || z.ID == "z3" {
+		t.Errorf("CreateZone of a Moved Zone's name = %+v, %v; want a new Zone", z, err)
+	}
+}
+
+func TestCreateZoneFailsAsScriptedAndForNoName(t *testing.T) {
+	ctx := context.Background()
+
+	fake := providertest.New()
+	fake.SetZoneCreator(true)
+
+	c := newFake(t, fake).(dnsprovider.ZoneCreator)
+
+	if _, err := c.CreateZone(ctx, " "); err == nil {
+		t.Error("CreateZone of no name succeeded")
+	}
+
+	fake.Fail(providertest.OpCreateZone, dnsprovider.ErrUnauthorized)
+
+	if _, err := c.CreateZone(ctx, "example.org"); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		t.Errorf("CreateZone error = %v, want the scripted ErrUnauthorized", err)
+	}
+
+	if zs, _ := c.(dnsprovider.Provider).Zones(ctx, dnsprovider.ZoneFilter{}); len(zs) != 0 {
+		t.Errorf("Zones after failed creates = %+v, want none", zs)
 	}
 }

@@ -80,3 +80,23 @@ func TestPerMinuteKeepsEveryMinuteUnderTheLimit(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountPerMinuteIsOneLimiterPerAccount(t *testing.T) {
+	now := time.Now()
+	account := "test " + t.Name()
+
+	first, again := rest.AccountPerMinute(account, 2), rest.AccountPerMinute(account, 2)
+	other := rest.AccountPerMinute(account+" other", 2)
+
+	if !first.AllowN(now, 2) {
+		t.Fatal("the first two calls were held back")
+	}
+
+	if again.AllowN(now, 1) {
+		t.Error("the same Account's limiter let a third call go in the minute")
+	}
+
+	if !other.AllowN(now, 1) {
+		t.Error("another Account's limiter held back its first call")
+	}
+}

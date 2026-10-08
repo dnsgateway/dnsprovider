@@ -107,12 +107,13 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 			"ClientIp": {cfg.ClientIP},
 		},
 		client: client,
-		limit:  rest.PerMinute(RequestsPerMinute),
+		limit:  rest.AccountPerMinute("namecheap "+baseURL+" "+cfg.User, RequestsPerMinute),
 		log:    o.Logger,
 	}, nil
 }
 
 // RequestsPerMinute is Namecheap's published rate limit for an Account.
+// Every Provider built for the same API user and endpoint shares it.
 const RequestsPerMinute = 20
 
 // Provider is one Namecheap Account.

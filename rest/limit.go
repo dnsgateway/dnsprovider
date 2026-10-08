@@ -32,6 +32,30 @@ func PerMinute(n int) *Window {
 	return &Window{n: max(1, n), per: time.Minute}
 }
 
+// accounts are AccountPerMinute's limiters, by Account.
+var accounts = struct {
+	sync.Mutex
+	m map[string]*Window
+}{m: map[string]*Window{}}
+
+// AccountPerMinute is the PerMinute limiter of an Account, the same one
+// for every Provider built for it, so that they share the Account's rate
+// limit. account names the Account uniquely: the Provider type, its
+// endpoint and its user, never a secret. The first call's n holds, and a
+// limiter lasts as long as the program.
+func AccountPerMinute(account string, n int) *Window {
+	accounts.Lock()
+	defer accounts.Unlock()
+
+	w, ok := accounts.m[account]
+	if !ok {
+		w = PerMinute(n)
+		accounts.m[account] = w
+	}
+
+	return w
+}
+
 // AllowN reports whether k calls may go at now, and counts them sent if
 // so.
 func (w *Window) AllowN(now time.Time, k int) bool {

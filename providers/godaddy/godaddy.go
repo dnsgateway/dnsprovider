@@ -4,6 +4,8 @@ package godaddy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -80,16 +82,22 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		client = &http.Client{Timeout: DefaultRequestTimeout}
 	}
 
+	baseURL = strings.TrimSuffix(baseURL, "/")
+
+	// The key is marked secret: the Account is named by its hash.
+	keyHash := sha256.Sum256([]byte(cfg.Key))
+
 	return &Provider{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
+		baseURL: baseURL,
 		auth:    "sso-key " + cfg.Key + ":" + cfg.Secret,
 		client:  client,
-		limit:   rest.PerMinute(RequestsPerMinute),
+		limit:   rest.AccountPerMinute("godaddy "+baseURL+" "+hex.EncodeToString(keyHash[:]), RequestsPerMinute),
 		log:     o.Logger,
 	}, nil
 }
 
 // RequestsPerMinute is GoDaddy's published rate limit for an Account.
+// Every Provider built for the same API key and endpoint shares it.
 const RequestsPerMinute = 60
 
 // Provider is one GoDaddy Account.

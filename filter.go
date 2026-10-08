@@ -18,7 +18,35 @@ type ZoneFilter struct {
 // Contains in lower case without its trailing dot, which matches at least
 // what MatchZone does.
 func MatchZone(f ZoneFilter, z Zone) bool {
-	name := strings.ToLower(strings.TrimSuffix(z.Name, ".")) + "."
+	return holds(z.Name, f.Contains)
+}
 
-	return strings.Contains(name, strings.ToLower(f.Contains))
+// RecordFilter narrows Records. The zero value matches every Record.
+type RecordFilter struct {
+	// Type matches one Record type, such as "MX", ignoring case.
+	Type string
+	// Contains matches Record names holding this text, ignoring case. The
+	// names are matched in absolute form, as ZoneFilter's are.
+	Contains string
+}
+
+// MatchRecord reports whether a Record matches the filter. An adapter
+// applies it to what it could not push down to the Provider's API, so a
+// filtered list is always exactly filtered. The text an adapter pushes
+// down is Contains in lower case without its trailing dot, and the type
+// in upper case.
+func MatchRecord(f RecordFilter, r Record) bool {
+	if f.Type != "" && !strings.EqualFold(f.Type, r.Type) {
+		return false
+	}
+
+	return holds(r.Name, f.Contains)
+}
+
+// holds reports whether a name, in absolute form, holds the text,
+// ignoring case.
+func holds(name, text string) bool {
+	name = strings.ToLower(strings.TrimSuffix(name, ".")) + "."
+
+	return strings.Contains(name, strings.ToLower(text))
 }

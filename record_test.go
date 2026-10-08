@@ -151,3 +151,34 @@ func TestTTLRangeCheck(t *testing.T) {
 		}
 	}
 }
+
+func TestMatchRecordMatchesTheTypeAndNamesHoldingTheText(t *testing.T) {
+	cases := []struct {
+		typ, contains string
+		rtype, name   string
+		want          bool
+	}{
+		{"", "", "A", "www.example.com", true},
+		{"A", "", "A", "www.example.com", true},
+		{"A", "", "AAAA", "www.example.com", false},
+		{"mx", "", "MX", "example.com", true},
+		{"", "WWW", "A", "www.Example.com", true},
+		{"", "mail", "A", "www.example.com", false},
+		{"A", "www", "A", "www.example.com", true},
+		{"A", "www", "AAAA", "www.example.com", false},
+		{"A", "mail", "A", "www.example.com", false},
+		// A trailing dot ends the name, as in an absolute name.
+		{"", "www.example.com.", "A", "www.example.com", true},
+		{"", "example.com.", "A", "www.example.community", false},
+		{"", "www.", "A", "www.example.com", true},
+	}
+
+	for _, c := range cases {
+		r := dnsprovider.Record{Type: c.rtype, Name: c.name, Value: "192.0.2.1", TTL: 300}
+		f := dnsprovider.RecordFilter{Type: c.typ, Contains: c.contains}
+
+		if got := dnsprovider.MatchRecord(f, r); got != c.want {
+			t.Errorf("MatchRecord(%+v, %s %s) = %v, want %v", f, c.rtype, c.name, got, c.want)
+		}
+	}
+}

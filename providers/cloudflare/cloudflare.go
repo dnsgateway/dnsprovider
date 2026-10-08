@@ -273,7 +273,8 @@ func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, err
 // zone in the Tenant, which is never retried, as a retry of a create
 // Cloudflare took but whose answer was lost would fail as a conflict.
 // Cloudflare answers with the Zone pending and the nameservers it
-// assigned; an answer that holds no Zone is read back with Zone. A
+// assigned; an answer that holds no Zone is read back (see
+// readBackCreated), and the create succeeds even when that fails. A
 // Provider without a Tenant has nowhere to Onboard the name: ErrNoTenant,
 // without a request.
 func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
@@ -304,14 +305,27 @@ func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zon
 		return dnsprovider.Zone{}, err
 	}
 
-	// Cloudflare took the write (ADR-0001): a Zone its answer does not
-	// hold is read back.
 	var z zones.Zone
-	if err := json.Unmarshal(result, &z); err != nil || z.ID == "" {
-		return p.Zone(ctx, name)
+	if err := json.Unmarshal(result, &z); err == nil && z.ID != "" {
+		return toZone(z), nil
 	}
 
-	return toZone(z), nil
+	return p.readBackCreated(ctx, name), nil
+}
+
+// readBackCreated is the Zone a create Cloudflare took without answering
+// with it. The success answer is authoritative (ADR-0001), so the create
+// stands whatever the read-back finds: the Zone as Zone reads it, else,
+// when the read fails or finds only a Moved Zone of the name, the name
+// alone, Pending, without an ID or nameservers, which the next Zones or
+// Zone read fills in.
+func (p *Provider) readBackCreated(ctx context.Context, name string) dnsprovider.Zone {
+	z, err := p.Zone(ctx, name)
+	if err != nil || z.State == dnsprovider.HostingMoved {
+		return dnsprovider.Zone{Name: name, State: dnsprovider.HostingPending}
+	}
+
+	return z
 }
 
 // toZone turns a v4 zone into a Zone.

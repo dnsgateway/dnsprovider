@@ -66,7 +66,10 @@ func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error
 type ZoneCreator interface {
 	// CreateZone Onboards a zone name in the Provider's Tenant and returns
 	// the new Zone as Zones reports it: normally Pending, with the
-	// nameservers Delegation must name before the Provider serves it.
+	// nameservers Delegation must name before the Provider serves it. A
+	// create the Provider took without saying what it made is still a
+	// success: the Zone is then its name alone, Pending, without an ID or
+	// nameservers, until Zones or Zone reads it.
 	// ErrConflict when the Tenant already has a Zone of that name, or the
 	// Provider will not host it beside another account's; ErrNoTenant
 	// when the Provider has no Tenant to Onboard it in.

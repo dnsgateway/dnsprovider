@@ -184,3 +184,38 @@ func TestCreateZoneWhoseAnswerHoldsNoZoneReadsItBack(t *testing.T) {
 		t.Errorf("CreateZone = %+v, want %+v", got, want)
 	}
 }
+
+func TestCreateZoneWhoseAnswerHoldsNoZoneAndCannotBeReadBackStillSucceedsPendingWithoutAnID(t *testing.T) {
+	// Cloudflare took the create (ADR-0001): a failed read-back does not
+	// make it a failure. Nothing lists the Zone yet, or the list fails.
+	for name, list := range map[string]http.HandlerFunc{
+		"not listed": nil,
+		"list fails": func(w http.ResponseWriter, _ *http.Request) { writeErrors(w, http.StatusForbidden, 9109, "Unauthorized to access requested resource") },
+	} {
+		t.Run(name, func(t *testing.T) {
+			api := &cfAPI{}
+			if list != nil {
+				api.intercept = func(w http.ResponseWriter, r *http.Request) bool {
+					if r.Method != http.MethodGet || r.URL.Path != "/client/v4/zones" {
+						return false
+					}
+
+					list(w, r)
+
+					return true
+				}
+			}
+
+			o := &onboard{api: api, answer: func(w http.ResponseWriter, _ *http.Request) { writeResult(w, nil) }}
+
+			got, err := newOnboarding(t, o).CreateZone(context.Background(), "Example.ORG")
+			if err != nil {
+				t.Fatalf("CreateZone: %v, want success", err)
+			}
+
+			if want := (dnsprovider.Zone{Name: "example.org", State: dnsprovider.HostingPending}); !reflect.DeepEqual(got, want) {
+				t.Errorf("CreateZone = %+v, want %+v", got, want)
+			}
+		})
+	}
+}

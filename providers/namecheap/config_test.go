@@ -1,29 +1,19 @@
 package namecheap_test
 
 import (
-	"errors"
-	"net/http"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/nonet"
 	"github.com/dnsgateway/dnsprovider/providers/namecheap"
 )
-
-// noNetwork is a transport that fails the test on any request.
-type noNetwork struct{ t *testing.T }
-
-func (n noNetwork) RoundTrip(r *http.Request) (*http.Response, error) {
-	n.t.Errorf("building the Provider sent %s %s", r.Method, r.URL)
-
-	return nil, errors.New("no network")
-}
 
 var testFields = map[string]string{"user": "apiuser", "key": "apikey", "client_ip": "192.0.2.10"}
 
 func TestNewMakesNoNetworkCall(t *testing.T) {
-	client := &http.Client{Transport: noNetwork{t}}
+	client := nonet.Client(t)
 
 	if _, err := namecheap.New(testConfig, dnsprovider.WithHTTPClient(client)); err != nil {
 		t.Fatal(err)
@@ -54,6 +44,10 @@ func TestNewRefusesAConfigWithoutUserKeyAndIPv4ClientIP(t *testing.T) {
 
 		if strings.Contains(err.Error(), "apikey") {
 			t.Errorf("New(%+v) = %q, want an error without the API key", cfg, err)
+		}
+
+		if cfg.ClientIP != "" && strings.Contains(err.Error(), cfg.ClientIP) {
+			t.Errorf("New(%+v) = %q, want an error naming the field, not its value", cfg, err)
 		}
 	}
 }

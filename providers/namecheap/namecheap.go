@@ -82,7 +82,7 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 
 	ip, err := netip.ParseAddr(cfg.ClientIP)
 	if err != nil || !ip.Is4() {
-		return nil, fmt.Errorf("namecheap: the client IP %q is not an IPv4 address", cfg.ClientIP)
+		return nil, errors.New("namecheap: the client IP is not an IPv4 address")
 	}
 
 	o := dnsprovider.NewOptions(opts...)

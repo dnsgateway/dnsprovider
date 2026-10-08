@@ -56,7 +56,7 @@ func zoneAPI() *ncAPI {
 func apply(t *testing.T, api *ncAPI, changes ...dnsprovider.Change) dnsprovider.ApplyResult {
 	t.Helper()
 
-	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changes})
+	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changes})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -90,12 +90,18 @@ func applyOK(t *testing.T, api *ncAPI, changes ...dnsprovider.Change) dnsprovide
 }
 
 // wantSetHosts checks that one setHosts was sent for example.com, after a
-// getHosts, with these hosts and EmailType.
+// getHosts, with these hosts and EmailType. A getHosts before them is
+// dnsprovider.Apply's re-check of a Changeset built from Records.
 func wantSetHosts(t *testing.T, api *ncAPI, emailType string, hosts []sentHost) {
 	t.Helper()
 
-	if got, want := api.Commands(), []string{"namecheap.domains.dns.getHosts", "namecheap.domains.dns.setHosts"}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("requests = %v, want %v", got, want)
+	got := api.Commands()
+	if len(got) == 3 && got[0] == "namecheap.domains.dns.getHosts" {
+		got = got[1:]
+	}
+
+	if want := []string{"namecheap.domains.dns.getHosts", "namecheap.domains.dns.setHosts"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("requests = %v, want %v", api.Commands(), want)
 	}
 
 	set := api.setHostsSent()[0]
@@ -207,7 +213,25 @@ func TestApplyMakesSeveralChangesInOneCall(t *testing.T) {
 func applyFails(t *testing.T, api *ncAPI, msg string, kind error, changes ...dnsprovider.Change) {
 	t.Helper()
 
-	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changes})
+	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changes})
+	failsWhole(t, res, err, msg, kind)
+}
+
+// batcherFails is applyFails through the Batcher alone, for a Changeset
+// built from a Record that is gone, which dnsprovider.Apply refuses as
+// stale before the Batcher sees it.
+func batcherFails(t *testing.T, api *ncAPI, msg string, kind error, changes ...dnsprovider.Change) {
+	t.Helper()
+
+	p := newProvider(t, api)
+
+	res, err := p.(dnsprovider.Batcher).ApplyChangeset(context.Background(), dnsprovider.Changeset{Zone: example, Changes: changes})
+	failsWhole(t, res, err, msg, kind)
+}
+
+func failsWhole(t *testing.T, res dnsprovider.ApplyResult, err error, msg string, kind error) {
+	t.Helper()
+
 	if err == nil {
 		t.Fatalf("Apply = %+v, nil; want an error holding %q", res, msg)
 	}
@@ -216,7 +240,7 @@ func applyFails(t *testing.T, api *ncAPI, msg string, kind error, changes ...dns
 		t.Errorf("err = %v, want it to hold %q", err, msg)
 	}
 
-	if !strings.HasPrefix(err.Error(), "namecheap: ") {
+	if !strings.Contains(err.Error(), "namecheap: ") {
 		t.Errorf("err = %v, want it to name namecheap", err)
 	}
 
@@ -246,10 +270,19 @@ func TestApplyFailsWholeWhenARecordChangedAtNamecheap(t *testing.T) {
 		{"no ID and no such value", dnsprovider.Record{Type: "MX", Name: "example.com", Value: "20 mx1.example.net", TTL: 3600}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			changes := []dnsprovider.Change{add, {Kind: dnsprovider.ChangeDelete, Before: c.before}}
 			api := zoneAPI()
 
-			applyFails(t, api, "nothing was applied: "+c.before.Type+" "+c.before.Name+" "+c.before.Value+" is no longer at Namecheap as read", dnsprovider.ErrNotFound,
-				add, dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: c.before})
+			batcherFails(t, api, "nothing was applied: "+c.before.Type+" "+c.before.Name+" "+c.before.Value+" is no longer at Namecheap as read", dnsprovider.ErrNotFound, changes...)
+			wantNoSetHosts(t, api)
+
+			// dnsprovider.Apply refuses it as stale before.
+			api = zoneAPI()
+
+			if _, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changes}); !errors.Is(err, dnsprovider.ErrStale) {
+				t.Errorf("Apply: err = %v, want ErrStale", err)
+			}
+
 			wantNoSetHosts(t, api)
 		})
 	}
@@ -283,11 +316,19 @@ func TestApplyRefusesTypesItDoesNotWriteWithoutWriting(t *testing.T) {
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			api := zoneAPI()
+			api.hosts["example.com"] = append(api.hosts["example.com"], ncHost{ID: "18", Name: "@", Type: "CAA", Address: `0 issue "letsencrypt.org"`, TTL: 1800})
 
 			applyFails(t, api, c.msg, nil, ok, c.change)
 
-			if got := api.Commands(); len(got) != 0 {
-				t.Errorf("Apply sent %v, want nothing", got)
+			// No request but dnsprovider.Apply's re-check of a
+			// modification.
+			want := 0
+			if c.change.Kind == dnsprovider.ChangeModify {
+				want = 1
+			}
+
+			if got := api.Commands(); len(got) != want {
+				t.Errorf("Apply sent %v, want %d requests", got, want)
 			}
 		})
 	}
@@ -416,7 +457,7 @@ func TestRecordsKeepTheirIDsAcrossAnApplyThatRenumbersEveryHost(t *testing.T) {
 	cached := records(t, p)
 
 	// A deletion alone: setHosts gives every other host a new HostId.
-	if _, err := applyChangeset(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	if _, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeDelete, Before: cached[0]},
 	}}); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -431,7 +472,7 @@ func TestRecordsKeepTheirIDsAcrossAnApplyThatRenumbersEveryHost(t *testing.T) {
 	after := www
 	after.Value, after.ID = "shop.example.net", ""
 
-	res, err := applyChangeset(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeModify, Before: www, After: after},
 		{Kind: dnsprovider.ChangeDelete, Before: cached[2]},
 	}})
@@ -454,7 +495,7 @@ func TestAppliedRecordsAreAsTheNextReadHasThemIDsIncluded(t *testing.T) {
 	modified := www
 	modified.Value, modified.TTL, modified.ID = "shop.example.net", 600, ""
 
-	res, err := applyChangeset(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "New.example.com", Value: "192.0.2.9", TTL: 1800}},
 		{Kind: dnsprovider.ChangeModify, Before: www, After: modified},
 	}})
@@ -512,7 +553,13 @@ func TestApplyRefusesMXWritesUnlessTheMailSettingIsCustomMX(t *testing.T) {
 
 				applyFails(t, api, `"Custom MX"`, nil, ok, c.change)
 
-				if got, want := api.Commands(), []string{"namecheap.domains.dns.getHosts"}; !reflect.DeepEqual(got, want) {
+				// A modification's first is dnsprovider.Apply's re-check.
+				want := []string{"namecheap.domains.dns.getHosts"}
+				if c.change.Kind == dnsprovider.ChangeModify {
+					want = append(want, want...)
+				}
+
+				if got := api.Commands(); !reflect.DeepEqual(got, want) {
 					t.Errorf("requests = %v, want %v", got, want)
 				}
 			})
@@ -673,10 +720,26 @@ func TestApplyModifiesOneOfTwoMXHostsNamecheapHoldsTwiceWithoutAConflict(t *test
 	wantSetHosts(t, api, "MX", append(zoneHostsSent(), sentHost{"@", "MX", "mx1.example.net.", "10", "600"}))
 }
 
-// applyChangeset applies a Changeset through the Provider's Batcher, as
-// dnsprovider.Apply does once its re-check finds nothing stale, so a test
-// sees the Batcher's own handling of a Changeset built from Records that
-// are gone.
-func applyChangeset(ctx context.Context, p dnsprovider.Provider, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.(dnsprovider.Batcher).ApplyChangeset(ctx, cs)
+func TestApplyReadsTheHostsOnceMoreToReCheckAChangesetBuiltFromRecords(t *testing.T) {
+	get, set := "namecheap.domains.dns.getHosts", "namecheap.domains.dns.setHosts"
+	add := changesForAll()[0]
+
+	for _, c := range []struct {
+		name    string
+		changes []dnsprovider.Change
+		want    []string
+	}{
+		{"additions alone", []dnsprovider.Change{add}, []string{get, set}},
+		{"a modification and a deletion", changesForAll(), []string{get, get, set}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			api := zoneAPI()
+
+			applyOK(t, api, c.changes...)
+
+			if got := api.Commands(); !reflect.DeepEqual(got, c.want) {
+				t.Errorf("requests = %v, want %v", got, c.want)
+			}
+		})
+	}
 }

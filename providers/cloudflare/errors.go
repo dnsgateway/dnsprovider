@@ -12,10 +12,6 @@ import (
 	"github.com/dnsgateway/dnsprovider/rest"
 )
 
-// ErrNoTenant is dnsprovider.ErrNoTenant: a call scoped to a Tenant was
-// made before Config.TenantID was set. Tenants lists the ones to pick from.
-var ErrNoTenant = dnsprovider.ErrNoTenant
-
 // reportRateLimits stops cloudflare-go from waiting out a rate limit: its
 // Retry-After can be minutes, so the caller gets dnsprovider.ErrRateLimited
 // and decides when to try again. Server errors are still retried.

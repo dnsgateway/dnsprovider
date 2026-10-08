@@ -4,7 +4,6 @@ package livetest
 
 import (
 	"context"
-	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -25,8 +24,7 @@ func Env(typ, field string) string {
 // them by name and its Records, unfiltered and then filtered by the
 // first Record's type and name, without writing to the Account. It skips
 // the test unless every secret field is set. A Provider that lists
-// Tenants has them listed, and its Zones read only when its Tenant is set
-// too: Zones failing with dnsprovider.ErrNoTenant ends the test there.
+// Tenants has them listed too.
 // DNSPROVIDER_<TYPE>_BASE_URL may point it at another endpoint, such as a
 // sandbox.
 func Run(t *testing.T, typ string, f dnsprovider.Factory) {
@@ -62,20 +60,13 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		t.Fatalf("Account: %v", err)
 	}
 
-	tenants := dnsprovider.CanListTenants(p)
-	if tenants {
-		if _, err := p.(dnsprovider.TenantLister).Tenants(ctx); err != nil {
+	if l, ok := p.(dnsprovider.TenantLister); ok {
+		if _, err := l.Tenants(ctx); err != nil {
 			t.Fatalf("Tenants: %v", err)
 		}
 	}
 
 	zones, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
-	if tenants && errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Logf("Zones not read: %v", err)
-
-		return
-	}
-
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}

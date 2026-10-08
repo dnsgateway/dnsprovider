@@ -1623,15 +1623,15 @@ func TestZoneOfANameSeveralZonesShareIsTheOneCloudflareServes(t *testing.T) {
 	}
 }
 
-func TestZoneOfNoNameNeedsATenantFirst(t *testing.T) {
+func TestZoneOfNoNameIsNotFoundWithoutARequest(t *testing.T) {
 	api := &cfAPI{zones: []map[string]any{cfZone("z1", "example.com")}}
 
-	if _, err := newProviderIn(t, api, acme, "").Zone(context.Background(), ""); !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("Zone without a Tenant: err = %v, want ErrNoTenant", err)
-	}
-
-	if _, err := newProvider(t, api).Zone(context.Background(), "."); !errors.Is(err, dnsprovider.ErrNotFound) {
-		t.Errorf("Zone(.): err = %v, want ErrNotFound", err)
+	for _, name := range []string{"", "."} {
+		for _, p := range []dnsprovider.Provider{newProvider(t, api), newProviderIn(t, api, acme, "")} {
+			if _, err := p.Zone(context.Background(), name); !errors.Is(err, dnsprovider.ErrNotFound) {
+				t.Errorf("Zone(%q): err = %v, want ErrNotFound", name, err)
+			}
+		}
 	}
 
 	if n := len(api.Requests()); n != 0 {

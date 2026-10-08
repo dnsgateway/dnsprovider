@@ -160,6 +160,11 @@ func isAccountID(s string) bool {
 }
 
 // Provider is one Cloudflare Account.
+//
+// Every call but Account and Tenants is scoped to the Tenant: before
+// Config.TenantID is set it fails with ErrNoTenant, without a request.
+// The calls on a Zone trust that it came from Zones, which lists the
+// Tenant's Zones alone, and do not read it again to check its Tenant.
 type Provider struct {
 	// tenantID is the Cloudflare account calls are scoped to; empty
 	// until a Tenant is picked.
@@ -277,6 +282,10 @@ func listAll[T any](ctx context.Context, perPage int, list func(...option.Reques
 // short of a BIND export of the whole Zone, so the RecordSet has none:
 // A consumer asks the Zone's nameservers for it.
 func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.RecordSet, error) {
+	if err := p.needTenant(); err != nil {
+		return dnsprovider.RecordSet{}, err
+	}
+
 	// ZoneID is a param.Field, which only cloudflare-go's root package can
 	// build with F(); importing that package compiles the whole SDK.
 	var params cfdns.RecordListParams
@@ -366,6 +375,10 @@ func decodeRecord(data []byte) (dnsprovider.Record, error) {
 // failed change does not stop the others. The results are in Changeset
 // order, and carry no serial: Cloudflare's API does not report it.
 func (p *Provider) Apply(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	if err := p.needTenant(); err != nil {
+		return dnsprovider.ApplyResult{}, err
+	}
+
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 
 	order := make([]int, len(cs.Changes))
@@ -616,6 +629,10 @@ func unquote(s string) string {
 // (HTTP 403), or that fails to read while the other one is read, is
 // unknown. It fails only when both reads fail.
 func (p *Provider) ZoneStatus(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
+	if err := p.needTenant(); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
+
 	var (
 		status  dnsprovider.ZoneStatus
 		hstsErr error

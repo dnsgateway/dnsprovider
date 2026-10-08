@@ -209,3 +209,34 @@ func TestZonesNeedATenant(t *testing.T) {
 		t.Errorf("Zones sent %v without a Tenant, want nothing", got)
 	}
 }
+
+func TestZoneCallsNeedATenant(t *testing.T) {
+	zone := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	api := &cfAPI{
+		zones:   []map[string]any{cfZone("z1", "example.com")},
+		records: map[string][]map[string]any{"z1": {}},
+	}
+	p := newProviderIn(t, api, acme, "")
+	ctx := context.Background()
+
+	_, err := p.Records(ctx, zone)
+	if !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("Records: err = %v, want ErrNoTenant", err)
+	}
+
+	cs := dnsprovider.Changeset{Zone: zone, Changes: []dnsprovider.Change{{
+		Kind:  dnsprovider.ChangeAdd,
+		After: dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300},
+	}}}
+	if _, err := p.Apply(ctx, cs); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("Apply: err = %v, want ErrNoTenant", err)
+	}
+
+	if _, err := p.ZoneStatus(ctx, zone); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("ZoneStatus: err = %v, want ErrNoTenant", err)
+	}
+
+	if got := api.Requests(); len(got) != 0 {
+		t.Errorf("sent %v without a Tenant, want nothing", got)
+	}
+}

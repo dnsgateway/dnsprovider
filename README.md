@@ -82,10 +82,12 @@ reports every setting Unknown, without a call, for a Provider without one.
 The optional `ZoneUpdater`, also Cloudflare's alone and found with
 `dnsprovider.CanUpdateZone(p)`, turns DNSSEC and HSTS on or off:
 `UpdateZone(ctx, zone, dnsprovider.ZoneUpdate{DNSSEC: &on})` writes only the
-settings it is given and returns the Zone Status after the change. Cloudflare
-signs and unsigns a Zone over time, so DNSSEC comes back Pending; HSTS keeps
-its max-age and other fields, and is turned on for six months when the Zone
-has no max-age.
+settings it is given and returns the Zone Status after the change, each
+setting it was not given as read, Unknown when it could not be. A write that
+fails comes with the Zone Status as far as it is known, the settings written
+before it as answered. Cloudflare signs and unsigns a Zone over time, so
+DNSSEC comes back Pending; HSTS keeps its max-age and other fields, and is
+turned on for six months when the Zone has no max-age.
 
 ## Tests
 

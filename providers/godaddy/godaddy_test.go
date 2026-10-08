@@ -548,7 +548,7 @@ func TestApplyAddsARecordToItsRRsetKeepingTheOthers(t *testing.T) {
 
 	add := dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.2", TTL: 3600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeAdd, After: add},
 	}})
 	if err != nil {
@@ -576,7 +576,7 @@ func TestApplyDeletesAnRRsetItLeavesEmptyBeforeWritingTheOthers(t *testing.T) {
 	del := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
 	add := dnsprovider.Record{Type: "CNAME", Name: "www.example.com", Value: "example.com", TTL: 600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeAdd, After: add},
 		{Kind: dnsprovider.ChangeDelete, Before: del},
 	}})
@@ -614,7 +614,7 @@ func TestApplyMakesTwoChangesToOneRRsetInOneCall(t *testing.T) {
 		return dnsprovider.Record{Type: "TXT", Name: "example.com", Value: v, TTL: ttl}
 	}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeModify, Before: txt("old", 600), After: txt("new", 3600)},
 		{Kind: dnsprovider.ChangeDelete, Before: txt("gone", 600)},
 	}})
@@ -643,7 +643,7 @@ func TestApplyMovesARecordRenamedByAModification(t *testing.T) {
 	before := dnsprovider.Record{Type: "A", Name: "old.example.com", Value: "192.0.2.1", TTL: 600}
 	after := dnsprovider.Record{Type: "A", Name: "new.example.com", Value: "192.0.2.1", TTL: 600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeModify, Before: before, After: after},
 	}})
 	if err != nil || res.Results[0].Err != nil {
@@ -678,7 +678,7 @@ func TestApplyKeepsGoingAfterAnRRsetFails(t *testing.T) {
 	bad := dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "x", TTL: 600}
 	good := dnsprovider.Record{Type: "AAAA", Name: "example.com", Value: "2001:db8::1", TTL: 600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeDelete, Before: gone},
 		{Kind: dnsprovider.ChangeAdd, After: bad},
 		{Kind: dnsprovider.ChangeAdd, After: good},
@@ -714,7 +714,7 @@ func TestApplySplitsThePriorityAndSRVFieldsOutOfTheValue(t *testing.T) {
 	mx := dnsprovider.Record{Type: "MX", Name: "example.com", Value: "10 mail.example.com", TTL: 600}
 	srv := dnsprovider.Record{Type: "SRV", Name: "_sip._tcp.example.com", Value: "10 5 5060 sip.example.com", TTL: 600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeAdd, After: mx},
 		{Kind: dnsprovider.ChangeAdd, After: srv},
 	}})
@@ -868,7 +868,7 @@ func TestApplyRestoresARenamedRecordWhoseNewRRsetFails(t *testing.T) {
 	before := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
 	after := dnsprovider.Record{Type: "A", Name: "api.example.com", Value: "192.0.2.1", TTL: 600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeModify, Before: before, After: after},
 	}})
 	if err != nil {
@@ -895,7 +895,7 @@ func TestApplyTakesBackARenamedRecordWhoseOldOneIsGone(t *testing.T) {
 
 	// The new RRset is written first: the old one has an addition too,
 	// so it is not left with deletions only.
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeAdd, After: a("new", "192.0.2.8")},
 		{Kind: dnsprovider.ChangeAdd, After: a("old", "192.0.2.5")},
 		{Kind: dnsprovider.ChangeModify, Before: a("old", "192.0.2.1"), After: a("new", "192.0.2.1")},
@@ -921,7 +921,7 @@ func TestApplyDeletesTheSRVRecordOfItsOwnService(t *testing.T) {
 
 	imap := dnsprovider.Record{Type: "SRV", Name: "_imap._tcp.example.com", Value: "0 0 0 .", TTL: 3600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeDelete, Before: imap},
 	}})
 	if err != nil || res.Results[0].Err != nil {
@@ -945,7 +945,7 @@ func TestApplyKeepsTheServiceOfSRVRecordsNamedWithoutServiceFields(t *testing.T)
 
 	add := dnsprovider.Record{Type: "SRV", Name: "_xmpp._tcp.example.com", Value: "5 0 5222 xmpp.example.com", TTL: 3600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeAdd, After: add},
 	}})
 	if err != nil || res.Results[0].Err != nil {
@@ -1052,7 +1052,7 @@ func TestApplySaysWhenARenamedRecordCouldNotBeRestored(t *testing.T) {
 	before := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
 	after := dnsprovider.Record{Type: "A", Name: "api.example.com", Value: "192.0.2.1", TTL: 600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeModify, Before: before, After: after},
 	}})
 	if err != nil {
@@ -1258,7 +1258,7 @@ func TestApplyFailsADuplicateAdditionAloneAndWritesTheRestOfItsRRset(t *testing.
 	dup := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
 	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeAdd, After: dup},
 		{Kind: dnsprovider.ChangeAdd, After: add},
 		{Kind: dnsprovider.ChangeAdd, After: add},
@@ -1309,7 +1309,7 @@ func TestApplyWritesNamesThatDifferOnlyInCaseAsOneRRset(t *testing.T) {
 	del := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
 	add := dnsprovider.Record{Type: "A", Name: "WWW.example.com", Value: "192.0.2.2", TTL: 600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeDelete, Before: del},
 		{Kind: dnsprovider.ChangeAdd, After: add},
 	}})
@@ -1344,7 +1344,7 @@ func TestApplyAddingTheRecordAFailedModificationKeepsIsAConflict(t *testing.T) {
 
 	// The modification into 192.0.2.2 fails, so 192.0.2.1 stays, and
 	// adding it again is a conflict, not a second copy.
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeAdd, After: a("192.0.2.1")},
 		{Kind: dnsprovider.ChangeModify, Before: a("192.0.2.1"), After: a("192.0.2.2")},
 		{Kind: dnsprovider.ChangeDelete, Before: a("192.0.2.3")},
@@ -1397,7 +1397,7 @@ func TestApplyFailsAChangeOfNoKnownKindAlone(t *testing.T) {
 
 	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{After: add},
 		{Kind: 99, Before: add, After: add},
 		{Kind: dnsprovider.ChangeAdd, After: add},
@@ -1415,4 +1415,12 @@ func TestApplyFailsAChangeOfNoKnownKindAlone(t *testing.T) {
 	if got := api.Writes(); len(got) != 1 {
 		t.Errorf("writes = %v, want the addition alone", got)
 	}
+}
+
+// applyChangeset applies a Changeset through the Provider's Batcher, as
+// dnsprovider.Apply does once its re-check finds nothing stale, so a test
+// sees the Batcher's own handling of a Changeset built from Records that
+// are gone.
+func applyChangeset(ctx context.Context, p dnsprovider.Provider, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	return p.(dnsprovider.Batcher).ApplyChangeset(ctx, cs)
 }

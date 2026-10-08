@@ -56,7 +56,7 @@ func zoneAPI() *ncAPI {
 func apply(t *testing.T, api *ncAPI, changes ...dnsprovider.Change) dnsprovider.ApplyResult {
 	t.Helper()
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changes})
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changes})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -207,7 +207,7 @@ func TestApplyMakesSeveralChangesInOneCall(t *testing.T) {
 func applyFails(t *testing.T, api *ncAPI, msg string, kind error, changes ...dnsprovider.Change) {
 	t.Helper()
 
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changes})
+	res, err := applyChangeset(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changes})
 	if err == nil {
 		t.Fatalf("Apply = %+v, nil; want an error holding %q", res, msg)
 	}
@@ -416,7 +416,7 @@ func TestRecordsKeepTheirIDsAcrossAnApplyThatRenumbersEveryHost(t *testing.T) {
 	cached := records(t, p)
 
 	// A deletion alone: setHosts gives every other host a new HostId.
-	if _, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	if _, err := applyChangeset(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeDelete, Before: cached[0]},
 	}}); err != nil {
 		t.Fatalf("Apply: %v", err)
@@ -431,7 +431,7 @@ func TestRecordsKeepTheirIDsAcrossAnApplyThatRenumbersEveryHost(t *testing.T) {
 	after := www
 	after.Value, after.ID = "shop.example.net", ""
 
-	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeModify, Before: www, After: after},
 		{Kind: dnsprovider.ChangeDelete, Before: cached[2]},
 	}})
@@ -454,7 +454,7 @@ func TestAppliedRecordsAreAsTheNextReadHasThemIDsIncluded(t *testing.T) {
 	modified := www
 	modified.Value, modified.TTL, modified.ID = "shop.example.net", 600, ""
 
-	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+	res, err := applyChangeset(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "New.example.com", Value: "192.0.2.9", TTL: 1800}},
 		{Kind: dnsprovider.ChangeModify, Before: www, After: modified},
 	}})
@@ -671,4 +671,12 @@ func TestApplyModifiesOneOfTwoMXHostsNamecheapHoldsTwiceWithoutAConflict(t *test
 
 	applyOK(t, api, dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: after})
 	wantSetHosts(t, api, "MX", append(zoneHostsSent(), sentHost{"@", "MX", "mx1.example.net.", "10", "600"}))
+}
+
+// applyChangeset applies a Changeset through the Provider's Batcher, as
+// dnsprovider.Apply does once its re-check finds nothing stale, so a test
+// sees the Batcher's own handling of a Changeset built from Records that
+// are gone.
+func applyChangeset(ctx context.Context, p dnsprovider.Provider, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	return p.(dnsprovider.Batcher).ApplyChangeset(ctx, cs)
 }

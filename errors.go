@@ -24,6 +24,10 @@ var (
 	// Provider's Config set one. A Provider that returns it implements
 	// TenantLister, which lists the Tenants to pick from.
 	ErrNoTenant = errors.New("no Tenant set; pick one of Tenants")
+	// ErrStale means a Changeset was built from Records the Provider no
+	// longer holds as they were, so Apply refused it and wrote nothing.
+	// Apply returns it as a *StaleError naming the stale changes.
+	ErrStale = errors.New("the Changeset is stale: Records it was built from changed at the Provider")
 	// ErrNotImplemented means the adapter does not support the operation yet.
 	ErrNotImplemented = errors.New("not implemented yet")
 )

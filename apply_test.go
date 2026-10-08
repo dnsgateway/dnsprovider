@@ -100,17 +100,26 @@ func equalOps(a, b []providertest.Op) bool {
 
 func TestApplyWithoutABatcherGoesOnPastAFailedChange(t *testing.T) {
 	www := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
-	fake := providertest.New().AddZone(applyZone, www)
+	api := dnsprovider.Record{ID: "r2", Type: "A", Name: "api.example.com", Value: "192.0.2.5", TTL: 300}
+	fake := providertest.New().AddZone(applyZone, www, api)
 	boom := errors.New("boom")
 	fake.Fail(providertest.OpDeleteRecord, boom)
-
-	gone := dnsprovider.Record{ID: "r9", Type: "A", Name: "gone.example.com", Value: "192.0.2.7", TTL: 300}
 	edited := www
 	edited.TTL = 600
 
+	// The modification of api fails as one the Provider no longer finds
+	// would, after the re-check.
+	fake.FailChanges(func(c dnsprovider.Change) error {
+		if c.Before.ID == "r2" {
+			return fmt.Errorf("fake: %w", dnsprovider.ErrNotFound)
+		}
+
+		return nil
+	})
+
 	res, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: []dnsprovider.Change{
 		{Kind: dnsprovider.ChangeDelete, Before: www},
-		{Kind: dnsprovider.ChangeModify, Before: gone, After: gone},
+		{Kind: dnsprovider.ChangeModify, Before: api, After: api},
 		{Kind: dnsprovider.ChangeModify, Before: www, After: edited},
 	}})
 	if err != nil {
@@ -122,7 +131,7 @@ func TestApplyWithoutABatcherGoesOnPastAFailedChange(t *testing.T) {
 	}
 
 	if !errors.Is(res.Results[1].Err, dnsprovider.ErrNotFound) {
-		t.Errorf("modification of a Record not there: err = %v, want ErrNotFound", res.Results[1].Err)
+		t.Errorf("modification the Provider no longer finds: err = %v, want ErrNotFound", res.Results[1].Err)
 	}
 
 	if r := res.Results[2]; r.Err != nil || r.Record.TTL != 600 {
@@ -191,5 +200,59 @@ func TestApplyWithoutABatcherFailsAsAWholeWhenTheProviderHasNoTenant(t *testing.
 
 	if got, want := ops(fake), []providertest.Op{providertest.OpDeleteRecord}; !equalOps(got, want) {
 		t.Errorf("calls = %v, want %v: nothing tried after the Provider said it has no Tenant", got, want)
+	}
+}
+
+func TestApplyRefusesAChangesetWhoseBeforeChangedOrIsGoneAndWritesNothing(t *testing.T) {
+	for _, batcher := range []bool{false, true} {
+		t.Run(fmt.Sprintf("batcher=%v", batcher), func(t *testing.T) {
+			www := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+			txt := dnsprovider.Record{ID: "r2", Type: "TXT", Name: "example.com", Value: "v=spf1 -all", TTL: 300}
+			mail := dnsprovider.Record{ID: "r3", Type: "MX", Name: "example.com", Value: "10 mail.example.com", TTL: 300}
+			fake := providertest.New().AddZone(applyZone, www, txt, mail)
+			fake.SetBatcher(batcher)
+
+			// The Changeset was built from a www and a gone Record that the
+			// Provider no longer holds as they were.
+			builtFrom := www
+			builtFrom.Value = "192.0.2.9"
+			gone := dnsprovider.Record{ID: "r9", Type: "A", Name: "old.example.com", Value: "192.0.2.7", TTL: 300}
+			edited := builtFrom
+			edited.Value = "192.0.2.2"
+			changes := []dnsprovider.Change{
+				{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "api.example.com", Value: "192.0.2.3", TTL: 300}},
+				{Kind: dnsprovider.ChangeModify, Before: builtFrom, After: edited},
+				{Kind: dnsprovider.ChangeDelete, Before: txt},
+				{Kind: dnsprovider.ChangeDelete, Before: gone},
+			}
+
+			_, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: changes})
+			if !errors.Is(err, dnsprovider.ErrStale) {
+				t.Fatalf("Apply: err = %v, want ErrStale", err)
+			}
+
+			var stale *dnsprovider.StaleError
+			if !errors.As(err, &stale) {
+				t.Fatalf("Apply: err = %#v, want a *StaleError", err)
+			}
+
+			want := []dnsprovider.StaleChange{
+				{Change: changes[1], Now: www},
+				{Change: changes[3]},
+			}
+			if len(stale.Changes) != len(want) {
+				t.Fatalf("stale changes = %+v, want %+v", stale.Changes, want)
+			}
+
+			for i, s := range stale.Changes {
+				if s.Change.Before.ID != want[i].Change.Before.ID || s.Change.Kind != want[i].Change.Kind || s.Now.ID != want[i].Now.ID || s.Now.Value != want[i].Now.Value {
+					t.Errorf("stale change %d = %+v, want %+v", i, s, want[i])
+				}
+			}
+
+			if got := ops(fake); len(got) != 0 {
+				t.Errorf("writes = %v, want none", got)
+			}
+		})
 	}
 }

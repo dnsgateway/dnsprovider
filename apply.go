@@ -7,7 +7,10 @@ import (
 	"slices"
 )
 
-// Apply applies a Changeset: through the Provider's Batcher when it has
+// Apply applies a Changeset. It first re-reads the Records the Changeset
+// modifies or deletes and, when any no longer matches its Before, refuses
+// the whole Changeset with a *StaleError (ErrStale) and writes nothing.
+// It then applies the Changeset through the Provider's Batcher when it has
 // one, otherwise one CRUD call per change, deletions first, then
 // modifications, then additions, so a Record that takes another's place
 // does not collide with it. A failed change does not stop the others,
@@ -16,6 +19,10 @@ import (
 // the Changeset's error without trying the rest. The results are in
 // Changeset order; without a Batcher they carry no serial.
 func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
+	if err := recheck(ctx, p, cs); err != nil {
+		return ApplyResult{}, err
+	}
+
 	if b, ok := p.(Batcher); ok {
 		return b.ApplyChangeset(ctx, cs)
 	}

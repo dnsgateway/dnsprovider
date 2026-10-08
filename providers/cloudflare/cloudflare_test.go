@@ -778,9 +778,8 @@ func TestApplyKeepsGoingAfterAChangeFails(t *testing.T) {
 	good1 := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "one.example.com", Value: "\"1\"", TTL: 300}}
 	bad := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "bad.example.com", Value: "192.0.2.1", TTL: 300}}
 	good2 := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "two.example.com", Value: "\"2\"", TTL: 300}}
-	gone := dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: dnsprovider.Record{ID: "r9", Type: "TXT", Name: "gone.example.com", Value: "\"9\"", TTL: 300}}
 
-	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{good1, bad, good2, gone}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{good1, bad, good2}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -789,12 +788,7 @@ func TestApplyKeepsGoingAfterAChangeFails(t *testing.T) {
 		{Change: good1, Record: dnsprovider.Record{ID: "new1", Type: "TXT", Name: "one.example.com", Value: "\"1\"", TTL: 300}},
 		{Change: bad, Err: errors.New("Content for A record is invalid.")},
 		{Change: good2, Record: dnsprovider.Record{ID: "new2", Type: "TXT", Name: "two.example.com", Value: "\"2\"", TTL: 300}},
-		{Change: gone, Err: errors.New("Record does not exist.")},
 	})
-
-	if !errors.Is(res.Results[3].Err, dnsprovider.ErrNotFound) {
-		t.Errorf("err = %v, want dnsprovider.ErrNotFound", res.Results[3].Err)
-	}
 
 	var apiErr *dnsprovider.APIError
 	if !errors.As(res.Results[1].Err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest {

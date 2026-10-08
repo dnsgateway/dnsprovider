@@ -15,7 +15,7 @@ import (
 func account(t *testing.T, p dnsprovider.Provider) (dnsprovider.AccountInfo, error) {
 	t.Helper()
 
-	return p.(*godaddy.Provider).Account(context.Background())
+	return p.Account(context.Background())
 }
 
 func TestAccountReadsOneDomainForTheAccountsNameserverPair(t *testing.T) {

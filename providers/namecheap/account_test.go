@@ -8,13 +8,12 @@ import (
 	"testing"
 
 	"github.com/dnsgateway/dnsprovider"
-	"github.com/dnsgateway/dnsprovider/providers/namecheap"
 )
 
 func TestAccountChecksTheKeyWithGetBalancesAndNamesBasicDNS(t *testing.T) {
 	api := &ncAPI{}
 
-	info, err := newProvider(t, api).(*namecheap.Provider).Account(context.Background())
+	info, err := newProvider(t, api).Account(context.Background())
 	if err != nil {
 		t.Fatalf("Account: %v", err)
 	}
@@ -35,7 +34,7 @@ func TestAccountChecksTheKeyWithGetBalancesAndNamesBasicDNS(t *testing.T) {
 func TestAccountWithABadKeyIsUnauthorized(t *testing.T) {
 	api := &ncAPI{fail: func(string) []ncError { return []ncError{{1011102, "Parameter APIKey is invalid"}} }}
 
-	if _, err := newProvider(t, api).(*namecheap.Provider).Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+	if _, err := newProvider(t, api).Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 		t.Errorf("Account err = %v, want ErrUnauthorized", err)
 	}
 }

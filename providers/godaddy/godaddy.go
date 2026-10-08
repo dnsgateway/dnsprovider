@@ -155,7 +155,7 @@ const nameserverSuffix = ".domaincontrol.com"
 // goDaddyNameservers are a domain's nameservers, in lower case, when they
 // are all GoDaddy's. A domain delegated elsewhere, even in part, has none:
 // its registration names nameservers GoDaddy does not run, and the Account
-// expects the ones Nameservers lists.
+// expects the ones Account reports.
 func goDaddyNameservers(ns []string) []string {
 	if len(ns) == 0 {
 		return nil
@@ -648,23 +648,4 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 	}
 
 	return info, nil
-}
-
-// Nameservers implements dnsprovider.Provider. GoDaddy assigns each Account
-// its own pair of domaincontrol.com nameservers, so the Account expects
-// every GoDaddy nameserver its domains name, sorted.
-func (p *Provider) Nameservers(ctx context.Context) ([]string, error) {
-	all, err := p.listDomains(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var ns []string
-	for _, d := range all {
-		ns = append(ns, goDaddyNameservers(d.NameServers)...)
-	}
-
-	slices.Sort(ns)
-
-	return slices.Compact(ns), nil
 }

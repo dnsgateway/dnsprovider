@@ -746,23 +746,6 @@ func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
 	}
 }
 
-func TestNameserversAreNamecheapsDNSSortedWithoutAsking(t *testing.T) {
-	api := &ncAPI{}
-
-	ns, err := newProvider(t, api).Nameservers(context.Background())
-	if err != nil {
-		t.Fatalf("Nameservers: %v", err)
-	}
-
-	if want := []string{"dns1.registrar-servers.com", "dns2.registrar-servers.com"}; !reflect.DeepEqual(ns, want) {
-		t.Errorf("Nameservers = %v, want %v", ns, want)
-	}
-
-	if got := api.Commands(); len(got) != 0 {
-		t.Errorf("Nameservers sent %v, want no request", got)
-	}
-}
-
 func TestZoneStatusIsUnknownWithoutAsking(t *testing.T) {
 	api := &ncAPI{}
 

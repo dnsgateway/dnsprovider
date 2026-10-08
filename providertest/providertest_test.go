@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"maps"
+	"reflect"
 	"testing"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -83,5 +84,63 @@ func TestFactoryRefusesMissingAndUnknownFields(t *testing.T) {
 				t.Fatalf("Factory built a Provider from %v", fields)
 			}
 		})
+	}
+}
+
+func TestAccountIsTheScriptedAccountInfo(t *testing.T) {
+	fake := providertest.New()
+	want := dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{ID: "t1", Name: "Acme"}, Nameservers: []string{"ns1.example.net"}}
+	fake.SetAccount(want)
+
+	p, err := fake.Factory().New(map[string]string{"token": "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := p.Account(context.Background())
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Fatalf("Account = %+v, %v; want %+v", got, err, want)
+	}
+
+	boom := errors.New("boom")
+	fake.Fail(providertest.OpAccount, boom)
+
+	if _, err := p.Account(context.Background()); !errors.Is(err, boom) {
+		t.Errorf("err = %v, want %v", err, boom)
+	}
+}
+
+func TestTenantsAreListedOnlyOnceScripted(t *testing.T) {
+	fake := providertest.New()
+
+	p, err := fake.Factory().New(map[string]string{"token": "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if dnsprovider.CanListTenants(p) {
+		t.Error("an unscripted fake lists Tenants")
+	}
+
+	want := []dnsprovider.Tenant{{ID: "t1", Name: "Acme"}, {ID: "t2", Name: "Side"}}
+	fake.SetTenants(want...)
+
+	p, err = fake.Factory().New(map[string]string{"token": "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	l, ok := p.(dnsprovider.TenantLister)
+	if !ok {
+		t.Fatal("a fake with scripted Tenants does not list them")
+	}
+
+	got, err := l.Tenants(context.Background())
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("Tenants = %+v, %v; want %+v", got, err, want)
+	}
+
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpTenants {
+		t.Errorf("last call = %+v, want Tenants", calls[len(calls)-1])
 	}
 }

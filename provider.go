@@ -4,6 +4,9 @@ import "context"
 
 // Provider is one Account at a DNS hosting service.
 type Provider interface {
+	// Account describes the Account and proves its credentials work, even
+	// when it has no Zones: ErrUnauthorized when they do not.
+	Account(ctx context.Context) (AccountInfo, error)
 	// Zones lists the Account's Zones. Each has Name and ID set.
 	Zones(ctx context.Context) ([]Zone, error)
 	// Records lists a Zone's Records, with the SOA serial when available.
@@ -12,8 +15,6 @@ type Provider interface {
 	Apply(ctx context.Context, cs Changeset) (ApplyResult, error)
 	// ZoneStatus reads the Provider-side Zone Status.
 	ZoneStatus(ctx context.Context, zone Zone) (ZoneStatus, error)
-	// Nameservers are the nameservers the Account expects Delegation to name.
-	Nameservers(ctx context.Context) ([]string, error)
 }
 
 // TenantLister is implemented by a Provider whose credentials can reach

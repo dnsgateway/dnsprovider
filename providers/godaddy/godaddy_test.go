@@ -315,23 +315,6 @@ func TestZonesCarryTheirNameserversOnlyWhenGoDaddyAnswersForThem(t *testing.T) {
 	}
 }
 
-func TestNameserversAreTheGoDaddyOnesOfTheAccountsDomains(t *testing.T) {
-	api := &gdAPI{pageSize: 10, domains: []map[string]any{
-		domain("b.example", "ns44.domaincontrol.com", "ns43.domaincontrol.com"),
-		domain("elsewhere.example", "cruz.ns.cloudflare.com", "dee.ns.cloudflare.com"),
-		domain("a.example", "NS43.DOMAINCONTROL.COM.", "ns44.domaincontrol.com"),
-	}}
-
-	ns, err := newProvider(t, api).Nameservers(context.Background())
-	if err != nil {
-		t.Fatalf("Nameservers: %v", err)
-	}
-
-	if want := []string{"ns43.domaincontrol.com", "ns44.domaincontrol.com"}; !reflect.DeepEqual(ns, want) {
-		t.Errorf("Nameservers = %v, want %v", ns, want)
-	}
-}
-
 func TestRecordsListsEveryPageWithAbsoluteNamesAndThePriorityFirst(t *testing.T) {
 	api := &gdAPI{pageSize: 2, records: map[string][]map[string]any{"example.com": {
 		{"type": "A", "name": "@", "data": "192.0.2.1", "ttl": 600},

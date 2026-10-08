@@ -322,12 +322,6 @@ func (p *Provider) ZoneStatus(context.Context, dnsprovider.Zone) (dnsprovider.Zo
 	return dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Unknown, HSTS: dnsprovider.Unknown}, nil
 }
 
-// Nameservers implements dnsprovider.Provider: Namecheap's BasicDNS
-// nameservers, the same for every Account.
-func (p *Provider) Nameservers(context.Context) ([]string, error) {
-	return basicDNS(), nil
-}
-
 // basicDNS are Namecheap's BasicDNS nameservers, the same for every Account.
 func basicDNS() []string {
 	return []string{"dns1.registrar-servers.com", "dns2.registrar-servers.com"}

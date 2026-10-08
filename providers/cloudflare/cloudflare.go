@@ -742,22 +742,3 @@ func (p *Provider) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 
 	return out, nil
 }
-
-// Nameservers implements dnsprovider.Provider. Cloudflare assigns nameservers
-// per Zone, usually the same pair across an Account, so the Account
-// expects every nameserver assigned to any of its Zones, sorted.
-func (p *Provider) Nameservers(ctx context.Context) ([]string, error) {
-	all, err := p.listZones(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	var ns []string
-	for _, z := range all {
-		ns = append(ns, z.NameServers...)
-	}
-
-	slices.Sort(ns)
-
-	return slices.Compact(ns), nil
-}

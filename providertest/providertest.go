@@ -22,12 +22,13 @@ type Op string
 
 // Operations.
 const (
-	OpNew         Op = "New"
-	OpZones       Op = "Zones"
-	OpRecords     Op = "Records"
-	OpApply       Op = "Apply"
-	OpZoneStatus  Op = "ZoneStatus"
-	OpNameservers Op = "Nameservers"
+	OpNew        Op = "New"
+	OpZones      Op = "Zones"
+	OpRecords    Op = "Records"
+	OpApply      Op = "Apply"
+	OpZoneStatus Op = "ZoneStatus"
+	OpAccount    Op = "Account"
+	OpTenants    Op = "Tenants"
 )
 
 // Call is one recorded call.
@@ -43,21 +44,22 @@ type Call struct {
 
 // Provider is the fake. Its zero value is not usable; call New.
 type Provider struct {
-	mu          sync.Mutex
-	zones       []dnsprovider.Zone
-	records     map[string][]dnsprovider.Record // by Zone ID
-	serials     map[string]uint32
-	status      map[string]dnsprovider.ZoneStatus
-	nameservers []string
-	fail        map[Op]error
-	failChange  func(dnsprovider.Change) error
-	withhold    bool
-	noSerial    bool
-	ttlRange    []uint32 // min, max; nil when not scripted
-	proxiable   []string // nil when not scripted
-	autoTTL     bool
-	calls       []Call
-	nextID      int
+	mu         sync.Mutex
+	zones      []dnsprovider.Zone
+	records    map[string][]dnsprovider.Record // by Zone ID
+	serials    map[string]uint32
+	status     map[string]dnsprovider.ZoneStatus
+	account    dnsprovider.AccountInfo
+	tenants    []dnsprovider.Tenant // nil when not scripted
+	fail       map[Op]error
+	failChange func(dnsprovider.Change) error
+	withhold   bool
+	noSerial   bool
+	ttlRange   []uint32 // min, max; nil when not scripted
+	proxiable  []string // nil when not scripted
+	autoTTL    bool
+	calls      []Call
+	nextID     int
 }
 
 // New returns an empty fake Provider.
@@ -186,12 +188,54 @@ func (p *Provider) SetZoneStatus(zoneID string, s dnsprovider.ZoneStatus) {
 	p.status[zoneID] = s
 }
 
-// SetNameservers scripts the Account's expected nameservers.
-func (p *Provider) SetNameservers(ns ...string) {
+// SetAccount scripts what Account reports.
+func (p *Provider) SetAccount(info dnsprovider.AccountInfo) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.nameservers = ns
+	info.Nameservers = slices.Clone(info.Nameservers)
+	p.account = info
+}
+
+// SetTenants makes the Providers New builds list these Tenants, through
+// dnsprovider.TenantLister. Unscripted, they do not implement it.
+func (p *Provider) SetTenants(tenants ...dnsprovider.Tenant) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.tenants = append([]dnsprovider.Tenant{}, tenants...)
+}
+
+// withTenants is the fake with scripted Tenants.
+type withTenants struct {
+	*Provider
+}
+
+// withOptionsAndTenants is the fake with scripted optional interfaces
+// and Tenants.
+type withOptionsAndTenants struct {
+	withOptions
+}
+
+// Tenants implements dnsprovider.TenantLister.
+func (p withTenants) Tenants(context.Context) ([]dnsprovider.Tenant, error) {
+	return p.listTenants()
+}
+
+// Tenants implements dnsprovider.TenantLister.
+func (p withOptionsAndTenants) Tenants(context.Context) ([]dnsprovider.Tenant, error) {
+	return p.listTenants()
+}
+
+func (p *Provider) listTenants() ([]dnsprovider.Tenant, error) {
+	if err := p.record(Call{Op: OpTenants}); err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return slices.Clone(p.tenants), nil
 }
 
 // Fail makes every later call of op fail with err; a nil err clears it.
@@ -274,8 +318,15 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.ttlRange != nil || p.proxiable != nil || p.autoTTL {
+	options := p.ttlRange != nil || p.proxiable != nil || p.autoTTL
+
+	switch {
+	case options && p.tenants != nil:
+		return withOptionsAndTenants{withOptions{p}}, nil
+	case options:
 		return withOptions{p}, nil
+	case p.tenants != nil:
+		return withTenants{p}, nil
 	}
 
 	return p, nil
@@ -408,14 +459,17 @@ func (p *Provider) ZoneStatus(_ context.Context, z dnsprovider.Zone) (dnsprovide
 	return p.status[z.ID], nil
 }
 
-// Nameservers implements dnsprovider.Provider.
-func (p *Provider) Nameservers(context.Context) ([]string, error) {
-	if err := p.record(Call{Op: OpNameservers}); err != nil {
-		return nil, err
+// Account implements dnsprovider.Provider: the scripted AccountInfo.
+func (p *Provider) Account(context.Context) (dnsprovider.AccountInfo, error) {
+	if err := p.record(Call{Op: OpAccount}); err != nil {
+		return dnsprovider.AccountInfo{}, err
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return slices.Clone(p.nameservers), nil
+	info := p.account
+	info.Nameservers = slices.Clone(info.Nameservers)
+
+	return info, nil
 }

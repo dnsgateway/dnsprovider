@@ -93,7 +93,7 @@ func newProvider(t *testing.T, api *cfAPI) dnsprovider.Provider {
 	srv := httptest.NewServer(api.handler(t))
 	t.Cleanup(srv.Close)
 
-	p, err := cloudflare.Config{BaseURL: srv.URL + "/client/v4/"}.New(testToken)
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -942,7 +942,7 @@ func TestZoneStatusReadsDNSSECAndHSTSConcurrently(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	p, err := cloudflare.Config{BaseURL: srv.URL + "/client/v4/"}.New(testToken)
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -983,7 +983,7 @@ func TestAZoneStatusSettingThatFailsToReadIsUnknownOnItsOwn(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			p, err := cloudflare.Config{BaseURL: srv.URL + "/client/v4/"}.New(testToken)
+			p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -1127,7 +1127,7 @@ func TestAStalledConnectionTimesOut(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	p, err := cloudflare.Config{BaseURL: srv.URL + "/client/v4/", RequestTimeout: 50 * time.Millisecond}.New(testToken)
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"), dnsprovider.WithHTTPClient(&http.Client{Timeout: 50 * time.Millisecond}))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -1304,7 +1304,7 @@ func assertRecords(t *testing.T, got, want []dnsprovider.Record) {
 }
 
 func TestCloudflareTakesTTLsFrom60SecondsOrAutomatic(t *testing.T) {
-	p, err := cloudflare.Config{}.New(testToken)
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1320,7 +1320,7 @@ func TestCloudflareTakesTTLsFrom60SecondsOrAutomatic(t *testing.T) {
 }
 
 func TestCloudflareTakesTTL1AsAutomatic(t *testing.T) {
-	p, err := cloudflare.Config{}.New(testToken)
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1339,7 +1339,7 @@ func TestCloudflareProxyFlagIsTheNeutralExtra(t *testing.T) {
 }
 
 func TestCloudflareProxiesAAAAAAndCNAMERecords(t *testing.T) {
-	p, err := cloudflare.Config{}.New(testToken)
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken})
 	if err != nil {
 		t.Fatal(err)
 	}

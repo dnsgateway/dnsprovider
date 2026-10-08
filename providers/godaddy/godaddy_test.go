@@ -24,7 +24,15 @@ import (
 	"github.com/dnsgateway/dnsprovider/providers/godaddy"
 )
 
-const testToken = "test-key:test-secret"
+const (
+	testKey    = "test-key"
+	testSecret = "test-secret"
+	// testToken is the key and secret as GoDaddy's Authorization header
+	// carries them.
+	testToken = testKey + ":" + testSecret
+)
+
+var testConfig = godaddy.Config{Key: testKey, Secret: testSecret}
 
 // gdAPI is a scripted GoDaddy v1 Domains API. Domain lists are paged
 // pageSize domains at a time by marker, the last domain of the page
@@ -81,7 +89,7 @@ func newProvider(t *testing.T, api *gdAPI) dnsprovider.Provider {
 		godaddy.SetPageSize(t, api.pageSize)
 	}
 
-	p, err := godaddy.Config{BaseURL: srv.URL}.New(testToken)
+	p, err := godaddy.New(testConfig, dnsprovider.WithBaseURL(srv.URL))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -573,14 +581,6 @@ func TestApplySplitsThePriorityAndSRVFieldsOutOfTheValue(t *testing.T) {
 	}
 }
 
-func TestNewRefusesATokenThatIsNotKeyAndSecret(t *testing.T) {
-	for _, token := range []string{"", "key-only", ":secret", "key:"} {
-		if _, err := (godaddy.Config{}).New(token); err == nil {
-			t.Errorf("New(%q) took a token that is not KEY:SECRET", token)
-		}
-	}
-}
-
 func TestGoDaddyTakesTTLsFrom600SecondsWithoutAutomatic(t *testing.T) {
 	p := newProvider(t, &gdAPI{})
 
@@ -635,7 +635,7 @@ func TestErrorResponsesAreTypedErrors(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			p, err := godaddy.Config{BaseURL: srv.URL}.New(testToken)
+			p, err := godaddy.New(testConfig, dnsprovider.WithBaseURL(srv.URL))
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}

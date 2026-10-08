@@ -1,10 +1,6 @@
 package dnsprovider
 
-import (
-	"context"
-	"maps"
-	"slices"
-)
+import "context"
 
 // Provider is one Account at a DNS hosting service.
 type Provider interface {
@@ -101,15 +97,4 @@ type ApplyResult struct {
 	Results []ChangeResult
 	// Serial is the Zone's new SOA serial; zero when not known.
 	Serial uint32
-}
-
-// Constructor builds a Provider for an Account from its API token.
-type Constructor func(token string) (Provider, error)
-
-// Registry maps a Provider type, such as "cloudflare", to its constructor.
-type Registry map[string]Constructor
-
-// Types returns the registered Provider types, sorted.
-func (r Registry) Types() []string {
-	return slices.Sorted(maps.Keys(r))
 }

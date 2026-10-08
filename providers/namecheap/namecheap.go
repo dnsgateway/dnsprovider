@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"maps"
 	"net/http"
 	"net/netip"
@@ -18,6 +19,7 @@ import (
 	"time"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/fields"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
@@ -35,40 +37,74 @@ const maxResponseBytes = 4 << 20
 // domainsPerPage is the largest page Namecheap serves for domains.
 const domainsPerPage = 100
 
-// Config configures the Namecheap Provider. Its zero value talks to the
-// real Namecheap API.
+// Config is a Namecheap Account's credentials.
 type Config struct {
-	// BaseURL is the API endpoint, ending in /xml.response; empty means
-	// DefaultBaseURL.
-	BaseURL string
-	// HTTPClient sends the requests; nil means a client that times out
-	// each request after DefaultRequestTimeout.
-	HTTPClient *http.Client
+	// User is the API user, which is also the account the calls act on.
+	// Required.
+	User string
+	// Key is the API key. Required.
+	Key string
+	// ClientIP is the IPv4 address whitelisted for the API, which
+	// Namecheap wants in every call. Required: the adapter does not look
+	// up its own public IP.
+	ClientIP string
 }
 
-// errTokenShape is the error for a token New does not take.
-var errTokenShape = errors.New("namecheap: the API token is the API user, API key and whitelisted IPv4 client IP as APIUSER:APIKEY:CLIENTIP")
+// Field names in Factory's field map.
+const (
+	FieldUser     = "user"
+	FieldKey      = "key"
+	FieldClientIP = "client_ip"
+)
 
-// New is the dnsprovider.Constructor for Namecheap. The token is the API
-// user, the API key and the client IP whitelisted for the API, as
-// APIUSER:APIKEY:CLIENTIP. The adapter does not look up its own public IP.
-func (c Config) New(token string) (dnsprovider.Provider, error) {
-	parts := strings.Split(token, ":")
-	if len(parts) != 3 || parts[0] == "" || parts[1] == "" {
-		return nil, errTokenShape
+// Factory builds the Namecheap Provider from a field map, for a
+// dnsprovider.Registry.
+func Factory() dnsprovider.Factory {
+	fs := []dnsprovider.Field{
+		{Name: FieldUser, Label: "API user"},
+		{Name: FieldKey, Label: "API key", Secret: true},
+		{Name: FieldClientIP, Label: "Whitelisted client IPv4"},
 	}
 
-	ip, err := netip.ParseAddr(parts[2])
+	return dnsprovider.Factory{
+		Fields: fs,
+		New: func(m map[string]string, opts ...dnsprovider.Option) (dnsprovider.Provider, error) {
+			if err := fields.Check("namecheap", fs, m); err != nil {
+				return nil, err
+			}
+
+			p, err := New(Config{User: m[FieldUser], Key: m[FieldKey], ClientIP: m[FieldClientIP]}, opts...)
+			if err != nil {
+				return nil, err
+			}
+
+			return p, nil
+		},
+	}
+}
+
+// New builds the Namecheap Provider for an Account, without a network
+// call. Without WithBaseURL it talks to DefaultBaseURL, whose sandbox
+// counterpart is in its doc; without WithHTTPClient each request times
+// out after DefaultRequestTimeout.
+func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
+	if cfg.User == "" || cfg.Key == "" || cfg.ClientIP == "" {
+		return nil, errors.New("namecheap: the API user, API key and client IP are all required")
+	}
+
+	ip, err := netip.ParseAddr(cfg.ClientIP)
 	if err != nil || !ip.Is4() {
-		return nil, errTokenShape
+		return nil, fmt.Errorf("namecheap: the client IP %q is not an IPv4 address", cfg.ClientIP)
 	}
 
-	baseURL := c.BaseURL
+	o := dnsprovider.NewOptions(opts...)
+
+	baseURL := o.BaseURL
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
 
-	client := c.HTTPClient
+	client := o.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: DefaultRequestTimeout}
 	}
@@ -76,12 +112,13 @@ func (c Config) New(token string) (dnsprovider.Provider, error) {
 	return &Provider{
 		baseURL: baseURL,
 		auth: url.Values{
-			"ApiUser":  {parts[0]},
-			"UserName": {parts[0]},
-			"ApiKey":   {parts[1]},
-			"ClientIp": {parts[2]},
+			"ApiUser":  {cfg.User},
+			"UserName": {cfg.User},
+			"ApiKey":   {cfg.Key},
+			"ClientIp": {cfg.ClientIP},
 		},
 		client: client,
+		log:    o.Logger,
 	}, nil
 }
 
@@ -91,6 +128,7 @@ type Provider struct {
 	// auth are the parameters every request carries.
 	auth   url.Values
 	client *http.Client
+	log    *slog.Logger
 }
 
 var (

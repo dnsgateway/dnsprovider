@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	"time"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/fields"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
@@ -29,35 +31,75 @@ const DefaultRequestTimeout = 30 * time.Second
 // domainsPerPage is the largest page GoDaddy serves for domains.
 var domainsPerPage = 1000
 
-// Config configures the GoDaddy Provider. Its zero value talks to the
-// real GoDaddy API.
+// Config is a GoDaddy Account's credentials.
 type Config struct {
-	// BaseURL is the API base URL; empty means DefaultBaseURL.
-	BaseURL string
-	// HTTPClient sends the requests; nil means a client that times out
-	// each request after DefaultRequestTimeout.
-	HTTPClient *http.Client
+	// Key is the API key. Required.
+	Key string
+	// Secret is the API secret. Required.
+	Secret string
 }
 
-// New is the dnsprovider.Constructor for GoDaddy. The token is the API key
-// and secret as KEY:SECRET.
-func (c Config) New(token string) (dnsprovider.Provider, error) {
-	key, secret, ok := strings.Cut(token, ":")
-	if !ok || key == "" || secret == "" {
-		return nil, errors.New("godaddy: the API token is the key and secret as KEY:SECRET")
+// Field names in Factory's field map.
+const (
+	FieldKey    = "key"
+	FieldSecret = "secret"
+)
+
+// Factory builds the GoDaddy Provider from a field map, for a
+// dnsprovider.Registry.
+func Factory() dnsprovider.Factory {
+	fs := []dnsprovider.Field{
+		{Name: FieldKey, Label: "API key", Secret: true},
+		{Name: FieldSecret, Label: "API secret", Secret: true},
 	}
 
-	baseURL := c.BaseURL
+	return dnsprovider.Factory{
+		Fields: fs,
+		New: func(m map[string]string, opts ...dnsprovider.Option) (dnsprovider.Provider, error) {
+			if err := fields.Check("godaddy", fs, m); err != nil {
+				return nil, err
+			}
+
+			p, err := New(Config{Key: m[FieldKey], Secret: m[FieldSecret]}, opts...)
+			if err != nil {
+				return nil, err
+			}
+
+			return p, nil
+		},
+	}
+}
+
+// New builds the GoDaddy Provider for an Account, without a network call.
+// Without WithBaseURL it talks to DefaultBaseURL; without WithHTTPClient
+// each request times out after DefaultRequestTimeout.
+func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
+	if cfg.Key == "" || cfg.Secret == "" {
+		return nil, errors.New("godaddy: the API key and secret are both required")
+	}
+
+	if strings.Contains(cfg.Key, ":") {
+		return nil, errors.New("godaddy: the API key holds a colon")
+	}
+
+	o := dnsprovider.NewOptions(opts...)
+
+	baseURL := o.BaseURL
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
 
-	client := c.HTTPClient
+	client := o.HTTPClient
 	if client == nil {
 		client = &http.Client{Timeout: DefaultRequestTimeout}
 	}
 
-	return &Provider{baseURL: strings.TrimSuffix(baseURL, "/"), auth: "sso-key " + token, client: client}, nil
+	return &Provider{
+		baseURL: strings.TrimSuffix(baseURL, "/"),
+		auth:    "sso-key " + cfg.Key + ":" + cfg.Secret,
+		client:  client,
+		log:     o.Logger,
+	}, nil
 }
 
 // Provider is one GoDaddy Account.
@@ -65,6 +107,7 @@ type Provider struct {
 	baseURL string
 	auth    string
 	client  *http.Client
+	log     *slog.Logger
 }
 
 var (

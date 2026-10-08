@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strconv"
@@ -20,6 +21,7 @@ import (
 	"github.com/cloudflare/cloudflare-go/v7/zones"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/fields"
 )
 
 // DefaultBaseURL is the Cloudflare v4 API.
@@ -31,17 +33,44 @@ const zonesPerPage = 50
 // recordsPerPage keeps reading a large Zone's Records to a few requests.
 const recordsPerPage = 1000
 
-// Config configures the Cloudflare Provider. Its zero value talks to the
-// real Cloudflare API.
+// Config is a Cloudflare Account's credentials.
 type Config struct {
-	// BaseURL is the API base URL; empty means DefaultBaseURL.
-	BaseURL string
-	// HTTPClient sends the requests; nil means a client with connection
-	// timeouts, so a stalled connection cannot hang a call.
-	HTTPClient *http.Client
-	// RequestTimeout bounds each HTTP request, including reading its
-	// response; zero means DefaultRequestTimeout.
-	RequestTimeout time.Duration
+	// Token is a Cloudflare API token. Required.
+	Token string
+	// TenantID is the Cloudflare account the Provider acts within. Empty
+	// until a Tenant is picked.
+	TenantID string
+}
+
+// Field names in Factory's field map.
+const (
+	FieldToken    = "token"
+	FieldTenantID = "tenant_id"
+)
+
+// Factory builds the Cloudflare Provider from a field map, for a
+// dnsprovider.Registry.
+func Factory() dnsprovider.Factory {
+	fs := []dnsprovider.Field{
+		{Name: FieldToken, Label: "API token", Secret: true},
+		{Name: FieldTenantID, Label: "Account ID"},
+	}
+
+	return dnsprovider.Factory{
+		Fields: fs,
+		New: func(m map[string]string, opts ...dnsprovider.Option) (dnsprovider.Provider, error) {
+			if err := fields.Check("cloudflare", fs, m); err != nil {
+				return nil, err
+			}
+
+			p, err := New(Config{Token: m[FieldToken], TenantID: m[FieldTenantID]}, opts...)
+			if err != nil {
+				return nil, err
+			}
+
+			return p, nil
+		},
+	}
 }
 
 // DefaultRequestTimeout bounds each request to the Cloudflare API. A
@@ -63,49 +92,52 @@ func defaultHTTPClient() *http.Client {
 	return &http.Client{Transport: t}
 }
 
-// New is the dnsprovider.Constructor for Cloudflare. The token is a
-// Cloudflare API token.
+// New builds the Cloudflare Provider for an Account, without a network
+// call. Without WithBaseURL it talks to DefaultBaseURL.
 //
 // It ignores the CLOUDFLARE_* environment variables cloudflare-go reads by
-// default: the token is the only credential.
-func (c Config) New(token string) (dnsprovider.Provider, error) {
-	if token == "" {
+// default: the Config is the only credential.
+func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
+	if cfg.Token == "" {
 		return nil, errors.New("cloudflare: no API token")
 	}
 
-	baseURL := c.BaseURL
+	o := dnsprovider.NewOptions(opts...)
+
+	baseURL := o.BaseURL
 	if baseURL == "" {
 		baseURL = DefaultBaseURL
 	}
 
-	client := c.HTTPClient
+	client := o.HTTPClient
 	if client == nil {
 		client = defaultHTTPClient()
 	}
 
-	timeout := c.RequestTimeout
-	if timeout <= 0 {
-		timeout = DefaultRequestTimeout
-	}
-
-	opts := []option.RequestOption{
+	ropts := []option.RequestOption{
 		option.WithBaseURL(baseURL),
-		option.WithAPIToken(token),
+		option.WithAPIToken(cfg.Token),
 		option.WithMiddleware(reportRateLimits),
 		option.WithHTTPClient(client),
-		option.WithRequestTimeout(timeout),
+		option.WithRequestTimeout(DefaultRequestTimeout),
 	}
 
 	return &Provider{
-		zones:    zones.NewZoneService(opts...),
-		settings: zones.NewSettingService(opts...),
-		records:  cfdns.NewRecordService(opts...),
-		dnssec:   cfdns.NewDNSSECService(opts...),
+		tenantID: cfg.TenantID,
+		log:      o.Logger,
+		zones:    zones.NewZoneService(ropts...),
+		settings: zones.NewSettingService(ropts...),
+		records:  cfdns.NewRecordService(ropts...),
+		dnssec:   cfdns.NewDNSSECService(ropts...),
 	}, nil
 }
 
 // Provider is one Cloudflare Account.
 type Provider struct {
+	// tenantID is the Cloudflare account calls are scoped to; empty
+	// until a Tenant is picked.
+	tenantID string
+	log      *slog.Logger
 	zones    *zones.ZoneService
 	settings *zones.SettingService
 	records  *cfdns.RecordService

@@ -22,7 +22,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/providers/namecheap"
 )
 
-const testToken = "apiuser:apikey:192.0.2.10"
+var testConfig = namecheap.Config{User: "apiuser", Key: "apikey", ClientIP: "192.0.2.10"}
 
 // ncDomain is one domain of the scripted Account.
 type ncDomain struct {
@@ -93,7 +93,7 @@ func newProvider(t *testing.T, api *ncAPI) dnsprovider.Provider {
 	srv := httptest.NewServer(api.handler(t))
 	t.Cleanup(srv.Close)
 
-	p, err := namecheap.Config{BaseURL: srv.URL + "/xml.response"}.New(testToken)
+	p, err := namecheap.New(testConfig, dnsprovider.WithBaseURL(srv.URL+"/xml.response"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -332,33 +332,7 @@ func writeErrors(w http.ResponseWriter, errs ...ncError) {
 </ApiResponse>`, b.String())
 }
 
-func TestNewRefusesATokenThatIsNotUserKeyAndClientIP(t *testing.T) {
-	for _, token := range []string{
-		"",
-		"apiuser:apikey",
-		":apikey:192.0.2.10",
-		"apiuser::192.0.2.10",
-		"apiuser:apikey:",
-		"apiuser:apikey:192.0.2.10:extra",
-		"apiuser:apikey:not-an-ip",
-		"apiuser:apikey:2001:db8::1",
-		"apiuser:apikey:::ffff:192.0.2.10",
-		"apiuser:apikey:192.0.2",
-	} {
-		_, err := (namecheap.Config{}).New(token)
-		if err == nil {
-			t.Errorf("New(%q) took a token that is not APIUSER:APIKEY:CLIENTIP", token)
-
-			continue
-		}
-
-		if !strings.Contains(err.Error(), "APIUSER:APIKEY:CLIENTIP") {
-			t.Errorf("New(%q) = %q, want the error to show the token's shape", token, err)
-		}
-	}
-}
-
-func TestEveryRequestCarriesTheTokensAuthParameters(t *testing.T) {
+func TestEveryRequestCarriesTheConfigsAuthParameters(t *testing.T) {
 	api := &ncAPI{
 		domains: []ncDomain{{"example.com", true}},
 		hosts:   map[string][]ncHost{"example.com": {{ID: "1", Name: "@", Type: "A", Address: "192.0.2.1", TTL: 1800}}},
@@ -727,7 +701,7 @@ func TestHTTPErrorStatusesAreClassifiedByStatus(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			p, err := namecheap.Config{BaseURL: srv.URL}.New(testToken)
+			p, err := namecheap.New(testConfig, dnsprovider.WithBaseURL(srv.URL))
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -760,7 +734,7 @@ func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
 		t.Errorf("err = %v, want an error without the API key", err)
 	}
 
-	p, err := namecheap.Config{BaseURL: "http://127.0.0.1:1/xml.response"}.New(testToken)
+	p, err := namecheap.New(testConfig, dnsprovider.WithBaseURL("http://127.0.0.1:1/xml.response"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}

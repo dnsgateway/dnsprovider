@@ -79,9 +79,12 @@ does not say. Namecheap lists only the Zones on its DNS, which are Active.
 Onboarding is the optional `ZoneCreator`, Cloudflare's alone and found with
 `dnsprovider.CanCreateZone(p)`: `CreateZone(ctx, "example.org")` starts DNS
 hosting of the name in the Provider's Tenant (it never registers the domain)
-and returns the new Zone Pending, with the nameservers Delegation must name.
-A name the Tenant already has, or that Cloudflare holds in another account,
-is `dnsprovider.ErrConflict`; a Provider without a Tenant returns
+and returns the new Zone Pending, with the nameservers Delegation must name
+(its name alone, without an ID, when Cloudflare took the create but the Zone
+could not be read back).
+A name the Tenant already has, or that another account keeps under a zone
+hold, is `dnsprovider.ErrConflict` (without a hold, Cloudflare Onboards a
+name active in another account, pending until Delegation moves it); a Provider without a Tenant returns
 `dnsprovider.ErrNoTenant` without a request. The create is never retried.
 
 Zone Status (DNSSEC, HSTS) is the optional `ZoneStatusReader`, which only

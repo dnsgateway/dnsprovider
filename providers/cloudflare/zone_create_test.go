@@ -105,18 +105,31 @@ func TestCreateZonePostsTheNameInTheTenantAndReturnsItPendingWithItsNameservers(
 	}}})
 }
 
-func TestCreateZoneOfANameCloudflareHoldsIsAConflict(t *testing.T) {
-	// Cloudflare refuses a zone name its account already has, or that
-	// another account holds, with code 1061.
-	for _, msg := range []string{"example.org already exists", "A zone with this name already exists in another account"} {
-		o := &onboard{answer: func(w http.ResponseWriter, _ *http.Request) {
-			writeErrors(w, http.StatusBadRequest, 1061, msg)
-		}}
+func TestCreateZoneOfANameTheAccountHasIsAConflict(t *testing.T) {
+	// Code 1061, "<name> already exists", as Cloudflare answers it (see
+	// errorCodes for the sources).
+	o := &onboard{answer: func(w http.ResponseWriter, _ *http.Request) {
+		writeErrors(w, http.StatusBadRequest, 1061, "example.org already exists")
+	}}
 
-		_, err := newOnboarding(t, o).CreateZone(context.Background(), "example.org")
-		if !errors.Is(err, dnsprovider.ErrConflict) {
-			t.Errorf("%s: err = %v, want ErrConflict", msg, err)
-		}
+	_, err := newOnboarding(t, o).CreateZone(context.Background(), "example.org")
+	if !errors.Is(err, dnsprovider.ErrConflict) {
+		t.Errorf("err = %v, want ErrConflict", err)
+	}
+}
+
+func TestCreateZoneOfANameUnderAnotherAccountsZoneHoldIsAConflict(t *testing.T) {
+	// Cloudflare documents the zone hold refusal's message, not its code
+	// or status: 1000 and 400 here are stand-ins no rule maps, so the
+	// message alone makes it a conflict.
+	o := &onboard{answer: func(w http.ResponseWriter, _ *http.Request) {
+		writeErrors(w, http.StatusBadRequest, 1000, "The zone name provided is subject to a hold which disallows the creation of this zone. "+
+			"Please contact the domain owner to have this hold removed.")
+	}}
+
+	_, err := newOnboarding(t, o).CreateZone(context.Background(), "example.org")
+	if !errors.Is(err, dnsprovider.ErrConflict) {
+		t.Errorf("err = %v, want ErrConflict", err)
 	}
 }
 

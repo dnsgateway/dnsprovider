@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go/v7/option"
@@ -65,8 +66,23 @@ func addErrors(e *dnsprovider.APIError, errs []wireError) {
 		if kind, ok := errorCodes[m.Code]; ok && e.Kind == nil {
 			e.Kind = kind
 		}
+
+		if e.Kind == nil && strings.Contains(m.Message, zoneHoldMessage) {
+			e.Kind = dnsprovider.ErrConflict
+		}
 	}
 }
+
+// zoneHoldMessage is in Cloudflare's refusal to create a Zone of a name
+// another account holds under a zone hold, which Cloudflare documents by
+// its message alone, without a code: "The zone name provided is subject
+// to a hold which disallows the creation of this zone. ..."
+// (https://developers.cloudflare.com/fundamentals/account/account-security/zone-holds/,
+// https://developers.cloudflare.com/dns/zone-setups/troubleshooting/cannot-add-domain/).
+// Without a hold, Cloudflare Onboards a name active in another account:
+// the new Zone stays pending until Delegation names its nameservers,
+// and the other account's then moves away.
+const zoneHoldMessage = "subject to a hold"
 
 // errorCodes are the Cloudflare v4 error codes that say what went wrong
 // when the HTTP status does not, such as a bad token answered with 400.
@@ -76,13 +92,18 @@ var errorCodes = map[int]error{
 	6111:  dnsprovider.ErrUnauthorized, // Invalid format for Authorization header
 	9106:  dnsprovider.ErrUnauthorized, // Missing X-Auth-Key, X-Auth-Email or Authorization headers
 	10000: dnsprovider.ErrUnauthorized, // Authentication error
-	1061:  dnsprovider.ErrConflict,     // <name> already exists (a zone name the account, or another one, holds)
-	7003:  dnsprovider.ErrNotFound,     // Could not route to …, perhaps your object identifier is invalid?
-	81044: errRecordMissing,            // Record does not exist.
-	81053: dnsprovider.ErrConflict,     // An A, AAAA, or CNAME record with that host already exists.
-	81054: dnsprovider.ErrConflict,     // A CNAME record with that host already exists.
-	81057: dnsprovider.ErrConflict,     // Record already exists.
-	81058: dnsprovider.ErrConflict,     // An identical record already exists.
+	// 1061, "<name> already exists", refuses POST /zones of a name the
+	// account has. Cloudflare's docs leave it out; it is seen in real
+	// answers (https://github.com/midl-dev/tezos-on-gke/issues/3) and
+	// mapped by libcloud as ZoneAlreadyExistsError
+	// (https://libcloud.readthedocs.io/en/v3.3.0/_modules/libcloud/dns/drivers/cloudflare.html).
+	1061:  dnsprovider.ErrConflict,
+	7003:  dnsprovider.ErrNotFound, // Could not route to …, perhaps your object identifier is invalid?
+	81044: errRecordMissing,        // Record does not exist.
+	81053: dnsprovider.ErrConflict, // An A, AAAA, or CNAME record with that host already exists.
+	81054: dnsprovider.ErrConflict, // A CNAME record with that host already exists.
+	81057: dnsprovider.ErrConflict, // Record already exists.
+	81058: dnsprovider.ErrConflict, // An identical record already exists.
 }
 
 // errRecordMissing is the kind of error Cloudflare's code 81044, "Record

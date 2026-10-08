@@ -71,8 +71,11 @@ type ZoneCreator interface {
 	// success: the Zone is then its name alone, Pending, without an ID or
 	// nameservers, until Zones or Zone reads it.
 	// ErrConflict when the Tenant already has a Zone of that name, or the
-	// Provider will not host it beside another account's; ErrNoTenant
-	// when the Provider has no Tenant to Onboard it in.
+	// Provider refuses it as another account holds it (Cloudflare's zone
+	// hold; without one, Cloudflare Onboards a name active in another
+	// account, pending until Delegation names the new Zone's
+	// nameservers); ErrNoTenant when the Provider has no Tenant to
+	// Onboard it in.
 	CreateZone(ctx context.Context, name string) (Zone, error)
 }
 

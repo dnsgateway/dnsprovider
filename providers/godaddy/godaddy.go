@@ -626,6 +626,30 @@ func (p *Provider) ZoneStatus(context.Context, dnsprovider.Zone) (dnsprovider.Zo
 	return dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Unknown, HSTS: dnsprovider.Unknown}, nil
 }
 
+// Account implements dnsprovider.Provider. GoDaddy has no account
+// endpoint, so it reads one domain, which checks the key and secret even
+// when the Account has no domains. GoDaddy assigns each Account its own
+// pair of domaincontrol.com nameservers: the ones that domain names, when
+// it is on GoDaddy's DNS. The v1 API does not say who the customer is, so
+// the Tenant is empty.
+func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error) {
+	q := url.Values{"includes": {"nameServers"}, "limit": {"1"}}
+
+	var page []wireDomain
+	if err := p.api().Do(ctx, http.MethodGet, "/v1/domains", q, nil, &page); err != nil {
+		return dnsprovider.AccountInfo{}, err
+	}
+
+	var info dnsprovider.AccountInfo
+
+	if len(page) > 0 {
+		info.Nameservers = goDaddyNameservers(page[0].NameServers)
+		slices.Sort(info.Nameservers)
+	}
+
+	return info, nil
+}
+
 // Nameservers implements dnsprovider.Provider. GoDaddy assigns each Account
 // its own pair of domaincontrol.com nameservers, so the Account expects
 // every GoDaddy nameserver its domains name, sorted.

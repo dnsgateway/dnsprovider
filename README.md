@@ -18,9 +18,6 @@ rest/                shared HTTP client of the GoDaddy and Namecheap adapters:
                      retries, rate limit, error decoding, pagination
 ```
 
-It started as the Provider layer of [dnscli](https://github.com/sergelogvinov/dnscli),
-its first consumer.
-
 ## Building a Provider
 
 Each provider package builds its Provider from a typed `Config`, without a
@@ -79,12 +76,6 @@ does not say. Namecheap lists only the Zones on its DNS, which are Active.
 Zone Status (DNSSEC, HSTS) is the optional `ZoneStatusReader`, which only
 Cloudflare implements. `dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and
 reports every setting Unknown, without a call, for a Provider without one.
-
-## Stability
-
-The module stays at `v0` until dnscli has moved onto it: its API may change
-without notice until then. After that, breaking changes need a new major
-version.
 
 ## Tests
 

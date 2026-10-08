@@ -256,3 +256,127 @@ func TestApplyRefusesAChangesetWhoseBeforeChangedOrIsGoneAndWritesNothing(t *tes
 		})
 	}
 }
+
+// reads are the Records reads recorded on a fake, by their filters.
+func reads(fake *providertest.Provider) []dnsprovider.RecordFilter {
+	var out []dnsprovider.RecordFilter
+
+	for _, c := range fake.Calls() {
+		if c.Op == providertest.OpRecords {
+			out = append(out, c.RecordFilter)
+		}
+	}
+
+	return out
+}
+
+func TestApplyReReadsTheRecordsItTouchesByTypeWhenTheyShareOne(t *testing.T) {
+	www := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	api := dnsprovider.Record{ID: "r2", Type: "a", Name: "api.example.com", Value: "192.0.2.2", TTL: 300}
+	txt := dnsprovider.Record{ID: "r3", Type: "TXT", Name: "example.com", Value: "v=spf1 -all", TTL: 300}
+
+	edited := www
+	edited.Type, edited.Value = "CNAME", "shop.example.net"
+
+	for _, tc := range []struct {
+		name    string
+		changes []dnsprovider.Change
+		want    []dnsprovider.RecordFilter
+	}{
+		{
+			// A modification is re-read by the type it was built from.
+			name: "one type",
+			changes: []dnsprovider.Change{
+				{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "hello", TTL: 300}},
+				{Kind: dnsprovider.ChangeModify, Before: www, After: edited},
+				{Kind: dnsprovider.ChangeDelete, Before: api},
+			},
+			want: []dnsprovider.RecordFilter{{Type: "A"}},
+		},
+		{
+			name: "two types",
+			changes: []dnsprovider.Change{
+				{Kind: dnsprovider.ChangeDelete, Before: www},
+				{Kind: dnsprovider.ChangeDelete, Before: txt},
+			},
+			want: []dnsprovider.RecordFilter{{}},
+		},
+		{
+			name: "additions only",
+			changes: []dnsprovider.Change{
+				{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "new.example.com", Value: "192.0.2.9", TTL: 300}},
+			},
+		},
+	} {
+		for _, batcher := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/batcher=%v", tc.name, batcher), func(t *testing.T) {
+				fake := providertest.New().AddZone(applyZone, www, api, txt)
+				fake.SetBatcher(batcher)
+
+				res, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: tc.changes})
+				if err != nil {
+					t.Fatalf("Apply: %v", err)
+				}
+
+				for i, r := range res.Results {
+					if r.Err != nil {
+						t.Errorf("result %d: %v", i, r.Err)
+					}
+				}
+
+				if got := reads(fake); !slices.Equal(got, tc.want) {
+					t.Errorf("reads = %+v, want %+v", got, tc.want)
+				}
+			})
+		}
+	}
+}
+
+func TestApplyTakesARecordAsStaleWhenItsTTLOrExtrasChangedButNotForAProxyFlagOff(t *testing.T) {
+	read := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+
+	for _, tc := range []struct {
+		name  string
+		now   func(r dnsprovider.Record) dnsprovider.Record
+		stale bool
+	}{
+		{"TTL", func(r dnsprovider.Record) dnsprovider.Record { r.TTL = 600; return r }, true},
+		{"proxied", func(r dnsprovider.Record) dnsprovider.Record {
+			r.Extras = map[string]string{dnsprovider.ExtraProxied: "true"}
+			return r
+		}, true},
+		{"proxy flag off", func(r dnsprovider.Record) dnsprovider.Record {
+			r.Extras = map[string]string{dnsprovider.ExtraProxied: "false"}
+			return r
+		}, false},
+		{"name case and trailing dot", func(r dnsprovider.Record) dnsprovider.Record { r.Name = "WWW.example.com."; return r }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := providertest.New().AddZone(applyZone, tc.now(read))
+
+			_, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: []dnsprovider.Change{
+				{Kind: dnsprovider.ChangeDelete, Before: read},
+			}})
+			if got := errors.Is(err, dnsprovider.ErrStale); got != tc.stale {
+				t.Errorf("Apply: err = %v, want stale %v", err, tc.stale)
+			}
+		})
+	}
+}
+
+func TestApplyFailsWithoutWritingWhenTheReCheckCannotRead(t *testing.T) {
+	www := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	fake := providertest.New().AddZone(applyZone, www)
+	fake.Fail(providertest.OpRecords, fmt.Errorf("fake: %w", dnsprovider.ErrNoTenant))
+
+	_, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: []dnsprovider.Change{
+		{Kind: dnsprovider.ChangeDelete, Before: www},
+	}})
+	if !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("Apply: err = %v, want the read's ErrNoTenant", err)
+	}
+
+	if got := ops(fake); len(got) != 0 {
+		t.Errorf("writes = %v, want none", got)
+	}
+}

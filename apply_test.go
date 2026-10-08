@@ -127,3 +127,35 @@ func TestApplyWithoutABatcherGoesOnPastAFailedChange(t *testing.T) {
 		t.Errorf("modification after the failures = %+v, want it made", r)
 	}
 }
+func TestApplyGoesThroughTheBatcherWhenThereIsOne(t *testing.T) {
+	fake := providertest.New().AddZone(applyZone).SetSerial("z1", 4)
+	fake.SetBatcher(true)
+
+	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}}
+
+	res, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: []dnsprovider.Change{add}})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	if got, want := ops(fake), []providertest.Op{providertest.OpApply}; !equalOps(got, want) {
+		t.Errorf("calls = %v, want %v", got, want)
+	}
+
+	if len(res.Results) != 1 || res.Results[0].Err != nil || res.Serial != 5 {
+		t.Errorf("result = %+v, want the addition confirmed with serial 5", res)
+	}
+}
+
+func TestApplyReturnsABatchersWholeChangesetFailure(t *testing.T) {
+	fake := providertest.New().AddZone(applyZone)
+	fake.SetBatcher(true)
+	boom := errors.New("boom")
+	fake.Fail(providertest.OpApply, boom)
+
+	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}}
+
+	if _, err := dnsprovider.Apply(context.Background(), build(t, fake), dnsprovider.Changeset{Zone: applyZone, Changes: []dnsprovider.Change{add}}); !errors.Is(err, boom) {
+		t.Errorf("Apply: err = %v, want %v", err, boom)
+	}
+}

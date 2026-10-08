@@ -28,8 +28,10 @@ const (
 	OpZones   Op = "Zones"
 	OpZone    Op = "Zone"
 	OpRecords Op = "Records"
-	OpApply   Op = "Apply"
-	// The CRUD operations of a Provider without a Batcher.
+	// OpApply is the Batcher's ApplyChangeset; see SetBatcher.
+	OpApply Op = "Apply"
+	// The Record CRUD operations, which dnsprovider.Apply calls once per
+	// change on a fake that is no Batcher.
 	OpCreateRecord Op = "CreateRecord"
 	OpUpdateRecord Op = "UpdateRecord"
 	OpDeleteRecord Op = "DeleteRecord"
@@ -74,6 +76,7 @@ type Provider struct {
 	ttlRange   []uint32 // min, max; nil when not scripted
 	proxiable  []string // nil when not scripted
 	autoTTL    bool
+	batcher    bool
 	calls      []Call
 	nextID     int
 }
@@ -117,7 +120,8 @@ func (p *Provider) SetHostingState(zoneID string, s dnsprovider.HostingState) *P
 }
 
 // SetSerial scripts a Zone's SOA serial, which Records reports and each
-// Apply that changes a Record bumps.
+// write that changes a Record bumps: once per CRUD call, once per
+// Changeset through the Batcher.
 func (p *Provider) SetSerial(zoneID string, serial uint32) *Provider {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -182,7 +186,8 @@ func (p *Provider) SetAutoTTL(on bool) {
 // The fake implements the optional interfaces whose absence the
 // dnsprovider helpers read as their unscripted answer, such as
 // TTLRangeOf's DefaultTTLRange. TenantLister and ZoneStatusReader, which a
-// consumer may branch on, are implemented by wrapper types, built only
+// consumer may branch on, and Batcher, which changes how
+// dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted; see build.
 var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
@@ -191,8 +196,16 @@ var (
 
 	_ dnsprovider.TenantLister     = withTenants{}
 	_ dnsprovider.ZoneStatusReader = withZoneStatus{}
+	_ dnsprovider.Batcher          = withBatcher{}
 	_ dnsprovider.TenantLister     = withTenantsAndZoneStatus{}
 	_ dnsprovider.ZoneStatusReader = withTenantsAndZoneStatus{}
+	_ dnsprovider.TenantLister     = withTenantsAndBatcher{}
+	_ dnsprovider.Batcher          = withTenantsAndBatcher{}
+	_ dnsprovider.ZoneStatusReader = withZoneStatusAndBatcher{}
+	_ dnsprovider.Batcher          = withZoneStatusAndBatcher{}
+	_ dnsprovider.TenantLister     = withTenantsZoneStatusAndBatcher{}
+	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusAndBatcher{}
+	_ dnsprovider.Batcher          = withTenantsZoneStatusAndBatcher{}
 )
 
 // TTLRange implements dnsprovider.TTLLimits; the default range when not
@@ -285,8 +298,20 @@ func (p *Provider) Fail(op Op, err error) {
 	p.fail[op] = err
 }
 
-// FailChanges makes Apply fail each change for which fn returns an error,
-// while applying the rest: a partial failure.
+// SetBatcher makes the Providers New builds implement dnsprovider.Batcher,
+// so dnsprovider.Apply hands them each Changeset whole, recorded as
+// OpApply. Unscripted, they do not, and Apply makes one CRUD call per
+// change.
+func (p *Provider) SetBatcher(on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.batcher = on
+}
+
+// FailChanges makes each write fail a change for which fn returns an
+// error, while the Batcher applies the rest: a partial failure. The CRUD
+// methods are handed their call as a Change.
 func (p *Provider) FailChanges(fn func(dnsprovider.Change) error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -294,8 +319,8 @@ func (p *Provider) FailChanges(fn func(dnsprovider.Change) error) {
 	p.failChange = fn
 }
 
-// WithholdRecords makes Apply report no stored Record for the changes it
-// confirms, like a Provider whose API does not return them.
+// WithholdRecords makes the writes report no stored Record for the
+// changes they confirm, like a Provider whose API does not return them.
 func (p *Provider) WithholdRecords(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -303,9 +328,9 @@ func (p *Provider) WithholdRecords(on bool) {
 	p.withhold = on
 }
 
-// WithholdSerial makes Records and Apply report no SOA serial, like a
-// Provider whose API has no easy way to read it. The scripted serial
-// still goes up with each Apply.
+// WithholdSerial makes Records and the Batcher report no SOA serial,
+// like a Provider whose API has no easy way to read it. The scripted
+// serial still goes up with each write.
 func (p *Provider) WithholdSerial(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -313,7 +338,7 @@ func (p *Provider) WithholdSerial(on bool) {
 	p.noSerial = on
 }
 
-// serial is the serial Records and Apply report for a Zone.
+// serial is the serial Records and the Batcher report for a Zone.
 func (p *Provider) serial(zoneID string) uint32 {
 	if p.noSerial {
 		return 0
@@ -351,13 +376,21 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	switch {
-	case p.tenants != nil && p.readStatus:
+	switch tenants, status := p.tenants != nil, p.readStatus; {
+	case tenants && status && p.batcher:
+		return withTenantsZoneStatusAndBatcher{withTenantsAndZoneStatus{withTenants{p}}}, nil
+	case tenants && status:
 		return withTenantsAndZoneStatus{withTenants{p}}, nil
-	case p.tenants != nil:
+	case tenants && p.batcher:
+		return withTenantsAndBatcher{withTenants{p}}, nil
+	case status && p.batcher:
+		return withZoneStatusAndBatcher{withZoneStatus{p}}, nil
+	case tenants:
 		return withTenants{p}, nil
-	case p.readStatus:
+	case status:
 		return withZoneStatus{p}, nil
+	case p.batcher:
+		return withBatcher{p}, nil
 	}
 
 	return p, nil
@@ -556,6 +589,86 @@ func (p *Provider) applyChange(records []dnsprovider.Record, c dnsprovider.Chang
 // Value, the names ignoring case.
 func identical(a, b dnsprovider.Record) bool {
 	return strings.EqualFold(a.Type, b.Type) && strings.EqualFold(a.Name, b.Name) && a.Value == b.Value
+}
+
+// applyChangeset is the fake's Batcher: it makes each change as the CRUD
+// methods do, deletions first, then modifications, then additions, and
+// reports the serial, bumped once when any change succeeded.
+func (p *Provider) applyChangeset(_ context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	if err := p.record(Call{Op: OpApply, Zone: cs.Zone, Changeset: cs}); err != nil {
+		return dnsprovider.ApplyResult{}, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	zid := cs.Zone.ID
+	if _, ok := p.records[zid]; !ok {
+		return dnsprovider.ApplyResult{}, fmt.Errorf("providertest: zone %s (%s): %w", cs.Zone.Name, zid, dnsprovider.ErrNotFound)
+	}
+
+	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
+
+	for _, kind := range []dnsprovider.ChangeKind{dnsprovider.ChangeDelete, dnsprovider.ChangeModify, dnsprovider.ChangeAdd} {
+		for i, c := range cs.Changes {
+			if c.Kind == kind {
+				res.Results[i] = p.change(zid, c)
+			}
+		}
+	}
+
+	for _, r := range res.Results {
+		if r.Err == nil {
+			p.serials[zid]++
+			res.Serial = p.serial(zid)
+
+			break
+		}
+	}
+
+	return res, nil
+}
+
+// withBatcher is the fake as a Batcher.
+type withBatcher struct {
+	*Provider
+}
+
+// ApplyChangeset implements dnsprovider.Batcher.
+func (p withBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	return p.applyChangeset(ctx, cs)
+}
+
+// withTenantsAndBatcher is the fake with scripted Tenants, as a Batcher.
+type withTenantsAndBatcher struct {
+	withTenants
+}
+
+// ApplyChangeset implements dnsprovider.Batcher.
+func (p withTenantsAndBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	return p.applyChangeset(ctx, cs)
+}
+
+// withZoneStatusAndBatcher is the fake with scripted Zone Status, as a
+// Batcher.
+type withZoneStatusAndBatcher struct {
+	withZoneStatus
+}
+
+// ApplyChangeset implements dnsprovider.Batcher.
+func (p withZoneStatusAndBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	return p.applyChangeset(ctx, cs)
+}
+
+// withTenantsZoneStatusAndBatcher is the fake with scripted Tenants and
+// Zone Status, as a Batcher.
+type withTenantsZoneStatusAndBatcher struct {
+	withTenantsAndZoneStatus
+}
+
+// ApplyChangeset implements dnsprovider.Batcher.
+func (p withTenantsZoneStatusAndBatcher) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	return p.applyChangeset(ctx, cs)
 }
 
 // withZoneStatus is the fake with scripted Zone Status.

@@ -348,3 +348,113 @@ func TestRecordsAreFilteredAndRecordTheFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestBatcherIsImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.T) {
+	for _, tenants := range []bool{false, true} {
+		for _, status := range []bool{false, true} {
+			for _, batcher := range []bool{false, true} {
+				fake := providertest.New()
+				if tenants {
+					fake.SetTenants(dnsprovider.Tenant{ID: "t1"})
+				}
+
+				if status {
+					fake.SetZoneStatus("z1", dnsprovider.ZoneStatus{})
+				}
+
+				fake.SetBatcher(batcher)
+
+				p := newFake(t, fake)
+
+				_, isBatcher := p.(dnsprovider.Batcher)
+				_, readsStatus := p.(dnsprovider.ZoneStatusReader)
+
+				if isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
+					t.Errorf("tenants %v, status %v, batcher %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v",
+						tenants, status, batcher, dnsprovider.CanListTenants(p), readsStatus, isBatcher)
+				}
+			}
+		}
+	}
+}
+
+func TestBatcherMakesEachChangeAndReportsTheBumpedSerial(t *testing.T) {
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	www := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	fake := providertest.New().AddZone(z, www).SetSerial("z1", 9)
+	fake.SetBatcher(true)
+	fake.FailChanges(func(c dnsprovider.Change) error {
+		if c.Kind == dnsprovider.ChangeDelete {
+			return errors.New("refused")
+		}
+
+		return nil
+	})
+
+	b, ok := newFake(t, fake).(dnsprovider.Batcher)
+	if !ok {
+		t.Fatal("the fake is no Batcher")
+	}
+
+	// The addition takes the place of the Record the modification moves.
+	moved := www
+	moved.Value = "192.0.2.2"
+	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: www}
+	modify := dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: www, After: moved}
+	del := dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: www}
+
+	res, err := b.ApplyChangeset(context.Background(), dnsprovider.Changeset{Zone: z, Changes: []dnsprovider.Change{add, modify, del}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if res.Serial != 10 {
+		t.Errorf("serial = %d, want 10", res.Serial)
+	}
+
+	if r := res.Results[0]; r.Err != nil || r.Record.ID == "" || r.Record.Value != "192.0.2.1" {
+		t.Errorf("addition = %+v, want it stored with an ID", r)
+	}
+
+	if r := res.Results[1]; r.Err != nil || r.Record.ID != "r1" || r.Record.Value != "192.0.2.2" {
+		t.Errorf("modification = %+v, want r1 changed", r)
+	}
+
+	if r := res.Results[2]; r.Err == nil {
+		t.Errorf("deletion = %+v, want the scripted failure", r)
+	}
+
+	calls := fake.Calls()
+	if last := calls[len(calls)-1]; last.Op != providertest.OpApply || len(last.Changeset.Changes) != 3 {
+		t.Errorf("last call = %+v, want the Changeset recorded as OpApply", last)
+	}
+}
+
+func TestCRUDRefusesDuplicatesAndRecordsMissingByID(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	www := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	p := newFake(t, providertest.New().AddZone(z, www))
+
+	dup := www
+	dup.ID, dup.Name, dup.TTL = "", "WWW.example.com", 600
+
+	if _, err := p.CreateRecord(ctx, z, dup); !errors.Is(err, dnsprovider.ErrConflict) {
+		t.Errorf("CreateRecord of a duplicate: err = %v, want ErrConflict", err)
+	}
+
+	gone := www
+	gone.ID = "r9"
+
+	if _, err := p.UpdateRecord(ctx, z, gone, www); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("UpdateRecord of a missing ID: err = %v, want ErrNotFound", err)
+	}
+
+	if err := p.DeleteRecord(ctx, z, gone); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("DeleteRecord of a missing ID: err = %v, want ErrNotFound", err)
+	}
+
+	if err := p.DeleteRecord(ctx, z, www); err != nil {
+		t.Errorf("DeleteRecord: %v", err)
+	}
+}

@@ -6,6 +6,7 @@ package cloudflare_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"reflect"
 	"testing"
@@ -174,21 +175,33 @@ func TestDeleteRecordWhoseRetryFindsItGoneSucceeds(t *testing.T) {
 	}
 }
 
-func TestCreateRecordOfARecordCloudflareHoldsIsAConflict(t *testing.T) {
-	// Cloudflare refuses a Record identical to one it holds with a 400
-	// and its own code, which a 2xx marked "success": false may carry too.
-	for _, status := range []int{http.StatusBadRequest, http.StatusOK} {
-		t.Run(http.StatusText(status), func(t *testing.T) {
-			api := &cfAPI{fail: func(w http.ResponseWriter, _ *http.Request) {
-				writeErrors(w, status, 81058, "An identical record already exists.")
-			}}
-			p := newProvider(t, api)
+func TestCreateRecordThatCollidesWithOneCloudflareHoldsIsAConflict(t *testing.T) {
+	// Cloudflare refuses such a Record with a 400 and its own code, which
+	// a 2xx marked "success": false may carry too.
+	collisions := []struct {
+		code    int
+		message string
+	}{
+		{81057, "Record already exists."},
+		{81058, "An identical record already exists."},
+		{81053, "An A, AAAA, or CNAME record with that host already exists."},
+		{81054, "A CNAME record with that host already exists."},
+	}
 
-			_, err := p.CreateRecord(context.Background(), crudZone, dnsprovider.Record{Type: "TXT", Name: "example.com", Value: `"hi"`, TTL: 300})
-			if !errors.Is(err, dnsprovider.ErrConflict) {
-				t.Errorf("err = %v, want ErrConflict", err)
-			}
-		})
+	for _, c := range collisions {
+		for _, status := range []int{http.StatusBadRequest, http.StatusOK} {
+			t.Run(fmt.Sprintf("%d/%s", c.code, http.StatusText(status)), func(t *testing.T) {
+				api := &cfAPI{fail: func(w http.ResponseWriter, _ *http.Request) {
+					writeErrors(w, status, c.code, c.message)
+				}}
+				p := newProvider(t, api)
+
+				_, err := p.CreateRecord(context.Background(), crudZone, dnsprovider.Record{Type: "CNAME", Name: "www.example.com", Value: "example.com", TTL: 300})
+				if !errors.Is(err, dnsprovider.ErrConflict) {
+					t.Errorf("err = %v, want ErrConflict", err)
+				}
+			})
+		}
 	}
 }
 

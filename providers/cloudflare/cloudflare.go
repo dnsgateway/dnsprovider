@@ -484,7 +484,8 @@ func decodeRecord(data []byte) (dnsprovider.Record, error) {
 // retried, as a retry of a create Cloudflare stored but whose answer was
 // lost would make a second Record. It returns the Record as Cloudflare
 // stored it, proxy flag included; ErrConflict when Cloudflare holds one
-// identical to it.
+// identical to it, or a CNAME, A or AAAA Record its host cannot have
+// beside it.
 func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
 	if err := p.needTenant(); err != nil {
 		return dnsprovider.Record{}, err

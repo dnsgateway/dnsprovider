@@ -62,8 +62,9 @@ type Client struct {
 	// not say how long to wait; it doubles on each retry. Zero is
 	// DefaultBackoff.
 	Backoff time.Duration
-	// MaxWait is the longest wait for a retry; a Provider that asks for
-	// longer gets its error returned at once. Zero is DefaultMaxWait.
+	// MaxWait is the longest wait for a retry: the backoff stops growing
+	// there, and a Provider that asks for longer gets its error returned
+	// at once. Zero is DefaultMaxWait.
 	MaxWait time.Duration
 }
 
@@ -153,7 +154,8 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 		case <-t.C:
 		}
 
-		backoff *= 2
+		// Capped, the doubling cannot overflow.
+		backoff = min(backoff*2, cmp.Or(c.MaxWait, DefaultMaxWait))
 	}
 }
 
@@ -216,9 +218,10 @@ func (c *Client) send(ctx context.Context, method, u, contentType, accept string
 	return answer, nil
 }
 
-// retryWait is how long to wait before trying a failed call again; ok is
-// false when it is not tried again: a POST, an error that is not a 429 or
-// 5xx answer, or a wait past MaxWait.
+// retryWait is how long to wait before trying a failed call again: what
+// the Provider asked for, or else the backoff cut to MaxWait. ok is false
+// when it is not tried again: a POST, an error that is not a 429 or 5xx
+// answer, or a Provider asking for a wait past MaxWait.
 func (c *Client) retryWait(method string, err error, backoff time.Duration) (wait time.Duration, ok bool) {
 	switch method {
 	case http.MethodGet, http.MethodPut, http.MethodDelete:
@@ -231,9 +234,12 @@ func (c *Client) retryWait(method string, err error, backoff time.Duration) (wai
 		return 0, false
 	}
 
-	wait = cmp.Or(apiErr.RetryAfter, backoff)
+	maxWait := cmp.Or(c.MaxWait, DefaultMaxWait)
+	if apiErr.RetryAfter > 0 {
+		return apiErr.RetryAfter, apiErr.RetryAfter <= maxWait
+	}
 
-	return wait, wait <= cmp.Or(c.MaxWait, DefaultMaxWait)
+	return min(backoff, maxWait), true
 }
 
 // isStatus reports whether err is an APIError with the HTTP status code.

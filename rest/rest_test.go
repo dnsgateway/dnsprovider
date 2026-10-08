@@ -340,3 +340,23 @@ func TestOnlyARetriedDeleteTakesA404AsDone(t *testing.T) {
 		})
 	}
 }
+
+func TestTheBackoffIsCappedAtMaxWait(t *testing.T) {
+	f := &flaky{statuses: []int{503, 503}}
+	c := newClient(t, f)
+	c.Backoff = time.Hour
+	c.MaxWait = time.Millisecond
+
+	start := time.Now()
+	if err := c.Do(context.Background(), http.MethodGet, "/things", nil, nil, nil); err != nil {
+		t.Fatalf("Do: %v, want retries that wait MaxWait", err)
+	}
+
+	if got := f.calls.Load(); got != 3 {
+		t.Errorf("sent %d requests, want 3", got)
+	}
+
+	if waited := time.Since(start); waited > time.Second {
+		t.Errorf("Do took %v, want each wait cut to MaxWait", waited)
+	}
+}

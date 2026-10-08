@@ -1232,3 +1232,71 @@ func TestUpdateAndDeleteOfARecordGoDaddyNoLongerHoldsAreNotFound(t *testing.T) {
 		t.Errorf("writes = %v, want none", got)
 	}
 }
+
+func TestCreateRecordOfARecordItsRRsetHoldsIsAConflict(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
+		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+	}}}
+
+	// The same Value with another TTL is the same resource record.
+	dup := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 3600}
+
+	if _, err := newProvider(t, api).CreateRecord(context.Background(), example, dup); !errors.Is(err, dnsprovider.ErrConflict) {
+		t.Errorf("CreateRecord: err = %v, want ErrConflict", err)
+	}
+
+	if got := api.Writes(); len(got) != 0 {
+		t.Errorf("writes = %v, want none", got)
+	}
+}
+
+func TestApplyFailsADuplicateAdditionAloneAndWritesTheRestOfItsRRset(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
+		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+	}}}
+
+	dup := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
+	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 600}
+
+	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+		{Kind: dnsprovider.ChangeAdd, After: dup},
+		{Kind: dnsprovider.ChangeAdd, After: add},
+		{Kind: dnsprovider.ChangeAdd, After: add},
+	}})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	for i, want := range []error{dnsprovider.ErrConflict, nil, dnsprovider.ErrConflict} {
+		if got := res.Results[i].Err; !errors.Is(got, want) || (want == nil && got != nil) {
+			t.Errorf("result %d: err = %v, want %v", i, got, want)
+		}
+	}
+
+	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
+		{"data": "192.0.2.1", "ttl": 600.0},
+		{"data": "192.0.2.2", "ttl": 600.0},
+	}}}
+	if got := api.Writes(); !reflect.DeepEqual(got, want) {
+		t.Errorf("writes = %v, want %v", got, want)
+	}
+}
+
+func TestUpdateRecordIntoAnotherRecordOfItsRRsetIsAConflictAndKeepsIt(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
+		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+		{"type": "A", "name": "www", "data": "192.0.2.2", "ttl": 600},
+	}}}
+
+	p := newProvider(t, api)
+	before := godaddy.WithID(dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600})
+	after := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 600}
+
+	if _, err := p.UpdateRecord(context.Background(), example, before, after); !errors.Is(err, dnsprovider.ErrConflict) {
+		t.Errorf("UpdateRecord: err = %v, want ErrConflict", err)
+	}
+
+	if got := api.Writes(); len(got) != 0 {
+		t.Errorf("writes = %v, want none", got)
+	}
+}

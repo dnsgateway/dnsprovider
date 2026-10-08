@@ -608,7 +608,9 @@ func rrsetOf(zone string, r dnsprovider.Record) rrset {
 
 // applyRRset reads an RRset, makes the ops to it and writes it back. A
 // Record an op removes that the RRset no longer holds fails that op's
-// change alone, and the op that change adds is left out; err fails them all.
+// change alone, and the op that change adds is left out; so does a Record
+// an op adds that the RRset holds already, with ErrConflict. err fails
+// them all.
 func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rrset, ops []rrOp) (failed map[int]error, err error) {
 	path := "/v1/domains/" + url.PathEscape(zone.ID) + "/records/" + url.PathEscape(set.typ) + "/" + url.PathEscape(set.name)
 
@@ -632,6 +634,7 @@ func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rr
 	}
 
 	failed = map[int]error{}
+	removed := map[int]dnsprovider.Record{}
 
 	for _, op := range ops {
 		if !op.remove || failed[op.index] != nil {
@@ -647,11 +650,28 @@ func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rr
 			continue
 		}
 
+		removed[op.index] = records[i]
 		records = slices.Delete(records, i, i+1)
 	}
 
 	for _, op := range ops {
 		if op.remove || failed[op.index] != nil {
+			continue
+		}
+
+		// A Record of the same name and Value is the same resource
+		// record, whatever its TTL.
+		if slices.ContainsFunc(records, func(r dnsprovider.Record) bool {
+			return strings.EqualFold(r.Name, op.rec.Name) && r.Value == op.rec.Value
+		}) {
+			failed[op.index] = fmt.Errorf("godaddy: %s %s %s is there already: %w", op.rec.Type, op.rec.Name, op.rec.Value, dnsprovider.ErrConflict)
+
+			// A modification within the RRset keeps the Record it was
+			// to replace.
+			if r, ok := removed[op.index]; ok {
+				records = append(records, r)
+			}
+
 			continue
 		}
 

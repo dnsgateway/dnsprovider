@@ -109,8 +109,9 @@ type Provider struct {
 	log     *slog.Logger
 }
 
-// api is the Account's rest.Client. It is built per call so a Provider
-// holds plain values alone, and two built alike are equal.
+// api is the Account's rest.Client. It is built per call, not held: its
+// Auth and Decode are funcs, which reflect.DeepEqual never finds equal, and
+// two Providers built alike must be equal.
 func (p *Provider) api() *rest.Client {
 	return &rest.Client{
 		Provider: "godaddy",

@@ -18,10 +18,11 @@ func account(t *testing.T, p dnsprovider.Provider) (dnsprovider.AccountInfo, err
 	return p.Account(context.Background())
 }
 
-func TestAccountReadsOneDomainForTheAccountsNameserverPair(t *testing.T) {
-	api := &gdAPI{domains: []map[string]any{
-		domain("b.example", "NS44.DOMAINCONTROL.COM.", "ns43.domaincontrol.com"),
-		domain("a.example", "ns43.domaincontrol.com", "ns44.domaincontrol.com"),
+func TestAccountReadsActiveDomainsUntilOneNamesTheAccountsNameserverPair(t *testing.T) {
+	api := &gdAPI{pageSize: 1, domains: []map[string]any{
+		domain("elsewhere.example", "cruz.ns.cloudflare.com", "dee.ns.cloudflare.com"),
+		domain("a.example", "NS44.DOMAINCONTROL.COM.", "ns43.domaincontrol.com"),
+		domain("b.example", "ns43.domaincontrol.com", "ns44.domaincontrol.com"),
 	}}
 
 	info, err := account(t, newProvider(t, api))
@@ -35,8 +36,14 @@ func TestAccountReadsOneDomainForTheAccountsNameserverPair(t *testing.T) {
 	}
 
 	reqs := api.Requests()
-	if len(reqs) != 1 || reqs[0].Path != "/v1/domains" || reqs[0].Query().Get("limit") != "1" {
-		t.Errorf("Account sent %v, want one GET /v1/domains?limit=1", reqs)
+	if len(reqs) != 2 {
+		t.Errorf("Account sent %v, want two pages: it stops at the first GoDaddy-hosted domain", reqs)
+	}
+
+	for _, u := range reqs {
+		if u.Path != "/v1/domains" || u.Query().Get("statuses") != "ACTIVE" {
+			t.Errorf("Account sent %s, want GET /v1/domains of ACTIVE domains", u)
+		}
 	}
 }
 

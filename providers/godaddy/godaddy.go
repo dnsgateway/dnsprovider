@@ -181,10 +181,21 @@ func goDaddyNameservers(ns []string) []string {
 	return out
 }
 
-// listDomains reads every page of the Account's ACTIVE domains. A page
-// starts after the marker, the last domain of the page before.
+// listDomains reads every page of the Account's ACTIVE domains.
 func (p *Provider) listDomains(ctx context.Context) ([]wireDomain, error) {
-	domains, err := rest.Pages(domainsPerPage, func(d wireDomain) string { return d.Domain }, func(pg rest.Page) ([]wireDomain, error) {
+	return p.pageDomains(ctx, func([]wireDomain) bool { return false })
+}
+
+// errStopPaging ends pageDomains early.
+var errStopPaging = errors.New("godaddy: stop paging")
+
+// pageDomains reads the pages of the Account's ACTIVE domains until stop,
+// given each page, returns true, and returns the domains read. A page
+// starts after the marker, the last domain of the page before.
+func (p *Provider) pageDomains(ctx context.Context, stop func([]wireDomain) bool) ([]wireDomain, error) {
+	var read []wireDomain
+
+	_, err := rest.Pages(domainsPerPage, func(d wireDomain) string { return d.Domain }, func(pg rest.Page) ([]wireDomain, error) {
 		q := url.Values{
 			"statuses": {"ACTIVE"},
 			"includes": {"nameServers"},
@@ -196,14 +207,29 @@ func (p *Provider) listDomains(ctx context.Context) ([]wireDomain, error) {
 		}
 
 		var page []wireDomain
+		if err := p.api().Do(ctx, http.MethodGet, "/v1/domains", q, nil, &page); err != nil {
+			return nil, err
+		}
 
-		return page, p.api().Do(ctx, http.MethodGet, "/v1/domains", q, nil, &page)
+		read = append(read, page...)
+
+		if stop(page) {
+			return nil, errStopPaging
+		}
+
+		return page, nil
 	})
-	if errors.Is(err, rest.ErrSamePage) {
+
+	switch {
+	case errors.Is(err, errStopPaging):
+		return read, nil
+	case errors.Is(err, rest.ErrSamePage):
 		return nil, fmt.Errorf("godaddy: the domain list: %w", err)
+	case err != nil:
+		return nil, err
 	}
 
-	return domains, err
+	return read, nil
 }
 
 // recordsPerPage is the largest page GoDaddy serves for records.
@@ -634,24 +660,28 @@ func (p *Provider) ZoneStatus(context.Context, dnsprovider.Zone) (dnsprovider.Zo
 }
 
 // Account implements dnsprovider.Provider. GoDaddy has no account
-// endpoint, so it reads one domain, which checks the key and secret even
-// when the Account has no domains. GoDaddy assigns each Account its own
-// pair of domaincontrol.com nameservers: the ones that domain names, when
-// it is on GoDaddy's DNS. The v1 API does not say who the customer is, so
-// the Tenant is empty.
+// endpoint, so it reads the ACTIVE domains, which checks the key and
+// secret even when the Account has none. GoDaddy assigns each Account its
+// own pair of domaincontrol.com nameservers: the ones the first domain on
+// GoDaddy's DNS names, so the pages stop there. The v1 API does not say
+// who the customer is, so the Tenant is empty.
 func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error) {
-	q := url.Values{"includes": {"nameServers"}, "limit": {"1"}}
-
-	var page []wireDomain
-	if err := p.api().Do(ctx, http.MethodGet, "/v1/domains", q, nil, &page); err != nil {
-		return dnsprovider.AccountInfo{}, err
-	}
-
 	var info dnsprovider.AccountInfo
 
-	if len(page) > 0 {
-		info.Nameservers = goDaddyNameservers(page[0].NameServers)
-		slices.Sort(info.Nameservers)
+	_, err := p.pageDomains(ctx, func(page []wireDomain) bool {
+		for _, d := range page {
+			if ns := goDaddyNameservers(d.NameServers); ns != nil {
+				slices.Sort(ns)
+				info.Nameservers = slices.Compact(ns)
+
+				return true
+			}
+		}
+
+		return false
+	})
+	if err != nil {
+		return dnsprovider.AccountInfo{}, err
 	}
 
 	return info, nil

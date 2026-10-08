@@ -56,21 +56,9 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldTenantID, Label: "Account ID"},
 	}
 
-	return dnsprovider.Factory{
-		Fields: fs,
-		New: func(m map[string]string, opts ...dnsprovider.Option) (dnsprovider.Provider, error) {
-			if err := fields.Check("cloudflare", fs, m); err != nil {
-				return nil, err
-			}
-
-			p, err := New(Config{Token: m[FieldToken], TenantID: m[FieldTenantID]}, opts...)
-			if err != nil {
-				return nil, err
-			}
-
-			return p, nil
-		},
-	}
+	return fields.Factory("cloudflare", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+		return New(Config{Token: m[FieldToken], TenantID: m[FieldTenantID]}, opts...)
+	})
 }
 
 // DefaultRequestTimeout bounds each request to the Cloudflare API. A

@@ -66,21 +66,9 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldClientIP, Label: "Whitelisted client IPv4"},
 	}
 
-	return dnsprovider.Factory{
-		Fields: fs,
-		New: func(m map[string]string, opts ...dnsprovider.Option) (dnsprovider.Provider, error) {
-			if err := fields.Check("namecheap", fs, m); err != nil {
-				return nil, err
-			}
-
-			p, err := New(Config{User: m[FieldUser], Key: m[FieldKey], ClientIP: m[FieldClientIP]}, opts...)
-			if err != nil {
-				return nil, err
-			}
-
-			return p, nil
-		},
-	}
+	return fields.Factory("namecheap", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+		return New(Config{User: m[FieldUser], Key: m[FieldKey], ClientIP: m[FieldClientIP]}, opts...)
+	})
 }
 
 // New builds the Namecheap Provider for an Account, without a network

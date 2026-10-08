@@ -2,27 +2,17 @@ package cloudflare_test
 
 import (
 	"context"
-	"errors"
-	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"testing"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/nonet"
 	"github.com/dnsgateway/dnsprovider/providers/cloudflare"
 )
 
-// noNetwork is a transport that fails the test on any request.
-type noNetwork struct{ t *testing.T }
-
-func (n noNetwork) RoundTrip(r *http.Request) (*http.Response, error) {
-	n.t.Errorf("building the Provider sent %s %s", r.Method, r.URL)
-
-	return nil, errors.New("no network")
-}
-
 func TestNewMakesNoNetworkCall(t *testing.T) {
-	client := &http.Client{Transport: noNetwork{t}}
+	client := nonet.Client(t)
 
 	if _, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithHTTPClient(client)); err != nil {
 		t.Fatal(err)

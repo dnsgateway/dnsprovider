@@ -53,21 +53,9 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldSecret, Label: "API secret", Secret: true},
 	}
 
-	return dnsprovider.Factory{
-		Fields: fs,
-		New: func(m map[string]string, opts ...dnsprovider.Option) (dnsprovider.Provider, error) {
-			if err := fields.Check("godaddy", fs, m); err != nil {
-				return nil, err
-			}
-
-			p, err := New(Config{Key: m[FieldKey], Secret: m[FieldSecret]}, opts...)
-			if err != nil {
-				return nil, err
-			}
-
-			return p, nil
-		},
-	}
+	return fields.Factory("godaddy", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+		return New(Config{Key: m[FieldKey], Secret: m[FieldSecret]}, opts...)
+	})
 }
 
 // New builds the GoDaddy Provider for an Account, without a network call.

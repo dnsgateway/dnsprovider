@@ -4,7 +4,6 @@ package fields
 import (
 	"fmt"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -26,7 +25,33 @@ func Check(provider string, known []dnsprovider.Field, m map[string]string) erro
 		return nil
 	}
 
-	sort.Strings(unknown)
+	slices.Sort(unknown)
 
 	return fmt.Errorf("%s: unknown field %s", provider, strings.Join(unknown, ", "))
+}
+
+// Factory is a dnsprovider.Factory taking the fields fs: its New refuses
+// a field not in fs (see Check), then builds the Provider with build,
+// which refuses a missing required field. A failed build returns a nil
+// Provider, never a typed nil.
+func Factory[P dnsprovider.Provider](
+	provider string,
+	fs []dnsprovider.Field,
+	build func(m map[string]string, opts ...dnsprovider.Option) (P, error),
+) dnsprovider.Factory {
+	return dnsprovider.Factory{
+		Fields: fs,
+		New: func(m map[string]string, opts ...dnsprovider.Option) (dnsprovider.Provider, error) {
+			if err := Check(provider, fs, m); err != nil {
+				return nil, err
+			}
+
+			p, err := build(m, opts...)
+			if err != nil {
+				return nil, err
+			}
+
+			return p, nil
+		},
+	}
 }

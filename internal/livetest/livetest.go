@@ -48,10 +48,6 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		t.Fatal(err)
 	}
 
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 

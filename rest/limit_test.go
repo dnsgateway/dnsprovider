@@ -7,9 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/dnsgateway/dnsprovider/rest"
+	"golang.org/x/time/rate"
 )
 
 func TestDoWaitsForTheRateLimiter(t *testing.T) {

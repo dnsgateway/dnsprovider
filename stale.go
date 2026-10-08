@@ -143,7 +143,7 @@ func staleChanges(touched []Change, live []Record) []StaleChange {
 			continue
 		}
 
-		now := Record{}
+		var now Record
 		if found[i] >= 0 {
 			now = live[found[i]]
 		} else {

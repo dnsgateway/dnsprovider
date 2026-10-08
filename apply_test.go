@@ -138,6 +138,7 @@ func TestApplyWithoutABatcherGoesOnPastAFailedChange(t *testing.T) {
 		t.Errorf("modification after the failures = %+v, want it made", r)
 	}
 }
+
 func TestApplyGoesThroughTheBatcherWhenThereIsOne(t *testing.T) {
 	fake := providertest.New().AddZone(applyZone).SetSerial("z1", 4)
 	fake.SetBatcher(true)

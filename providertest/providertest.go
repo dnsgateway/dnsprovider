@@ -29,8 +29,9 @@ const (
 	OpRecords Op = "Records"
 	// OpApply is the Batcher's ApplyChangeset; see SetBatcher.
 	OpApply Op = "Apply"
-	// The Record CRUD operations, which dnsprovider.Apply calls once per
-	// change on a fake that is no Batcher.
+	// OpCreateRecord, OpUpdateRecord and OpDeleteRecord are the Record CRUD
+	// operations, which dnsprovider.Apply calls once per change on a fake
+	// that is no Batcher.
 	OpCreateRecord Op = "CreateRecord"
 	OpUpdateRecord Op = "UpdateRecord"
 	OpDeleteRecord Op = "DeleteRecord"

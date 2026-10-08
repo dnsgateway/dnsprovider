@@ -10,7 +10,7 @@ import (
 )
 
 // Check refuses a field map holding a field the Provider does not take,
-// such as a misspelt one, which would otherwise be dropped unseen. The
+// such as a misspelled one, which would otherwise be dropped unseen. The
 // error names the field, never its value.
 func Check(provider string, known []dnsprovider.Field, m map[string]string) error {
 	var unknown []string

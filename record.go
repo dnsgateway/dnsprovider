@@ -151,19 +151,31 @@ func CheckValue(typ, value string) error {
 	case "TXT":
 		// Any text.
 	case "SRV":
-		if len(f) != 4 || !isUint16(f[0]) || !isUint16(f[1]) || !isUint16(f[2]) || (f[3] != "." && checkHostname(f[3], false) != nil) {
-			return fmt.Errorf("an SRV value is a priority, weight, port and target, such as 10 5 443 host.example.com, not %q", value)
-		}
+		return checkSRVValue(value, f)
 	case "CAA":
 		if len(f) < 3 || !isUint8(f[0]) || !isAlnum(f[1]) {
 			return fmt.Errorf(`a CAA value is flags, a tag and a value, such as 0 issue "letsencrypt.org", not %q`, value)
 		}
 	case "URI":
-		if len(f) != 3 || !isUint16(f[0]) || !isUint16(f[1]) || len(f[2]) < 3 || !strings.HasPrefix(f[2], `"`) || !strings.HasSuffix(f[2], `"`) {
-			return fmt.Errorf(`a URI value is a priority, weight and quoted target, such as 10 1 "https://example.com/", not %q`, value)
-		}
+		return checkURIValue(value, f)
 	default:
 		return fmt.Errorf("cannot edit %s Records", typ)
+	}
+
+	return nil
+}
+
+func checkSRVValue(value string, f []string) error {
+	if len(f) != 4 || !isUint16(f[0]) || !isUint16(f[1]) || !isUint16(f[2]) || (f[3] != "." && checkHostname(f[3], false) != nil) {
+		return fmt.Errorf("an SRV value is a priority, weight, port and target, such as 10 5 443 host.example.com, not %q", value)
+	}
+
+	return nil
+}
+
+func checkURIValue(value string, f []string) error {
+	if len(f) != 3 || !isUint16(f[0]) || !isUint16(f[1]) || len(f[2]) < 3 || !strings.HasPrefix(f[2], `"`) || !strings.HasSuffix(f[2], `"`) {
+		return fmt.Errorf(`a URI value is a priority, weight and quoted target, such as 10 1 "https://example.com/", not %q`, value)
 	}
 
 	return nil

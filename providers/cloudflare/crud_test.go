@@ -357,7 +357,7 @@ func TestUpdateRecordChangingItsTypeWithoutAProxyFlagKeepsTheOneCloudflareHolds(
 		t.Fatalf("UpdateRecord: %v", err)
 	}
 
-	if w := api.Writes(); len(w) != 1 || w[0].Method != "PUT" || w[0].Body["proxied"] != true {
+	if w := api.Writes(); len(w) != 1 || w[0].Method != http.MethodPut || w[0].Body["proxied"] != true {
 		t.Errorf("writes = %+v, want one PUT keeping the proxy on", w)
 	}
 

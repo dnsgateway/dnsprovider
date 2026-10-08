@@ -89,7 +89,7 @@ func TestDoDecodesAnErrorAnswerWithTheProvidersDecoder(t *testing.T) {
 	err := c.Do(context.Background(), http.MethodPost, "/things", nil, nil, &out)
 
 	var apiErr *dnsprovider.APIError
-	if !errors.As(err, &apiErr) || apiErr.StatusCode != 422 || len(apiErr.Messages) != 1 || apiErr.Messages[0] != "bad name" {
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusUnprocessableEntity || len(apiErr.Messages) != 1 || apiErr.Messages[0] != "bad name" {
 		t.Fatalf("err = %v, want the decoder's APIError with HTTP 422 and its body", err)
 	}
 }
@@ -103,7 +103,7 @@ func TestDoWithoutADecoderGivesTheStatusAndRetryAfter(t *testing.T) {
 	err := c.Do(context.Background(), http.MethodPost, "/things", nil, nil, nil)
 
 	var apiErr *dnsprovider.APIError
-	if !errors.As(err, &apiErr) || apiErr.Provider != "test" || apiErr.StatusCode != 429 {
+	if !errors.As(err, &apiErr) || apiErr.Provider != "test" || apiErr.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("err = %v, want an APIError of test with HTTP 429", err)
 	}
 
@@ -218,7 +218,7 @@ func TestRetriesGiveUpWithTheLastError(t *testing.T) {
 	err := c.Do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
 
 	var apiErr *dnsprovider.APIError
-	if !errors.As(err, &apiErr) || apiErr.StatusCode != 503 {
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusServiceUnavailable {
 		t.Errorf("err = %v, want the HTTP 503 answer", err)
 	}
 

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -287,19 +288,34 @@ func TestZonesAreTheTenantsAlone(t *testing.T) {
 	}
 }
 
-func TestZonesNeedATenant(t *testing.T) {
-	api := &cfAPI{zones: []map[string]any{cfZone("z1", "example.com")}}
+func TestZonesWithoutATenantListEveryZoneTheTokenReaches(t *testing.T) {
+	api := &cfAPI{zones: []map[string]any{cfZone("z1", "example.com"), cfZone("z2", "example.org")}}
 
-	if _, err := newProviderIn(t, api, acme, "").Zones(context.Background(), dnsprovider.ZoneFilter{}); !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("err = %v, want ErrNoTenant", err)
+	var scoped []bool
+
+	api.intercept = func(_ http.ResponseWriter, r *http.Request) bool {
+		if r.URL.Path == "/client/v4/zones" {
+			scoped = append(scoped, r.URL.Query().Has("account.id"))
+		}
+
+		return false
 	}
 
-	if got := api.Requests(); len(got) != 0 {
-		t.Errorf("Zones sent %v without a Tenant, want nothing", got)
+	got, err := newProviderIn(t, api, acme, "").Zones(context.Background(), dnsprovider.ZoneFilter{})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	if len(got) != 2 || got[0].ID != "z1" || got[1].ID != "z2" {
+		t.Errorf("Zones = %+v, want z1 and z2", got)
+	}
+
+	if len(scoped) == 0 || slices.Contains(scoped, true) {
+		t.Errorf("zone lists scoped to an account: %v, want every list unscoped", scoped)
 	}
 }
 
-func TestZoneCallsNeedATenant(t *testing.T) {
+func TestZoneCallsWorkWithoutATenant(t *testing.T) {
 	zone := dnsprovider.Zone{ID: "z1", Name: "example.com"}
 	api := &cfAPI{
 		zones:   []map[string]any{cfZone("z1", "example.com")},
@@ -308,41 +324,37 @@ func TestZoneCallsNeedATenant(t *testing.T) {
 	p := newProviderIn(t, api, acme, "")
 	ctx := context.Background()
 
-	if _, err := p.Zone(ctx, zone.Name); !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("Zone: err = %v, want ErrNoTenant", err)
+	got, err := p.Zone(ctx, zone.Name)
+	if err != nil || got.ID != zone.ID {
+		t.Fatalf("Zone = %+v, %v; want z1", got, err)
 	}
 
-	_, err := p.Records(ctx, zone, dnsprovider.RecordFilter{})
-	if !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("Records: err = %v, want ErrNoTenant", err)
+	if _, err := p.Records(ctx, zone, dnsprovider.RecordFilter{}); err != nil {
+		t.Errorf("Records: %v", err)
 	}
 
-	cs := dnsprovider.Changeset{Zone: zone, Changes: []dnsprovider.Change{{
-		Kind:  dnsprovider.ChangeAdd,
-		After: dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300},
-	}}}
-	if _, err := dnsprovider.Apply(ctx, p, cs); !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("Apply: err = %v, want ErrNoTenant", err)
+	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+
+	res, err := dnsprovider.Apply(ctx, p, dnsprovider.Changeset{Zone: zone, Changes: []dnsprovider.Change{{Kind: dnsprovider.ChangeAdd, After: add}}})
+	if err != nil || len(res.Results) != 1 || res.Results[0].Err != nil {
+		t.Fatalf("Apply = %+v, %v; want the Record added", res, err)
 	}
 
-	rec := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
-	if _, err := p.CreateRecord(ctx, zone, rec); !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("CreateRecord: err = %v, want ErrNoTenant", err)
+	created := res.Results[0].Record
+
+	moved := created
+	moved.Value = "192.0.2.2"
+
+	updated, err := p.UpdateRecord(ctx, zone, created, moved)
+	if err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
 	}
 
-	if _, err := p.UpdateRecord(ctx, zone, rec, rec); !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("UpdateRecord: err = %v, want ErrNoTenant", err)
+	if err := p.DeleteRecord(ctx, zone, updated); err != nil {
+		t.Errorf("DeleteRecord: %v", err)
 	}
 
-	if err := p.DeleteRecord(ctx, zone, rec); !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("DeleteRecord: err = %v, want ErrNoTenant", err)
-	}
-
-	if _, err := p.ZoneStatus(ctx, zone); !errors.Is(err, dnsprovider.ErrNoTenant) {
-		t.Errorf("ZoneStatus: err = %v, want ErrNoTenant", err)
-	}
-
-	if got := api.Requests(); len(got) != 0 {
-		t.Errorf("sent %v without a Tenant, want nothing", got)
+	if _, err := p.ZoneStatus(ctx, zone); err != nil {
+		t.Errorf("ZoneStatus: %v", err)
 	}
 }

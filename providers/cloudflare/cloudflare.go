@@ -44,9 +44,9 @@ type Config struct {
 	// Token is a Cloudflare API token. Required.
 	Token string
 	// TenantID is the Cloudflare account the Provider acts within, 32
-	// lower-case hex digits, which scopes every call. Empty until a
-	// Tenant is picked, when only Account and Tenants work; see
-	// ErrNoTenant.
+	// lower-case hex digits, which scopes the Zones it lists. Empty, the
+	// Provider is unscoped: it acts on every Zone the API token reaches,
+	// in any account.
 	TenantID string
 }
 
@@ -163,13 +163,13 @@ func isAccountID(s string) bool {
 
 // Provider is one Cloudflare Account.
 //
-// Every call but Account and Tenants is scoped to the Tenant: before
-// Config.TenantID is set it fails with ErrNoTenant, without a request.
-// The calls on a Zone trust that it came from Zones or Zone, which read
-// the Tenant's Zones alone, and do not read it again to check its Tenant.
+// With Config.TenantID set, Zones and Zone list the Tenant's Zones alone;
+// without one, every Zone the API token reaches. The calls on a Zone work
+// by its ID: they trust that it came from Zones or Zone and do not read it
+// again to check its Tenant.
 type Provider struct {
-	// tenantID is the Cloudflare account calls are scoped to; empty
-	// until a Tenant is picked.
+	// tenantID is the Cloudflare account Zone lists are scoped to; empty
+	// for every account the API token reaches.
 	tenantID string
 	log      *slog.Logger
 	tokens   *user.TokenService
@@ -204,16 +204,13 @@ func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 }
 
 // Zones implements dnsprovider.Provider: the Zones of the configured
-// Tenant whose names match the filter, ErrNoTenant before one is set.
+// Tenant, or without one every Zone the API token reaches, whose names
+// match the filter.
 // Cloudflare filters by name itself, "contains:" ignoring case; the
 // answer is filtered again with dnsprovider.MatchZone. Each Zone carries
 // its Hosting State and the nameservers Cloudflare assigned to it, which
 // can differ between Zones of one Account.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
-	if err := p.needTenant(); err != nil {
-		return nil, err
-	}
-
 	name := ""
 	if text := names.ZoneName(f.Contains); text != "" {
 		name = "contains:" + text
@@ -235,16 +232,12 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 	return out, nil
 }
 
-// Zone implements dnsprovider.Provider: the Tenant's Zone of that exact
-// name, read with Cloudflare's name filter; ErrNotFound when the Tenant
-// has none, and ErrNoTenant, first, before a Tenant is set. Of several
+// Zone implements dnsprovider.Provider: the Zone of that exact name, read
+// with Cloudflare's name filter, within the Tenant when one is set;
+// ErrNotFound when there is none. Of several
 // Zones of the name, such as one Moved and one Onboarded again, it is the
 // Active one, else the Pending one, else the first listed.
 func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	if err := p.needTenant(); err != nil {
-		return dnsprovider.Zone{}, err
-	}
-
 	name = names.ZoneName(name)
 
 	var found []dnsprovider.Zone
@@ -301,13 +294,15 @@ func hostingState(s zones.ZoneStatus) dnsprovider.HostingState {
 	return dnsprovider.HostingUnknown
 }
 
-// listZones reads every Zone of the Tenant whose name matches a Cloudflare
-// name filter; every Zone when it is empty. Its callers check the Tenant
-// is set.
+// listZones reads every Zone of the Tenant, or without one of every
+// account the API token reaches, whose name matches a Cloudflare name
+// filter; every Zone when it is empty.
 func (p *Provider) listZones(ctx context.Context, name string) ([]zones.Zone, error) {
 	var params zones.ZoneListParams
-	params.Account.Value.ID.Value, params.Account.Value.ID.Present = p.tenantID, true
-	params.Account.Present = true
+	if p.tenantID != "" {
+		params.Account.Value.ID.Value, params.Account.Value.ID.Present = p.tenantID, true
+		params.Account.Present = true
+	}
 
 	if name != "" {
 		params.Name.Value, params.Name.Present = name, true
@@ -316,15 +311,6 @@ func (p *Provider) listZones(ctx context.Context, name string) ([]zones.Zone, er
 	return listAll(ctx, zonesPerPage, func(opts ...option.RequestOption) (*pagination.V4PagePaginationArray[zones.Zone], error) {
 		return p.zones.List(ctx, params, opts...)
 	})
-}
-
-// needTenant is ErrNoTenant, wrapped, until a Tenant is set.
-func (p *Provider) needTenant() error {
-	if p.tenantID == "" {
-		return fmt.Errorf("cloudflare: %w", ErrNoTenant)
-	}
-
-	return nil
 }
 
 // listAll reads every page of a v4 list. It pages by hand, rather than with
@@ -372,10 +358,6 @@ func listAll[T any](ctx context.Context, perPage int, list func(...option.Reques
 // serial short of a BIND export of the whole Zone, so the RecordSet has
 // none: A consumer asks the Zone's nameservers for it.
 func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
-	if err := p.needTenant(); err != nil {
-		return dnsprovider.RecordSet{}, err
-	}
-
 	// ZoneID is a param.Field, which only cloudflare-go's root package can
 	// build with F(); importing that package compiles the whole SDK.
 	var params cfdns.RecordListParams
@@ -487,10 +469,6 @@ func decodeRecord(data []byte) (dnsprovider.Record, error) {
 // identical to it, or a CNAME, A or AAAA Record its host cannot have
 // beside it.
 func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
-	if err := p.needTenant(); err != nil {
-		return dnsprovider.Record{}, err
-	}
-
 	b, err := writeBody(r)
 	if err != nil {
 		return dnsprovider.Record{}, err
@@ -522,10 +500,6 @@ func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 // Record that changes type is replaced instead; see replaceRecord. It
 // returns after as Cloudflare stored it.
 func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
-	if err := p.needTenant(); err != nil {
-		return dnsprovider.Record{}, err
-	}
-
 	if before.ID == "" {
 		return dnsprovider.Record{}, noID(before)
 	}
@@ -632,10 +606,6 @@ func (p *Provider) replaceRecord(ctx context.Context, zone dnsprovider.Zone, id 
 // exist" succeeds: an earlier try, whose answer was lost, deleted it. Any
 // other not-found, such as a Zone it cannot route to, stays an error.
 func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) error {
-	if err := p.needTenant(); err != nil {
-		return err
-	}
-
 	if r.ID == "" {
 		return noID(r)
 	}
@@ -852,10 +822,6 @@ func unquote(s string) string {
 // (HTTP 403), or that fails to read while the other one is read, is
 // unknown. It fails only when both reads fail.
 func (p *Provider) ZoneStatus(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	if err := p.needTenant(); err != nil {
-		return dnsprovider.ZoneStatus{}, err
-	}
-
 	var (
 		status  dnsprovider.ZoneStatus
 		hstsErr error
@@ -960,7 +926,8 @@ func settingError(err error, res *http.Response) (dnsprovider.Setting, error) {
 }
 
 // Account implements dnsprovider.Provider. It verifies the API token
-// and, once a Tenant is set, names it. Cloudflare assigns nameservers per
+// and, with a Tenant set, names it; without one it verifies the token
+// alone and returns an empty Tenant. Cloudflare assigns nameservers per
 // Zone, so the Account expects none of its own.
 //
 // With a Tenant set, the token is verified within it first, as an
@@ -1004,7 +971,7 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 }
 
 // verifyToken checks the API token is active, and reports whether it is
-// owned by the Tenant: verified within it. Before a Tenant is set, only a
+// owned by the Tenant: verified within it. Without a Tenant, only a
 // user's token can be verified.
 func (p *Provider) verifyToken(ctx context.Context) (owned bool, err error) {
 	var raw *http.Response
@@ -1046,7 +1013,7 @@ func tokenActive(status string) error {
 }
 
 // Tenants implements dnsprovider.TenantLister: every Cloudflare account
-// the API token reaches. It works before a Tenant is set.
+// the API token reaches, whether a Tenant is set or not.
 func (p *Provider) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 	all, err := listAll(ctx, accountsPerPage, func(opts ...option.RequestOption) (*pagination.V4PagePaginationArray[accounts.Account], error) {
 		return p.accounts.List(ctx, accounts.AccountListParams{}, opts...)

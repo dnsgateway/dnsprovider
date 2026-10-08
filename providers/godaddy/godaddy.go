@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/batch"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 	"github.com/dnsgateway/dnsprovider/rest"
@@ -789,17 +790,21 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 	return info, nil
 }
 
-// CreateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
-func (p *Provider) CreateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) (dnsprovider.Record, error) {
-	return dnsprovider.Record{}, fmt.Errorf("%s: CreateRecord: %w", "godaddy", dnsprovider.ErrNotImplemented)
+// CreateRecord implements dnsprovider.Provider: a one-change Changeset
+// through ApplyChangeset, so a read and a write of the Record's RRset.
+func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
+	return batch.Create(ctx, p, zone, r)
 }
 
-// UpdateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
-func (p *Provider) UpdateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record, dnsprovider.Record) (dnsprovider.Record, error) {
-	return dnsprovider.Record{}, fmt.Errorf("%s: UpdateRecord: %w", "godaddy", dnsprovider.ErrNotImplemented)
+// UpdateRecord implements dnsprovider.Provider: a one-change Changeset
+// through ApplyChangeset. GoDaddy has no record IDs, so before is found
+// by its content: ErrNotFound when its RRset no longer holds it.
+func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
+	return batch.Update(ctx, p, zone, before, after)
 }
 
-// DeleteRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
-func (p *Provider) DeleteRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) error {
-	return fmt.Errorf("%s: DeleteRecord: %w", "godaddy", dnsprovider.ErrNotImplemented)
+// DeleteRecord implements dnsprovider.Provider: a one-change Changeset
+// through ApplyChangeset, found as UpdateRecord finds before.
+func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) error {
+	return batch.Delete(ctx, p, zone, r)
 }

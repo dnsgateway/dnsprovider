@@ -1142,3 +1142,93 @@ func TestRecordsFilteredByTypeAskGoDaddyForTheTypeAndByNameFilterHere(t *testing
 		})
 	}
 }
+
+func TestCreateRecordAddsItToItsRRsetAndReturnsItWithItsID(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
+		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+	}}}
+
+	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 600}
+
+	got, err := newProvider(t, api).CreateRecord(context.Background(), example, add)
+	if err != nil {
+		t.Fatalf("CreateRecord: %v", err)
+	}
+
+	if want := godaddy.WithID(add); !reflect.DeepEqual(got, want) {
+		t.Errorf("CreateRecord = %+v, want %+v", got, want)
+	}
+
+	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
+		{"data": "192.0.2.1", "ttl": 600.0},
+		{"data": "192.0.2.2", "ttl": 600.0},
+	}}}
+	if got := api.Writes(); !reflect.DeepEqual(got, want) {
+		t.Errorf("writes = %v, want %v", got, want)
+	}
+}
+
+func TestUpdateRecordReplacesItInItsRRset(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
+		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+		{"type": "A", "name": "www", "data": "192.0.2.2", "ttl": 600},
+	}}}
+
+	before := godaddy.WithID(dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600})
+	after := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.3", TTL: 600}
+
+	got, err := newProvider(t, api).UpdateRecord(context.Background(), example, before, after)
+	if err != nil {
+		t.Fatalf("UpdateRecord: %v", err)
+	}
+
+	if want := godaddy.WithID(after); !reflect.DeepEqual(got, want) {
+		t.Errorf("UpdateRecord = %+v, want %+v", got, want)
+	}
+
+	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
+		{"data": "192.0.2.2", "ttl": 600.0},
+		{"data": "192.0.2.3", "ttl": 600.0},
+	}}}
+	if got := api.Writes(); !reflect.DeepEqual(got, want) {
+		t.Errorf("writes = %v, want %v", got, want)
+	}
+}
+
+func TestDeleteRecordDeletesTheRRsetItLeavesEmpty(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
+		{"type": "TXT", "name": "@", "data": "v=spf1 -all", "ttl": 600},
+	}}}
+
+	r := godaddy.WithID(dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "v=spf1 -all", TTL: 600})
+
+	if err := newProvider(t, api).DeleteRecord(context.Background(), example, r); err != nil {
+		t.Fatalf("DeleteRecord: %v", err)
+	}
+
+	want := []write{{Method: "DELETE", Path: "/v1/domains/example.com/records/TXT/@"}}
+	if got := api.Writes(); !reflect.DeepEqual(got, want) {
+		t.Errorf("writes = %v, want %v", got, want)
+	}
+}
+
+func TestUpdateAndDeleteOfARecordGoDaddyNoLongerHoldsAreNotFound(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
+		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+	}}}
+
+	p := newProvider(t, api)
+	gone := godaddy.WithID(dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.9", TTL: 600})
+
+	if _, err := p.UpdateRecord(context.Background(), example, gone, dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.3", TTL: 600}); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("UpdateRecord: err = %v, want ErrNotFound", err)
+	}
+
+	if err := p.DeleteRecord(context.Background(), example, gone); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("DeleteRecord: err = %v, want ErrNotFound", err)
+	}
+
+	if got := api.Writes(); len(got) != 0 {
+		t.Errorf("writes = %v, want none", got)
+	}
+}

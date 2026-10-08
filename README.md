@@ -60,6 +60,24 @@ until one is set. An account-owned token is verified only once its Tenant
 is set; a token that may not read accounts, such as a DNS-only one, gets
 an `Account` Tenant with the ID alone.
 
+## Zones
+
+`Zones(ctx, dnsprovider.ZoneFilter{Contains: "shop"})` lists the Zones whose
+names hold the text, ignoring case; the zero filter lists every Zone. Each
+adapter pages through the whole list, pushes the filter to the Provider's API
+where it can (Cloudflare's `name=contains:`, Namecheap's `SearchTerm`) and
+applies the rest with `dnsprovider.MatchZone`, so the result is always
+exactly filtered. `Zone(ctx, name)` reads one Zone by its exact name and
+fails with `dnsprovider.ErrNotFound` when the Account has none.
+
+Every Zone carries its `HostingState`: Cloudflare reports Active, Pending
+(also for a Zone still initializing) and Moved; GoDaddy and Namecheap list
+only the Zones they serve, which are Active.
+
+Zone Status (DNSSEC, HSTS) is the optional `ZoneStatusReader`, which only
+Cloudflare implements. `dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and
+reports every setting Unknown, without a call, for a Provider without one.
+
 ## Stability
 
 The module stays at `v0` until dnscli has moved onto it: its API may change

@@ -165,8 +165,8 @@ func isAccountID(s string) bool {
 //
 // Every call but Account and Tenants is scoped to the Tenant: before
 // Config.TenantID is set it fails with ErrNoTenant, without a request.
-// The calls on a Zone trust that it came from Zones, which lists the
-// Tenant's Zones alone, and do not read it again to check its Tenant.
+// The calls on a Zone trust that it came from Zones or Zone, which read
+// the Tenant's Zones alone, and do not read it again to check its Tenant.
 type Provider struct {
 	// tenantID is the Cloudflare account calls are scoped to; empty
 	// until a Tenant is picked.

@@ -18,8 +18,6 @@ import (
 	"strconv"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/dnsgateway/dnsprovider"
 )
 
@@ -43,9 +41,9 @@ type Client struct {
 	HTTP *http.Client
 	// Auth puts the Account's credentials on a request; nil adds none.
 	Auth func(*http.Request)
-	// Limit is the Provider's published rate limit, per Account; nil
-	// sends without waiting.
-	Limit *rate.Limiter
+	// Limit is the Provider's published rate limit, per Account, such as
+	// PerMinute or a *rate.Limiter; nil sends without waiting.
+	Limit Limiter
 	// Decode turns a non-2xx answer into an error, normally a
 	// *dnsprovider.APIError; nil gives an APIError with the status alone.
 	Decode func(res *http.Response, body []byte) error
@@ -165,12 +163,17 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 func (c *Client) send(ctx context.Context, method, u, contentType, accept string, data []byte) ([]byte, error) {
 	if c.Limit != nil {
 		if err := c.Limit.Wait(ctx); err != nil {
-			if ctx.Err() == nil {
-				// The limiter refuses at once a wait past the deadline.
+			if ctx.Err() != nil {
+				return nil, fmt.Errorf("%s: %w", c.Provider, ctx.Err())
+			}
+
+			// A limiter refuses at once a wait past the deadline; a
+			// *rate.Limiter says so without context.DeadlineExceeded.
+			if _, has := ctx.Deadline(); has && !errors.Is(err, context.DeadlineExceeded) {
 				return nil, fmt.Errorf("%s: %w: %w", c.Provider, context.DeadlineExceeded, err)
 			}
 
-			return nil, fmt.Errorf("%s: %w", c.Provider, ctx.Err())
+			return nil, fmt.Errorf("%s: %w", c.Provider, err)
 		}
 	}
 

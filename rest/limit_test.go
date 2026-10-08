@@ -37,20 +37,21 @@ func TestPerMinuteKeepsEveryMinuteUnderTheLimit(t *testing.T) {
 	for _, n := range []int{1, 2, 7, 20, 60, 100} {
 		l := rest.PerMinute(n)
 
-		// A caller tries every 10ms for three minutes; no minute-long
-		// window may hold more than n calls.
+		// A caller tries all it can every 10ms for three minutes; no
+		// minute-long window may hold more than n calls.
 		start := time.Now()
 
 		var sent []time.Time
 
 		for at := start; at.Before(start.Add(3 * time.Minute)); at = at.Add(10 * time.Millisecond) {
-			if l.AllowN(at, 1) {
+			for l.AllowN(at, 1) {
 				sent = append(sent, at)
 			}
 		}
 
-		if len(sent) == 0 {
-			t.Fatalf("PerMinute(%d) allowed no calls", n)
+		// The whole minute's calls may go at once.
+		if len(sent) < n || sent[n-1] != start {
+			t.Fatalf("PerMinute(%d) held back a burst of %d calls", n, n)
 		}
 
 		for i, from := range sent {
@@ -66,7 +67,7 @@ func TestPerMinuteKeepsEveryMinuteUnderTheLimit(t *testing.T) {
 			}
 		}
 
-		// Once the burst is spent, nearly n calls a minute still go.
+		// Once the burst is spent, n calls a minute still go.
 		later := 0
 		for _, at := range sent {
 			if at.Sub(start) >= time.Minute {
@@ -74,7 +75,7 @@ func TestPerMinuteKeepsEveryMinuteUnderTheLimit(t *testing.T) {
 			}
 		}
 
-		if want := n * 2 * 9 / 10; later < want {
+		if want := 2 * n; later < want {
 			t.Errorf("PerMinute(%d) allowed %d calls in the last two minutes, want at least %d", n, later, want)
 		}
 	}

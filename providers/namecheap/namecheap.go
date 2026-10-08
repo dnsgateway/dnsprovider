@@ -18,8 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/time/rate"
-
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
 	"github.com/dnsgateway/dnsprovider/internal/names"
@@ -123,7 +121,7 @@ type Provider struct {
 	// auth are the parameters every request carries.
 	auth   url.Values
 	client *http.Client
-	limit  *rate.Limiter
+	limit  *rest.Window
 	log    *slog.Logger
 }
 

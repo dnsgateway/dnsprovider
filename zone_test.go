@@ -18,6 +18,11 @@ func TestMatchZoneMatchesNamesHoldingTheTextIgnoringCase(t *testing.T) {
 		{"AMPLE", "Example.COM", true},
 		{"example.org", "example.com", false},
 		{"shop.", "shop.example.com", true},
+		// A trailing dot ends the name, as in an absolute name.
+		{"Example.COM.", "example.com", true},
+		{"example.com.", "shop.example.com", true},
+		{"example.com.", "example.community", false},
+		{"example.com", "example.com.", true},
 	}
 
 	for _, c := range cases {

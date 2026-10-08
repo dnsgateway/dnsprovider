@@ -215,8 +215,8 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 	}
 
 	name := ""
-	if f.Contains != "" {
-		name = "contains:" + strings.ToLower(f.Contains)
+	if text := names.ZoneName(f.Contains); text != "" {
+		name = "contains:" + text
 	}
 
 	all, err := p.listZones(ctx, name)

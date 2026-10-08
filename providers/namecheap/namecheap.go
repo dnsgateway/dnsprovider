@@ -161,7 +161,7 @@ type getListResult struct {
 // getList as its SearchTerm, and the answer is filtered again with
 // dnsprovider.MatchZone. Every Zone is Active.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
-	all, err := p.listDomains(ctx, strings.ToLower(f.Contains))
+	all, err := p.listDomains(ctx, names.ZoneName(f.Contains))
 	if err != nil {
 		return nil, err
 	}

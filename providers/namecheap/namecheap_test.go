@@ -917,3 +917,23 @@ func TestProvidersOfOneAccountShareItsRateLimit(t *testing.T) {
 		t.Errorf("Zones of another Account: %v, want its own rate limit", err)
 	}
 }
+
+func TestZonesFilteredByAnAbsoluteNameSearchForItWithoutTheDot(t *testing.T) {
+	api := &ncAPI{domains: []ncDomain{
+		{Name: "example.com", OurDNS: true},
+		{Name: "example.community", OurDNS: true},
+	}}
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example.COM."})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	if got, want := zoneNames(zones), []string{"example.com"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Zones = %v, want %v", got, want)
+	}
+
+	if reqs := api.Requests(); len(reqs) != 1 || reqs[0].Get("SearchTerm") != "example.com" {
+		t.Errorf("requests = %v, want one getList with SearchTerm example.com", reqs)
+	}
+}

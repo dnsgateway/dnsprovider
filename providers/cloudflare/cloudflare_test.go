@@ -1578,3 +1578,23 @@ func TestZoneOfNoNameNeedsATenantFirst(t *testing.T) {
 		t.Errorf("sent %d requests, want none", n)
 	}
 }
+
+func TestZonesFilteredByAnAbsoluteNamePushItWithoutTheDot(t *testing.T) {
+	api := &cfAPI{zones: []map[string]any{
+		cfZone("z1", "example.com"),
+		cfZone("z2", "example.community"),
+	}}
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example.COM."})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	if got, want := zoneNames(zones), []string{"example.com"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Zones = %v, want %v", got, want)
+	}
+
+	if q := api.ZoneQueries(); len(q) != 1 || q[0].Get("name") != "contains:example.com" {
+		t.Errorf("zone list queries = %v, want name=contains:example.com", q)
+	}
+}

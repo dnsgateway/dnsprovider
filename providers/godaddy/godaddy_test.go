@@ -142,8 +142,15 @@ func (api *gdAPI) handler(t *testing.T) http.Handler {
 			return
 		}
 
-		// The list of one type leaves the type out of its records.
+		// The list of one type leaves the type out of its records, and
+		// GoDaddy answers 422 for a type it does not hold.
 		if typ := r.PathValue("type"); typ != "" {
+			if !slices.Contains([]string{"A", "AAAA", "CAA", "CNAME", "MX", "NS", "SOA", "SRV", "TXT"}, typ) {
+				writeError(w, http.StatusUnprocessableEntity, "INVALID_BODY", "type is not one of the allowed values")
+
+				return
+			}
+
 			var typed []map[string]any
 			for _, rec := range records {
 				if rec["type"] == typ {
@@ -1095,6 +1102,8 @@ func TestRecordsFilteredByTypeAskGoDaddyForTheTypeAndByNameFilterHere(t *testing
 		{"type", dnsprovider.RecordFilter{Type: "mx"}, "/v1/domains/example.com/records/MX", []string{"MX example.com"}},
 		{"name", dnsprovider.RecordFilter{Contains: "WWW."}, "/v1/domains/example.com/records", []string{"A www.example.com", "AAAA www.example.com"}},
 		{"type and name", dnsprovider.RecordFilter{Type: "A", Contains: "www.example.com."}, "/v1/domains/example.com/records/A", []string{"A www.example.com"}},
+		{"type GoDaddy does not hold", dnsprovider.RecordFilter{Type: "HTTPS"}, "/v1/domains/example.com/records", []string{}},
+		{"malformed type", dnsprovider.RecordFilter{Type: "A B"}, "/v1/domains/example.com/records", []string{}},
 	}
 
 	for _, c := range cases {

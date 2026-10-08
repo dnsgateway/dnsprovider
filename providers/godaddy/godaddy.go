@@ -597,9 +597,11 @@ func removesOnly(g *rrGroup) int {
 	return 1
 }
 
-// rrsetOf names the RRset a Record of a Zone belongs to.
+// rrsetOf names the RRset a Record of a Zone belongs to. DNS names ignore
+// case, so the name is lower case: names that differ only in case are one
+// RRset.
 func rrsetOf(zone string, r dnsprovider.Record) rrset {
-	name := names.RelativeName(zone, r.Name)
+	name := strings.ToLower(names.RelativeName(zone, r.Name))
 	if r.Type == "SRV" {
 		_, _, name = splitSRVName(name)
 	}

@@ -1300,3 +1300,33 @@ func TestUpdateRecordIntoAnotherRecordOfItsRRsetIsAConflictAndKeepsIt(t *testing
 		t.Errorf("writes = %v, want none", got)
 	}
 }
+
+func TestApplyWritesNamesThatDifferOnlyInCaseAsOneRRset(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
+		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+	}}}
+
+	del := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
+	add := dnsprovider.Record{Type: "A", Name: "WWW.example.com", Value: "192.0.2.2", TTL: 600}
+
+	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+		{Kind: dnsprovider.ChangeDelete, Before: del},
+		{Kind: dnsprovider.ChangeAdd, After: add},
+	}})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	for i, r := range res.Results {
+		if r.Err != nil {
+			t.Errorf("result %d: %v", i, r.Err)
+		}
+	}
+
+	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
+		{"data": "192.0.2.2", "ttl": 600.0},
+	}}}
+	if got := api.Writes(); !reflect.DeepEqual(got, want) {
+		t.Errorf("writes = %v, want %v", got, want)
+	}
+}

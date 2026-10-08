@@ -32,8 +32,8 @@ func TestDoWaitsForTheRateLimiter(t *testing.T) {
 	}
 }
 
-func TestPerMinuteKeepsABurstUnderTheLimit(t *testing.T) {
-	for _, n := range []int{1, 2, 20, 60} {
+func TestPerMinuteKeepsEveryMinuteUnderTheLimit(t *testing.T) {
+	for _, n := range []int{1, 2, 7, 20, 60, 100} {
 		l := rest.PerMinute(n)
 
 		// A caller tries every 10ms for three minutes; no minute-long
@@ -65,8 +65,16 @@ func TestPerMinuteKeepsABurstUnderTheLimit(t *testing.T) {
 			}
 		}
 
-		if len(sent) < n {
-			t.Errorf("PerMinute(%d) allowed %d calls in three minutes, want at least %d", n, len(sent), n)
+		// Once the burst is spent, nearly n calls a minute still go.
+		later := 0
+		for _, at := range sent {
+			if at.Sub(start) >= time.Minute {
+				later++
+			}
+		}
+
+		if want := n * 2 * 9 / 10; later < want {
+			t.Errorf("PerMinute(%d) allowed %d calls in the last two minutes, want at least %d", n, later, want)
 		}
 	}
 }

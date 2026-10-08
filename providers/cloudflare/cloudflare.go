@@ -521,7 +521,8 @@ func (p *Provider) applyChange(ctx context.Context, zone dnsprovider.Zone, c dns
 // CreateRecord implements dnsprovider.Provider: a POST, which is never
 // retried, as a retry of a create Cloudflare stored but whose answer was
 // lost would make a second Record. It returns the Record as Cloudflare
-// stored it, proxy flag included.
+// stored it, proxy flag included; ErrConflict when Cloudflare holds one
+// identical to it.
 func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
 	if err := p.needTenant(); err != nil {
 		return dnsprovider.Record{}, err

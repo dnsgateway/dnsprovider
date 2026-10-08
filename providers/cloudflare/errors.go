@@ -83,4 +83,6 @@ var errorCodes = map[int]error{
 	10000: dnsprovider.ErrUnauthorized, // Authentication error
 	7003:  dnsprovider.ErrNotFound,     // Could not route to …, perhaps your object identifier is invalid?
 	81044: dnsprovider.ErrNotFound,     // Record does not exist.
+	81057: dnsprovider.ErrConflict,     // Record already exists.
+	81058: dnsprovider.ErrConflict,     // An identical record already exists.
 }

@@ -173,3 +173,21 @@ func TestDeleteRecordWhoseRetryFindsItGoneSucceeds(t *testing.T) {
 		t.Errorf("got %d DELETEs, want 2: a delete is retried", deletes)
 	}
 }
+
+func TestCreateRecordOfARecordCloudflareHoldsIsAConflict(t *testing.T) {
+	// Cloudflare refuses a Record identical to one it holds with a 400
+	// and its own code, which a 2xx marked "success": false may carry too.
+	for _, status := range []int{http.StatusBadRequest, http.StatusOK} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			api := &cfAPI{fail: func(w http.ResponseWriter, _ *http.Request) {
+				writeErrors(w, status, 81058, "An identical record already exists.")
+			}}
+			p := newProvider(t, api)
+
+			_, err := p.CreateRecord(context.Background(), crudZone, dnsprovider.Record{Type: "TXT", Name: "example.com", Value: `"hi"`, TTL: 300})
+			if !errors.Is(err, dnsprovider.ErrConflict) {
+				t.Errorf("err = %v, want ErrConflict", err)
+			}
+		})
+	}
+}

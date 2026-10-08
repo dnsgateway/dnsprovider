@@ -116,6 +116,12 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 // send makes one try of a request and reads its answer. A non-2xx answer
 // is the error Decode makes of it.
 func (c *Client) send(ctx context.Context, method, u string, hasBody bool, data []byte) ([]byte, error) {
+	if c.Limit != nil {
+		if err := c.Limit.Wait(ctx); err != nil {
+			return nil, fmt.Errorf("%s: %w", c.Provider, err)
+		}
+	}
+
 	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", c.Provider, err)

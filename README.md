@@ -14,6 +14,8 @@ providers/           Registry() of every adapter below
 providers/cloudflare
 providers/godaddy
 providers/namecheap
+rest/                shared HTTP client of the GoDaddy and Namecheap adapters:
+                     retries, rate limit, error decoding, pagination
 ```
 
 It started as the Provider layer of [dnscli](https://github.com/sergelogvinov/dnscli),

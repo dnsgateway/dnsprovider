@@ -1,5 +1,5 @@
 // Package godaddy is the GoDaddy Provider, on the v1 Domains API over
-// plain net/http: GoDaddy has no maintained Go SDK.
+// the shared rest client: GoDaddy has no maintained Go SDK.
 package godaddy
 
 import (

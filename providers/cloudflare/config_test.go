@@ -91,12 +91,12 @@ func TestFactoryBuildsTheSameProviderAsTheTypedConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want, err := typed.Zones(context.Background())
+	want, err := typed.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := built.Zones(context.Background())
+	got, err := built.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

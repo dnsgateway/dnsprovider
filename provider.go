@@ -7,8 +7,11 @@ type Provider interface {
 	// Account describes the Account and proves its credentials work, even
 	// when it has no Zones: ErrUnauthorized when they do not.
 	Account(ctx context.Context) (AccountInfo, error)
-	// Zones lists the Account's Zones. Each has Name and ID set.
-	Zones(ctx context.Context) ([]Zone, error)
+	// Zones lists the Account's Zones that match the filter, in every
+	// Hosting State, exactly filtered. Each has ID, Name and State set,
+	// and Nameservers when the Provider assigns them per Zone. The adapter
+	// pages through the whole list.
+	Zones(ctx context.Context, f ZoneFilter) ([]Zone, error)
 	// Records lists a Zone's Records, with the SOA serial when available.
 	Records(ctx context.Context, zone Zone) (RecordSet, error)
 	// Apply applies a Changeset and reports the result of each change.

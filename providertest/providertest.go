@@ -329,7 +329,7 @@ func (p *Provider) record(c Call) error {
 }
 
 // Zones implements dnsprovider.Provider.
-func (p *Provider) Zones(context.Context) ([]dnsprovider.Zone, error) {
+func (p *Provider) Zones(context.Context, dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	if err := p.record(Call{Op: OpZones}); err != nil {
 		return nil, err
 	}

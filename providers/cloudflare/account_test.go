@@ -278,7 +278,7 @@ func TestZonesAreTheTenantsAlone(t *testing.T) {
 		return false
 	}
 
-	if _, err := newProviderIn(t, api, acme, acc1).Zones(context.Background()); err != nil {
+	if _, err := newProviderIn(t, api, acme, acc1).Zones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
 
@@ -290,7 +290,7 @@ func TestZonesAreTheTenantsAlone(t *testing.T) {
 func TestZonesNeedATenant(t *testing.T) {
 	api := &cfAPI{zones: []map[string]any{cfZone("z1", "example.com")}}
 
-	if _, err := newProviderIn(t, api, acme, "").Zones(context.Background()); !errors.Is(err, dnsprovider.ErrNoTenant) {
+	if _, err := newProviderIn(t, api, acme, "").Zones(context.Background(), dnsprovider.ZoneFilter{}); !errors.Is(err, dnsprovider.ErrNoTenant) {
 		t.Errorf("err = %v, want ErrNoTenant", err)
 	}
 

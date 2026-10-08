@@ -82,7 +82,7 @@ func TestFactoryBuildsTheSameProviderAsTheTypedConfig(t *testing.T) {
 	}
 
 	// The handler checks each request carries the key and secret.
-	if _, err := built.Zones(context.Background()); err != nil {
+	if _, err := built.Zones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
 		t.Fatal(err)
 	}
 }

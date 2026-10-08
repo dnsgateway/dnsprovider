@@ -203,24 +203,56 @@ func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 }
 
 // Zones implements dnsprovider.Provider: the Zones of the configured
-// Tenant, ErrNoTenant before one is set. Each Zone carries the nameservers
-// Cloudflare assigned to it, which can differ between Zones of one Account.
-func (p *Provider) Zones(ctx context.Context) ([]dnsprovider.Zone, error) {
-	all, err := p.listZones(ctx)
+// Tenant whose names match the filter, ErrNoTenant before one is set.
+// Cloudflare filters by name itself, "contains:" ignoring case; the
+// answer is filtered again with dnsprovider.MatchZone. Each Zone carries
+// its Hosting State and the nameservers Cloudflare assigned to it, which
+// can differ between Zones of one Account.
+func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+	name := ""
+	if f.Contains != "" {
+		name = "contains:" + strings.ToLower(f.Contains)
+	}
+
+	all, err := p.listZones(ctx, name)
 	if err != nil {
 		return nil, err
 	}
 
 	out := make([]dnsprovider.Zone, 0, len(all))
 	for _, z := range all {
-		out = append(out, dnsprovider.Zone{Name: z.Name, ID: z.ID, Nameservers: slices.Clone(z.NameServers)})
+		zone := toZone(z)
+		if dnsprovider.MatchZone(f, zone) {
+			out = append(out, zone)
+		}
 	}
 
 	return out, nil
 }
 
-// listZones reads every Zone of the Tenant.
-func (p *Provider) listZones(ctx context.Context) ([]zones.Zone, error) {
+// toZone turns a v4 zone into a Zone.
+func toZone(z zones.Zone) dnsprovider.Zone {
+	return dnsprovider.Zone{Name: z.Name, ID: z.ID, State: hostingState(z.Status), Nameservers: slices.Clone(z.NameServers)}
+}
+
+// hostingState is the Hosting State of a Zone in a Cloudflare status. An
+// initializing Zone, just Onboarded, waits for Delegation as a pending one does.
+func hostingState(s zones.ZoneStatus) dnsprovider.HostingState {
+	switch s {
+	case zones.ZoneStatusActive:
+		return dnsprovider.HostingActive
+	case zones.ZoneStatusPending, zones.ZoneStatusInitializing:
+		return dnsprovider.HostingPending
+	case zones.ZoneStatusMoved:
+		return dnsprovider.HostingMoved
+	}
+
+	return dnsprovider.HostingUnknown
+}
+
+// listZones reads every Zone of the Tenant whose name matches a Cloudflare
+// name filter; every Zone when it is empty.
+func (p *Provider) listZones(ctx context.Context, name string) ([]zones.Zone, error) {
 	if err := p.needTenant(); err != nil {
 		return nil, err
 	}
@@ -228,6 +260,10 @@ func (p *Provider) listZones(ctx context.Context) ([]zones.Zone, error) {
 	var params zones.ZoneListParams
 	params.Account.Value.ID.Value, params.Account.Value.ID.Present = p.tenantID, true
 	params.Account.Present = true
+
+	if name != "" {
+		params.Name.Value, params.Name.Present = name, true
+	}
 
 	return listAll(ctx, zonesPerPage, func(opts ...option.RequestOption) (*pagination.V4PagePaginationArray[zones.Zone], error) {
 		return p.zones.List(ctx, params, opts...)

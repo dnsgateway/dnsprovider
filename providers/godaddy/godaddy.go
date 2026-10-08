@@ -142,7 +142,7 @@ type wireDomain struct {
 }
 
 // Zones implements dnsprovider.Provider: every ACTIVE domain of the Account.
-func (p *Provider) Zones(ctx context.Context) ([]dnsprovider.Zone, error) {
+func (p *Provider) Zones(ctx context.Context, _ dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	all, err := p.listDomains(ctx)
 	if err != nil {
 		return nil, err

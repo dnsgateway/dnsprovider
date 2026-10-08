@@ -12,6 +12,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"reflect"
 	"slices"
@@ -57,8 +58,13 @@ type cfAPI struct {
 	// message, as Cloudflare does for a record it will not take.
 	reject func(method string, body map[string]any) string
 	nextID int
+	// ignoreName, when set, lists Zones without the name filter, as an
+	// API that does not honour it would.
+	ignoreName bool
 
 	mu sync.Mutex
+	// queries records each zone list's query.
+	queries []url.Values
 	// requests records each request's path and page.
 	requests []string
 	// writes records each record write.
@@ -84,6 +90,35 @@ func (api *cfAPI) record(request string) {
 	defer api.mu.Unlock()
 
 	api.requests = append(api.requests, request)
+}
+
+// ZoneQueries returns each zone list's query, in order.
+func (api *cfAPI) ZoneQueries() []url.Values {
+	api.mu.Lock()
+	defer api.mu.Unlock()
+
+	return slices.Clone(api.queries)
+}
+
+// zonesNamed are the scripted Zones a name filter matches, as Cloudflare
+// reads it: "contains:" text, ignoring case, or else the exact name.
+func (api *cfAPI) zonesNamed(filter string) []map[string]any {
+	if filter == "" || api.ignoreName {
+		return api.zones
+	}
+
+	var out []map[string]any
+
+	for _, z := range api.zones {
+		name, _ := z["name"].(string)
+
+		text, contains := strings.CutPrefix(filter, "contains:")
+		if contains && strings.Contains(strings.ToLower(name), strings.ToLower(text)) || !contains && name == filter {
+			out = append(out, z)
+		}
+	}
+
+	return out
 }
 
 // Requests returns each request's path and page, in order.
@@ -112,7 +147,11 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("GET /client/v4/zones", func(w http.ResponseWriter, r *http.Request) {
-		api.page(w, r, api.zones)
+		api.mu.Lock()
+		api.queries = append(api.queries, r.URL.Query())
+		api.mu.Unlock()
+
+		api.page(w, r, api.zonesNamed(r.URL.Query().Get("name")))
 	})
 	mux.HandleFunc("GET /client/v4/zones/{zone}/dns_records", func(w http.ResponseWriter, r *http.Request) {
 		records, ok := api.records[r.PathValue("zone")]
@@ -362,15 +401,15 @@ func TestZonesListsEveryPage(t *testing.T) {
 	}}
 	p := newProvider(t, api)
 
-	zones, err := p.Zones(context.Background())
+	zones, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
 
 	want := []dnsprovider.Zone{
-		{Name: "example.com", ID: "z1", Nameservers: []string{"ada.ns.cloudflare.com", "bob.ns.cloudflare.com"}},
-		{Name: "example.net", ID: "z2", Nameservers: []string{"ada.ns.cloudflare.com", "bob.ns.cloudflare.com"}},
-		{Name: "example.org", ID: "z3", Nameservers: []string{"ada.ns.cloudflare.com", "bob.ns.cloudflare.com"}},
+		{Name: "example.com", ID: "z1", State: dnsprovider.HostingActive, Nameservers: []string{"ada.ns.cloudflare.com", "bob.ns.cloudflare.com"}},
+		{Name: "example.net", ID: "z2", State: dnsprovider.HostingActive, Nameservers: []string{"ada.ns.cloudflare.com", "bob.ns.cloudflare.com"}},
+		{Name: "example.org", ID: "z3", State: dnsprovider.HostingActive, Nameservers: []string{"ada.ns.cloudflare.com", "bob.ns.cloudflare.com"}},
 	}
 	if !reflect.DeepEqual(zones, want) {
 		t.Fatalf("Zones = %+v, want %+v", zones, want)
@@ -381,6 +420,90 @@ func TestZonesListsEveryPage(t *testing.T) {
 	}
 }
 
+func TestZonesPushTheNameFilterToCloudflare(t *testing.T) {
+	api := &cfAPI{zones: []map[string]any{
+		cfZone("z1", "example.com"),
+		cfZone("z2", "shop.example.net"),
+		cfZone("z3", "other.org"),
+	}}
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE"})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	if got, want := zoneNames(zones), []string{"example.com", "shop.example.net"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Zones = %v, want %v", got, want)
+	}
+
+	q := api.ZoneQueries()
+	if len(q) != 1 || q[0].Get("name") != "contains:example" || q[0].Get("account.id") != acc1 {
+		t.Errorf("zone list queries = %v, want name=contains:example within the Tenant", q)
+	}
+}
+
+func TestZonesKeepOnlyMatchesWhenCloudflareIgnoresTheFilter(t *testing.T) {
+	api := &cfAPI{ignoreName: true, zones: []map[string]any{
+		cfZone("z1", "example.com"),
+		cfZone("z2", "other.org"),
+	}}
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "ample"})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	if got, want := zoneNames(zones), []string{"example.com"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Zones = %v, want %v", got, want)
+	}
+}
+
+func zoneNames(zones []dnsprovider.Zone) []string {
+	out := []string{}
+	for _, z := range zones {
+		out = append(out, z.Name)
+	}
+
+	return out
+}
+
+func TestZonesCarryTheirHostingState(t *testing.T) {
+	zone := func(id, name, status string) map[string]any {
+		z := cfZone(id, name)
+		z["status"] = status
+
+		return z
+	}
+	api := &cfAPI{zones: []map[string]any{
+		zone("z1", "active.example", "active"),
+		zone("z2", "pending.example", "pending"),
+		zone("z3", "initializing.example", "initializing"),
+		zone("z4", "moved.example", "moved"),
+		zone("z5", "odd.example", "deactivated"),
+	}}
+
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	if err != nil {
+		t.Fatalf("Zones: %v", err)
+	}
+
+	got := map[string]dnsprovider.HostingState{}
+	for _, z := range zones {
+		got[z.Name] = z.State
+	}
+
+	want := map[string]dnsprovider.HostingState{
+		"active.example":       dnsprovider.HostingActive,
+		"pending.example":      dnsprovider.HostingPending,
+		"initializing.example": dnsprovider.HostingPending,
+		"moved.example":        dnsprovider.HostingMoved,
+		"odd.example":          dnsprovider.HostingUnknown,
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Hosting States = %v, want %v", got, want)
+	}
+}
+
 func TestZonesCarryTheNameserversCloudflareAssignedToEachZone(t *testing.T) {
 	api := &cfAPI{zones: []map[string]any{
 		cfZone("z1", "example.com", "bob.ns.cloudflare.com", "ada.ns.cloudflare.com"),
@@ -388,7 +511,7 @@ func TestZonesCarryTheNameserversCloudflareAssignedToEachZone(t *testing.T) {
 	}}
 	p := newProvider(t, api)
 
-	zones, err := p.Zones(context.Background())
+	zones, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -1009,7 +1132,7 @@ func TestRateLimitIsATypedErrorWithoutWaiting(t *testing.T) {
 	}}
 	p := newProvider(t, api)
 
-	_, err := p.Zones(context.Background())
+	_, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
 
 	if !errors.Is(err, dnsprovider.ErrRateLimited) {
 		t.Fatalf("err = %v, want dnsprovider.ErrRateLimited", err)
@@ -1128,7 +1251,7 @@ func TestAStalledConnectionTimesOut(t *testing.T) {
 	done := make(chan error, 1)
 
 	go func() {
-		_, err := p.Zones(context.Background())
+		_, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
 		done <- err
 	}()
 
@@ -1160,7 +1283,7 @@ func TestAConsumersClientKeepsItsOwnTimeouts(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	zs, err := p.Zones(context.Background())
+	zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones through the consumer's client: %v", err)
 	}
@@ -1177,7 +1300,7 @@ func TestErrorsAreNotPrintedToTheTerminal(t *testing.T) {
 	p := newProvider(t, api)
 
 	output := captureOutput(t, func() {
-		if _, err := p.Zones(context.Background()); err == nil {
+		if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
 			t.Error("Zones succeeded, want an error")
 		}
 	})

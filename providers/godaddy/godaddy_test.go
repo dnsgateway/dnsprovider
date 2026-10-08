@@ -266,7 +266,7 @@ func TestZonesAreTheAccountsActiveDomainsOnEveryPage(t *testing.T) {
 		domain("a.example"), domain("b.example"), domain("c.example"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background())
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestZonesCarryTheirNameserversOnlyWhenGoDaddyAnswersForThem(t *testing.T) {
 		domain("unknown.example"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background())
+	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -632,7 +632,7 @@ func TestErrorResponsesAreTypedErrors(t *testing.T) {
 				t.Fatalf("New: %v", err)
 			}
 
-			_, err = p.Zones(context.Background())
+			_, err = p.Zones(context.Background(), dnsprovider.ZoneFilter{})
 
 			var apiErr *dnsprovider.APIError
 			if !errors.As(err, &apiErr) || apiErr.StatusCode != c.status {
@@ -833,7 +833,7 @@ func TestListsThatIgnorePagingFailInsteadOfLoopingForever(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	if _, err := p.Zones(ctx); err == nil || errors.Is(err, context.DeadlineExceeded) {
+	if _, err := p.Zones(ctx, dnsprovider.ZoneFilter{}); err == nil || errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Zones = %v, want an error about paging", err)
 	}
 
@@ -845,7 +845,7 @@ func TestListsThatIgnorePagingFailInsteadOfLoopingForever(t *testing.T) {
 func TestZonesStopAtAShortPage(t *testing.T) {
 	api := &gdAPI{pageSize: 2, domains: []map[string]any{domain("a.example"), domain("b.example"), domain("c.example")}}
 
-	if _, err := newProvider(t, api).Zones(context.Background()); err != nil {
+	if _, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
 

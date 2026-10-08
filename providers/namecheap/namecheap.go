@@ -158,7 +158,7 @@ type getListResult struct {
 // Zones implements dnsprovider.Provider: every domain of the Account on
 // Namecheap's own DNS. A domain delegated elsewhere has no host list
 // Namecheap will read.
-func (p *Provider) Zones(ctx context.Context) ([]dnsprovider.Zone, error) {
+func (p *Provider) Zones(ctx context.Context, _ dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	var (
 		out  []dnsprovider.Zone
 		read int

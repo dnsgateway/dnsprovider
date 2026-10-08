@@ -66,7 +66,7 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		}
 	}
 
-	zones, err := p.Zones(ctx)
+	zones, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
 	if tenants && errors.Is(err, dnsprovider.ErrNoTenant) {
 		t.Logf("Zones not read: %v", err)
 

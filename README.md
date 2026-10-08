@@ -79,6 +79,13 @@ does not say. Namecheap lists only the Zones on its DNS, which are Active.
 Zone Status (DNSSEC, HSTS) is the optional `ZoneStatusReader`, which only
 Cloudflare implements. `dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and
 reports every setting Unknown, without a call, for a Provider without one.
+The optional `ZoneUpdater`, also Cloudflare's alone and found with
+`dnsprovider.CanUpdateZone(p)`, turns DNSSEC and HSTS on or off:
+`UpdateZone(ctx, zone, dnsprovider.ZoneUpdate{DNSSEC: &on})` writes only the
+settings it is given and returns the Zone Status after the change. Cloudflare
+signs and unsigns a Zone over time, so DNSSEC comes back Pending; HSTS keeps
+its max-age and other fields, and is turned on for six months when the Zone
+has no max-age.
 
 ## Tests
 

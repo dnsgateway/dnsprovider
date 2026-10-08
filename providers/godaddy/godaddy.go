@@ -346,6 +346,11 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprov
 
 	records := make([]dnsprovider.Record, 0, len(all))
 	for _, w := range all {
+		// The list of one type leaves the type out of its records.
+		if w.Type == "" {
+			w.Type = strings.ToUpper(f.Type)
+		}
+
 		if rec := toRecord(zone.Name, w); dnsprovider.MatchRecord(f, rec) {
 			records = append(records, rec)
 		}

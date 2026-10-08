@@ -142,8 +142,18 @@ func (api *gdAPI) handler(t *testing.T) http.Handler {
 			return
 		}
 
+		// The list of one type leaves the type out of its records.
 		if typ := r.PathValue("type"); typ != "" {
-			records = slices.DeleteFunc(slices.Clone(records), func(rec map[string]any) bool { return rec["type"] != typ })
+			var typed []map[string]any
+			for _, rec := range records {
+				if rec["type"] == typ {
+					rec = maps.Clone(rec)
+					delete(rec, "type")
+					typed = append(typed, rec)
+				}
+			}
+
+			records = typed
 		}
 
 		// offset is the page, from 1; GoDaddy answers 422 past the last one.
@@ -1109,6 +1119,10 @@ func TestRecordsFilteredByTypeAskGoDaddyForTheTypeAndByNameFilterHere(t *testing
 
 			if !slices.Equal(got, c.want) {
 				t.Errorf("Records = %v, want %v", got, c.want)
+			}
+
+			if set.Records == nil {
+				t.Error("Records = nil, want an empty list")
 			}
 
 			for _, u := range api.Requests() {

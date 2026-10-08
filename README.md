@@ -32,8 +32,9 @@ p, err := cloudflare.New(cloudflare.Config{Token: token, TenantID: accountID},
 ```
 
 A consumer that picks its Provider at run time builds it from a plain field
-map instead. Each `Factory` lists its `Fields` (name, label, and whether the
-field is secret), so a form and a credential store can be built from them:
+map instead. Each `Factory` lists its `Fields` (name, label, whether the
+field is secret, and whether it holds the Tenant ID), so a form and a
+credential store can be built from them:
 
 ```go
 reg := providers.Registry()

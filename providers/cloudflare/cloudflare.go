@@ -61,7 +61,7 @@ const (
 func Factory() dnsprovider.Factory {
 	fs := []dnsprovider.Field{
 		{Name: FieldToken, Label: "API token", Secret: true},
-		{Name: FieldTenantID, Label: "Account ID"},
+		{Name: FieldTenantID, Label: "Account ID", Tenant: true},
 	}
 
 	return fields.Factory("cloudflare", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {

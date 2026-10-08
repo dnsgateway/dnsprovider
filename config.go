@@ -70,6 +70,10 @@ type Field struct {
 	Label string
 	// Secret marks a field to hide on screen and keep sealed.
 	Secret bool
+	// Tenant marks the field holding the ID of the Tenant the Provider
+	// acts within, one of those its TenantLister lists. A consumer that
+	// picks the Tenant sets it.
+	Tenant bool
 }
 
 // Factory builds one Provider type from a plain field map.

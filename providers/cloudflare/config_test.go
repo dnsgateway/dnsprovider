@@ -45,10 +45,10 @@ func TestNewRefusesATenantIDThatIsNotACloudflareAccountID(t *testing.T) {
 	}
 }
 
-func TestFactoryFieldsNameEveryConfigFieldAndMarkTheTokenSecret(t *testing.T) {
+func TestFactoryFieldsNameEveryConfigFieldAndMarkTheTokenSecretAndTheTenant(t *testing.T) {
 	want := []dnsprovider.Field{
 		{Name: "token", Label: "API token", Secret: true},
-		{Name: "tenant_id", Label: "Account ID"},
+		{Name: "tenant_id", Label: "Account ID", Tenant: true},
 	}
 
 	got := cloudflare.Factory().Fields

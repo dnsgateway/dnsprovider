@@ -45,6 +45,18 @@ p, err := reg.New("namecheap", map[string]string{
 `WithBaseURL` points a Provider at another endpoint, such as an `httptest`
 server or a sandbox.
 
+## Accounts and Tenants
+
+`Account(ctx)` checks the credentials, even for an Account with no Zones, and
+returns its Tenant and, where they are the same for every Zone, the
+nameservers Delegation must name. A bad token is `ErrUnauthorized`.
+
+A Cloudflare token can reach several Tenants (Cloudflare accounts). The
+Provider implements `TenantLister`, whose `Tenants(ctx)` works before
+`TenantID` is set; `dnsprovider.CanListTenants(p)` says whether a Provider
+does. Zones are listed within the configured Tenant only, and `ErrNoTenant`
+until one is set.
+
 ## Stability
 
 The module stays at `v0` until dnscli has moved onto it: its API may change
@@ -61,7 +73,7 @@ test is skipped while any secret field is unset.
 
 | Provider   | Variables                                                                         |
 |------------|-----------------------------------------------------------------------------------|
-| Cloudflare | `DNSPROVIDER_CLOUDFLARE_TOKEN`, `DNSPROVIDER_CLOUDFLARE_TENANT_ID` (optional)     |
+| Cloudflare | `DNSPROVIDER_CLOUDFLARE_TOKEN`, `DNSPROVIDER_CLOUDFLARE_TENANT_ID` (optional: Zones are read only with it) |
 | GoDaddy    | `DNSPROVIDER_GODADDY_KEY`, `DNSPROVIDER_GODADDY_SECRET`                           |
 | Namecheap  | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |
 

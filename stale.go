@@ -87,14 +87,7 @@ func recheck(ctx context.Context, p Provider, cs Changeset) error {
 		return fmt.Errorf("re-check the Records the Changeset was built from: %w", err)
 	}
 
-	var stale []StaleChange
-
-	for _, c := range touched {
-		now, ok := current(c.Before, live.Records)
-		if !ok || !unchanged(c.Before, now) {
-			stale = append(stale, StaleChange{Change: c, Now: now})
-		}
-	}
+	stale := staleChanges(touched, live.Records)
 
 	if stale != nil {
 		return &StaleError{Changes: stale}
@@ -103,21 +96,83 @@ func recheck(ctx context.Context, p Provider, cs Changeset) error {
 	return nil
 }
 
-// current is the Record live holds for before: the one with its ID, or,
-// for a Record built without one, the same resource record (SameRecord).
-func current(before Record, live []Record) (Record, bool) {
-	i := slices.IndexFunc(live, func(r Record) bool {
-		if before.ID == "" {
-			return SameRecord(before, r)
-		}
+// staleChanges are the touched changes whose Before live no longer holds
+// as it was, each with what it is now (current).
+func staleChanges(touched []Change, live []Record) []StaleChange {
+	found := make([]int, len(touched))
+	claimed := make(map[int]bool, len(touched))
 
-		return r.ID == before.ID
-	})
-	if i < 0 {
-		return Record{}, false
+	for i, c := range touched {
+		found[i] = slices.IndexFunc(live, func(r Record) bool { return readAs(c.Before, r) })
+		if found[i] >= 0 {
+			claimed[found[i]] = true
+		}
 	}
 
-	return live[i], true
+	var stale []StaleChange
+
+	for i, c := range touched {
+		if found[i] >= 0 && unchanged(c.Before, live[found[i]]) {
+			continue
+		}
+
+		now := Record{}
+		if found[i] >= 0 {
+			now = live[found[i]]
+		} else {
+			now = current(c.Before, live, claimed)
+		}
+
+		stale = append(stale, StaleChange{Change: c, Now: now})
+	}
+
+	return stale
+}
+
+// readAs reports whether r is the Record before was read as: the one with
+// its ID or, for a Record built without one, the same resource record
+// (SameRecord).
+func readAs(before, r Record) bool {
+	if before.ID == "" {
+		return SameRecord(before, r)
+	}
+
+	return r.ID == before.ID
+}
+
+// current is what became of a Before that live holds no longer as read,
+// as where a Provider keys Records by content (GoDaddy, Namecheap) any
+// change to one changes its ID: among the Records no other change was
+// read from, the one same resource record (SameRecord), whose TTL or
+// Extras changed, or else the one Record of its RRset, whose Value
+// changed. When none or several are, which it became cannot be told: the
+// Record is taken as gone, and current is empty. On a Provider whose IDs
+// hold (Cloudflare) a Before whose ID is gone was deleted, and a lone
+// other Record of its RRset is named as what it became.
+func current(before Record, live []Record, claimed map[int]bool) Record {
+	for _, same := range []func(a, b Record) bool{SameRecord, sameRRset} {
+		var (
+			now Record
+			n   int
+		)
+
+		for i, r := range live {
+			if !claimed[i] && same(before, r) {
+				now = r
+				n++
+			}
+		}
+
+		if n > 0 {
+			if n > 1 {
+				now = Record{}
+			}
+
+			return now
+		}
+	}
+
+	return Record{}
 }
 
 // unchanged reports whether a Record is as it was read: the same

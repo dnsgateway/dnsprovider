@@ -426,3 +426,46 @@ func TestApplyFindsABeforeWithoutAnIDByItsTypeNameAndValue(t *testing.T) {
 		t.Errorf("Now = %+v, want %+v", now, longer)
 	}
 }
+
+// keyed is a Record with an ID built from its content, as GoDaddy and
+// Namecheap key theirs.
+func keyed(typ, name, value string, ttl uint32) dnsprovider.Record {
+	return dnsprovider.Record{ID: fmt.Sprintf("%s %s %d %s", typ, name, ttl, value), Type: typ, Name: name, Value: value, TTL: ttl}
+}
+
+func TestApplyNamesWhatAContentKeyedRecordBecameWhenItsIDIsGone(t *testing.T) {
+	read := keyed("A", "www.example.com", "192.0.2.1", 300)
+	del := func(b dnsprovider.Record) dnsprovider.Change {
+		return dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: b}
+	}
+	api := keyed("A", "api.example.com", "192.0.2.1", 300)
+
+	for _, tc := range []struct {
+		name    string
+		live    []dnsprovider.Record
+		changes []dnsprovider.Change
+		want    []string // the IDs of the stale changes' Nows
+	}{
+		{"its TTL changed", []dnsprovider.Record{api, keyed("A", "www.example.com", "192.0.2.1", 600)}, []dnsprovider.Change{del(read)}, []string{"A www.example.com 600 192.0.2.1"}},
+		{"its Value changed", []dnsprovider.Record{api, keyed("A", "www.example.com", "192.0.2.5", 300)}, []dnsprovider.Change{del(read)}, []string{"A www.example.com 300 192.0.2.5"}},
+		{"its TTL changed beside another Value", []dnsprovider.Record{keyed("A", "www.example.com", "192.0.2.2", 600), keyed("A", "www.example.com", "192.0.2.1", 600)}, []dnsprovider.Change{del(read)}, []string{"A www.example.com 600 192.0.2.1"}},
+		// Either could be what it became: it is reported gone.
+		{"its RRset holds two other Values", []dnsprovider.Record{keyed("A", "www.example.com", "192.0.2.2", 300), keyed("A", "www.example.com", "192.0.2.3", 300)}, []dnsprovider.Change{del(read)}, []string{""}},
+		// The other Value is one the Changeset was built from as it is.
+		{"the other Value is the Changeset's", []dnsprovider.Record{keyed("A", "www.example.com", "192.0.2.2", 300)}, []dnsprovider.Change{del(read), del(keyed("A", "www.example.com", "192.0.2.2", 300))}, []string{""}},
+		{"no Record of its type and name", []dnsprovider.Record{api}, []dnsprovider.Change{del(read)}, []string{""}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			now := staleNow(t, providertest.New().AddZone(applyZone, tc.live...), tc.changes...)
+
+			got := make([]string, len(now))
+			for i, r := range now {
+				got[i] = r.ID
+			}
+
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("Now IDs = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

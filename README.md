@@ -54,8 +54,11 @@ nameservers Delegation must name. A bad token is `ErrUnauthorized`.
 A Cloudflare token can reach several Tenants (Cloudflare accounts). The
 Provider implements `TenantLister`, whose `Tenants(ctx)` works before
 `TenantID` is set; `dnsprovider.CanListTenants(p)` says whether a Provider
-does. Zones are listed within the configured Tenant only, and `ErrNoTenant`
-until one is set.
+does. Every call but `Account` and `Tenants` is scoped to the configured
+Tenant, a 32-hex-digit account ID, and fails with `dnsprovider.ErrNoTenant`
+until one is set. An account-owned token is verified only once its Tenant
+is set; a token that may not read accounts, such as a DNS-only one, gets
+an `Account` Tenant with the ID alone.
 
 ## Stability
 

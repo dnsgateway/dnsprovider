@@ -16,6 +16,20 @@ type Provider interface {
 	Nameservers(ctx context.Context) ([]string, error)
 }
 
+// TenantLister is implemented by a Provider whose credentials can reach
+// several Tenants, such as Cloudflare. It works before a Tenant is set.
+type TenantLister interface {
+	// Tenants lists the Tenants the credentials reach.
+	Tenants(ctx context.Context) ([]Tenant, error)
+}
+
+// CanListTenants reports whether a Provider implements TenantLister.
+func CanListTenants(p Provider) bool {
+	_, ok := p.(TenantLister)
+
+	return ok
+}
+
 // TTLLimits is implemented by a Provider whose Record TTLs have other
 // limits than DefaultTTLRange. TTL TTLAuto is allowed only where
 // the Provider implements AutoTTL.

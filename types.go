@@ -1,5 +1,22 @@
 package dnsprovider
 
+// Tenant is a Provider-side account an Account's credentials act within:
+// a Cloudflare account, a GoDaddy customer, a Namecheap user.
+type Tenant struct {
+	ID   string
+	Name string // e.g. "Acme Ltd", an email, a customer number
+}
+
+// AccountInfo is what the Provider says about an Account.
+type AccountInfo struct {
+	// Tenant is the Tenant the Account acts within; empty when the
+	// Provider does not say, or none is set yet.
+	Tenant Tenant
+	// Nameservers are the nameservers the Account expects Delegation to
+	// name, when they are the same for every Zone; nil otherwise.
+	Nameservers []string
+}
+
 // Zone is a DNS zone hosted in one Account at a Provider.
 type Zone struct {
 	ID    string // Provider-assigned, opaque

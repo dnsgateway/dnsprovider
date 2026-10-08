@@ -214,3 +214,39 @@ func TestApplyGoesThroughRecordCRUDNotABatcher(t *testing.T) {
 		t.Error("the Cloudflare Provider is a dnsprovider.Batcher, want Apply to go through its Record CRUD")
 	}
 }
+
+func TestDeleteRecordWhoseRetryFindsTheZoneGoneFails(t *testing.T) {
+	// Only the Record missing means an earlier try deleted it; a Zone
+	// Cloudflare cannot route to is an error, retry or not.
+	var deletes int
+
+	api := &cfAPI{records: map[string][]map[string]any{"z1": {cfRecord("r1", "TXT", "example.com", `"hi"`, 300, false, false)}}}
+	api.intercept = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method != http.MethodDelete {
+			return false
+		}
+
+		api.mu.Lock()
+		deletes++
+		first := deletes == 1
+		api.mu.Unlock()
+
+		if first {
+			serverError(w)
+		} else {
+			writeErrors(w, http.StatusNotFound, 7003, "Could not route to /zones/z1/dns_records/r1, perhaps your object identifier is invalid?")
+		}
+
+		return true
+	}
+	p := newProvider(t, api)
+
+	err := p.DeleteRecord(context.Background(), crudZone, dnsprovider.Record{ID: "r1", Type: "TXT", Name: "example.com", Value: `"hi"`, TTL: 300})
+	if !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("DeleteRecord: err = %v, want the unroutable Zone's ErrNotFound", err)
+	}
+
+	if deletes != 2 {
+		t.Errorf("got %d DELETEs, want 2: a delete is retried", deletes)
+	}
+}

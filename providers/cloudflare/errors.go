@@ -82,9 +82,20 @@ var errorCodes = map[int]error{
 	9106:  dnsprovider.ErrUnauthorized, // Missing X-Auth-Key, X-Auth-Email or Authorization headers
 	10000: dnsprovider.ErrUnauthorized, // Authentication error
 	7003:  dnsprovider.ErrNotFound,     // Could not route to …, perhaps your object identifier is invalid?
-	81044: dnsprovider.ErrNotFound,     // Record does not exist.
+	81044: errRecordMissing,            // Record does not exist.
 	81053: dnsprovider.ErrConflict,     // An A, AAAA, or CNAME record with that host already exists.
 	81054: dnsprovider.ErrConflict,     // A CNAME record with that host already exists.
 	81057: dnsprovider.ErrConflict,     // Record already exists.
 	81058: dnsprovider.ErrConflict,     // An identical record already exists.
 }
+
+// errRecordMissing is the kind of error Cloudflare's code 81044, "Record
+// does not exist", gives: dnsprovider.ErrNotFound, told apart from a Zone
+// Cloudflare cannot route to, which a retried delete does not take as done.
+var errRecordMissing error = recordMissing{}
+
+type recordMissing struct{}
+
+func (recordMissing) Error() string { return dnsprovider.ErrNotFound.Error() }
+
+func (recordMissing) Is(target error) bool { return target == dnsprovider.ErrNotFound }

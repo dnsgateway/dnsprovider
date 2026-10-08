@@ -539,8 +539,9 @@ func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, befo
 }
 
 // DeleteRecord implements dnsprovider.Provider: a DELETE of the Record by
-// its ID. A retried delete that finds the Record gone succeeds: an
-// earlier try, whose answer was lost, deleted it.
+// its ID. A retried delete that Cloudflare answers with "Record does not
+// exist" succeeds: an earlier try, whose answer was lost, deleted it. Any
+// other not-found, such as a Zone it cannot route to, stays an error.
 func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) error {
 	if err := p.needTenant(); err != nil {
 		return err
@@ -567,7 +568,7 @@ func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 
 		return err
 	})
-	if tries > 1 && errors.Is(err, dnsprovider.ErrNotFound) {
+	if tries > 1 && errors.Is(err, errRecordMissing) {
 		return nil
 	}
 

@@ -503,86 +503,138 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 	return res, nil
 }
 
-// applyChange makes one change and returns the Record as Cloudflare
-// stored it; an empty Record for a deletion.
-//
-// A modification is a PATCH of the Record it was built from, so the
-// fields the module does not model, such as a comment or tags, are kept.
+// applyChange makes one change through the CRUD methods; an empty
+// Record for a deletion.
 func (p *Provider) applyChange(ctx context.Context, zone dnsprovider.Zone, c dnsprovider.Change) (dnsprovider.Record, error) {
+	switch c.Kind {
+	case dnsprovider.ChangeAdd:
+		return p.CreateRecord(ctx, zone, c.After)
+	case dnsprovider.ChangeModify:
+		return p.UpdateRecord(ctx, zone, c.Before, c.After)
+	case dnsprovider.ChangeDelete:
+		return dnsprovider.Record{}, p.DeleteRecord(ctx, zone, c.Before)
+	default:
+		return dnsprovider.Record{}, fmt.Errorf("cloudflare: unknown change kind %d", c.Kind)
+	}
+}
+
+// CreateRecord implements dnsprovider.Provider: a POST, which is never
+// retried, as a retry of a create Cloudflare stored but whose answer was
+// lost would make a second Record. It returns the Record as Cloudflare
+// stored it, proxy flag included.
+func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
+	if err := p.needTenant(); err != nil {
+		return dnsprovider.Record{}, err
+	}
+
+	body, err := encodeBody(r, false)
+	if err != nil {
+		return dnsprovider.Record{}, err
+	}
+
+	var params cfdns.RecordNewParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	return p.write(ctx, body, func(opts ...option.RequestOption) error {
+		_, err := p.records.New(ctx, params, append(opts, option.WithMaxRetries(0))...)
+
+		return err
+	})
+}
+
+// UpdateRecord implements dnsprovider.Provider: a PATCH of before, found
+// by its ID, so the fields the module does not model, such as a comment
+// or tags, are kept. It returns after as Cloudflare stored it.
+func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
+	if err := p.needTenant(); err != nil {
+		return dnsprovider.Record{}, err
+	}
+
+	if before.ID == "" {
+		return dnsprovider.Record{}, noID(before)
+	}
+
+	// A PATCH keeps what it does not send: a Record that loses its proxy
+	// flag, as it changes to a type that cannot have one, has it turned
+	// off.
+	_, proxied := before.Extras[ExtraProxied]
+
+	body, err := encodeBody(after, proxied)
+	if err != nil {
+		return dnsprovider.Record{}, err
+	}
+
+	var params cfdns.RecordEditParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	return p.write(ctx, body, func(opts ...option.RequestOption) error {
+		_, err := p.records.Edit(ctx, before.ID, params, opts...)
+
+		return err
+	})
+}
+
+// DeleteRecord implements dnsprovider.Provider: a DELETE of the Record by
+// its ID. A retried delete that finds the Record gone succeeds: an
+// earlier try, whose answer was lost, deleted it.
+func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) error {
+	if err := p.needTenant(); err != nil {
+		return err
+	}
+
+	if r.ID == "" {
+		return noID(r)
+	}
+
+	var params cfdns.RecordDeleteParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	// tries counts the requests the delete takes, retries included.
+	var tries int
+
+	count := option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+		tries++
+
+		return next(req)
+	})
+
+	_, err := p.write(ctx, nil, func(opts ...option.RequestOption) error {
+		_, err := p.records.Delete(ctx, r.ID, params, append(opts, count)...)
+
+		return err
+	})
+	if tries > 1 && errors.Is(err, dnsprovider.ErrNotFound) {
+		return nil
+	}
+
+	return err
+}
+
+// noID is the error for a Record to update or delete that has no ID.
+func noID(r dnsprovider.Record) error {
+	return fmt.Errorf("cloudflare: %s %s has no record ID", r.Type, r.Name)
+}
+
+// write makes one record write, sending body when it is set, and returns
+// the Record as Cloudflare stored it; an empty Record when the answer
+// holds none, as a delete's does.
+func (p *Provider) write(ctx context.Context, body []byte, call func(...option.RequestOption) error) (dnsprovider.Record, error) {
 	var (
 		env  envelope
 		raw  *http.Response
 		opts = []option.RequestOption{option.WithResponseBodyInto(&env), option.WithResponseInto(&raw)}
-		err  error
 	)
 
-	if c.Kind != dnsprovider.ChangeAdd && c.Before.ID == "" {
-		return dnsprovider.Record{}, fmt.Errorf("cloudflare: %s %s has no record ID", c.Before.Type, c.Before.Name)
-	}
-
-	if c.Kind != dnsprovider.ChangeDelete {
-		wb, err := writeBody(c.After)
-		if err != nil {
-			return dnsprovider.Record{}, err
-		}
-
-		// A PATCH keeps what it does not send: a Record that loses its
-		// proxy flag, as it changes to a type that cannot have one, has
-		// it turned off.
-		if _, had := c.Before.Extras[ExtraProxied]; had && wb.Proxied == nil && c.Kind == dnsprovider.ChangeModify {
-			wb.Proxied = new(bool)
-		}
-
-		body, err := json.Marshal(wb)
-		if err != nil {
-			return dnsprovider.Record{}, fmt.Errorf("cloudflare: encode record: %w", err)
-		}
-
+	if body != nil {
 		opts = append(opts, option.WithRequestBody("application/json", body))
 	}
 
-	// tries counts the requests a change takes, retries included.
-	var tries int
-
-	opts = append(opts, option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-		tries++
-
-		return next(req)
-	}))
-
-	switch c.Kind {
-	case dnsprovider.ChangeAdd:
-		// A create is not idempotent: a retry of one Cloudflare stored,
-		// but whose answer was lost, would make a second Record.
-		var params cfdns.RecordNewParams
-		params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
-		_, err = p.records.New(ctx, params, append(opts, option.WithMaxRetries(0))...)
-	case dnsprovider.ChangeModify:
-		var params cfdns.RecordEditParams
-		params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
-		_, err = p.records.Edit(ctx, c.Before.ID, params, opts...)
-	case dnsprovider.ChangeDelete:
-		var params cfdns.RecordDeleteParams
-		params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
-		_, err = p.records.Delete(ctx, c.Before.ID, params, opts...)
-	default:
-		return dnsprovider.Record{}, fmt.Errorf("cloudflare: unknown change kind %d", c.Kind)
-	}
-
-	if err != nil {
-		err = apiError(err, raw)
-
-		// A retried delete that finds the Record gone was made by an
-		// earlier try whose answer was lost.
-		if c.Kind == dnsprovider.ChangeDelete && tries > 1 && errors.Is(err, dnsprovider.ErrNotFound) {
-			return dnsprovider.Record{}, nil
-		}
-
-		return dnsprovider.Record{}, err
+	if err := call(opts...); err != nil {
+		return dnsprovider.Record{}, apiError(err, raw)
 	}
 
 	// Any 2xx is an answer; Cloudflare says in the body when it did not
-	// take the change. A body without "success" took it.
+	// take the write. A body without "success" took it.
 	if env.Success != nil && !*env.Success {
 		e := &dnsprovider.APIError{Provider: "cloudflare", StatusCode: raw.StatusCode}
 		addErrors(e, env.Errors)
@@ -590,11 +642,32 @@ func (p *Provider) applyChange(ctx context.Context, zone dnsprovider.Zone, c dns
 		return dnsprovider.Record{}, e
 	}
 
-	if c.Kind == dnsprovider.ChangeDelete {
+	if body == nil {
 		return dnsprovider.Record{}, nil
 	}
 
 	return decodeRecord(env.Result)
+}
+
+// encodeBody is the JSON body that creates r, or updates a record to it.
+// offProxy turns the proxy flag off when r sets none, for a PATCH of a
+// Record that had one.
+func encodeBody(r dnsprovider.Record, offProxy bool) ([]byte, error) {
+	wb, err := writeBody(r)
+	if err != nil {
+		return nil, err
+	}
+
+	if offProxy && wb.Proxied == nil {
+		wb.Proxied = new(bool)
+	}
+
+	body, err := json.Marshal(wb)
+	if err != nil {
+		return nil, fmt.Errorf("cloudflare: encode record: %w", err)
+	}
+
+	return body, nil
 }
 
 // envelope is the v4 response envelope of a record write.
@@ -930,22 +1003,4 @@ func (p *Provider) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 	}
 
 	return out, nil
-}
-
-// CreateRecord implements dnsprovider.Provider; not yet:
-// ErrNotImplemented, and dnsprovider.Apply goes through ApplyChangeset.
-func (p *Provider) CreateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) (dnsprovider.Record, error) {
-	return dnsprovider.Record{}, fmt.Errorf("cloudflare: CreateRecord: %w", dnsprovider.ErrNotImplemented)
-}
-
-// UpdateRecord implements dnsprovider.Provider; not yet:
-// ErrNotImplemented, and dnsprovider.Apply goes through ApplyChangeset.
-func (p *Provider) UpdateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record, dnsprovider.Record) (dnsprovider.Record, error) {
-	return dnsprovider.Record{}, fmt.Errorf("cloudflare: UpdateRecord: %w", dnsprovider.ErrNotImplemented)
-}
-
-// DeleteRecord implements dnsprovider.Provider; not yet:
-// ErrNotImplemented, and dnsprovider.Apply goes through ApplyChangeset.
-func (p *Provider) DeleteRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) error {
-	return fmt.Errorf("cloudflare: DeleteRecord: %w", dnsprovider.ErrNotImplemented)
 }

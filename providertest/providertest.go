@@ -54,6 +54,7 @@ type Provider struct {
 	records    map[string][]dnsprovider.Record // by Zone ID
 	serials    map[string]uint32
 	status     map[string]dnsprovider.ZoneStatus
+	readStatus bool // whether Zone Status is scripted
 	account    dnsprovider.AccountInfo
 	tenants    []dnsprovider.Tenant // nil when not scripted
 	fail       map[Op]error
@@ -168,15 +169,18 @@ func (p *Provider) SetAutoTTL(on bool) {
 
 // The fake implements the optional interfaces whose absence the
 // dnsprovider helpers read as their unscripted answer, such as
-// TTLRangeOf's DefaultTTLRange or ZoneStatusOf's Unknown settings. Only one whose absence a CanX helper
-// reports, such as TenantLister, needs a wrapper type, built when
-// scripted; see build.
+// TTLRangeOf's DefaultTTLRange. TenantLister and ZoneStatusReader, which a
+// consumer may branch on, are implemented by wrapper types, built only
+// once scripted; see build.
 var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
 	_ dnsprovider.ProxyFlag = (*Provider)(nil)
 
-	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
+	_ dnsprovider.TenantLister     = withTenants{}
+	_ dnsprovider.ZoneStatusReader = withZoneStatus{}
+	_ dnsprovider.TenantLister     = withTenantsAndZoneStatus{}
+	_ dnsprovider.ZoneStatusReader = withTenantsAndZoneStatus{}
 )
 
 // TTLRange implements dnsprovider.TTLLimits; the default range when not
@@ -208,12 +212,16 @@ func (p *Provider) ProxiableTypes() []string {
 	return slices.Clone(p.proxiable)
 }
 
-// SetZoneStatus scripts a Zone's Zone Status.
+// SetZoneStatus scripts a Zone's Zone Status, and makes the Providers New
+// builds read it through dnsprovider.ZoneStatusReader; another Zone's
+// settings are then Unknown. Unscripted, they do not implement it, and
+// dnsprovider.ZoneStatusOf reports Unknown settings without a call.
 func (p *Provider) SetZoneStatus(zoneID string, s dnsprovider.ZoneStatus) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.status[zoneID] = s
+	p.readStatus = true
 }
 
 // SetAccount scripts what Account reports.
@@ -331,8 +339,13 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.tenants != nil {
+	switch {
+	case p.tenants != nil && p.readStatus:
+		return withTenantsAndZoneStatus{withTenants{p}}, nil
+	case p.tenants != nil:
 		return withTenants{p}, nil
+	case p.readStatus:
+		return withZoneStatus{p}, nil
 	}
 
 	return p, nil
@@ -488,10 +501,30 @@ func (p *Provider) applyChange(records []dnsprovider.Record, c dnsprovider.Chang
 	return records, r, nil
 }
 
-// ZoneStatus implements dnsprovider.ZoneStatusReader: the scripted Zone
-// Status, every setting Unknown when not scripted, as ZoneStatusOf
-// reports for a Provider without a reader.
-func (p *Provider) ZoneStatus(_ context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
+// withZoneStatus is the fake with scripted Zone Status.
+type withZoneStatus struct {
+	*Provider
+}
+
+// ZoneStatus implements dnsprovider.ZoneStatusReader.
+func (p withZoneStatus) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
+	return p.zoneStatus(ctx, z)
+}
+
+// withTenantsAndZoneStatus is the fake with scripted Tenants and Zone
+// Status.
+type withTenantsAndZoneStatus struct {
+	withTenants
+}
+
+// ZoneStatus implements dnsprovider.ZoneStatusReader.
+func (p withTenantsAndZoneStatus) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
+	return p.zoneStatus(ctx, z)
+}
+
+// zoneStatus is the scripted Zone Status, every setting Unknown for a
+// Zone without one.
+func (p *Provider) zoneStatus(_ context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
 	if err := p.record(Call{Op: OpZoneStatus, Zone: z}); err != nil {
 		return dnsprovider.ZoneStatus{}, err
 	}

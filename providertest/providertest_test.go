@@ -254,3 +254,32 @@ func TestZoneReadsOneScriptedZoneByName(t *testing.T) {
 		t.Errorf("last call = %+v, want Zone with the name asked for", calls[len(calls)-1])
 	}
 }
+
+func TestZoneStatusIsReadOnlyOnceScripted(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	fake := providertest.New().AddZone(z)
+
+	if _, ok := newFake(t, fake).(dnsprovider.ZoneStatusReader); ok {
+		t.Error("an unscripted fake reads Zone Status")
+	}
+
+	want := dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.Off}
+	fake.SetZoneStatus("z1", want)
+
+	got, err := dnsprovider.ZoneStatusOf(ctx, newFake(t, fake), z)
+	if err != nil || got != want {
+		t.Errorf("Zone Status = %+v, %v; want %+v", got, err, want)
+	}
+
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZoneStatus {
+		t.Errorf("last call = %+v, want ZoneStatus", calls[len(calls)-1])
+	}
+
+	fake.SetTenants(dnsprovider.Tenant{ID: "t1"})
+	p := newFake(t, fake)
+
+	if _, ok := p.(dnsprovider.ZoneStatusReader); !ok || !dnsprovider.CanListTenants(p) {
+		t.Error("a fake with scripted Zone Status and Tenants does not do both")
+	}
+}

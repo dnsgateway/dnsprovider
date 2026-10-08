@@ -47,6 +47,13 @@ type gdAPI struct {
 	domains      []map[string]any
 	records      map[string][]map[string]any // by domain
 
+	// missing, when set, is the error GET /v1/domains/{domain} answers
+	// for a domain not in domains, instead of 404 NOT_FOUND.
+	missing *apiErr
+	// deny answers every request with this error, as GoDaddy does for a
+	// key it refuses.
+	deny *apiErr
+
 	// reject, when it returns a message, fails the RRset write with that
 	// message, as GoDaddy does for records it will not take.
 	reject func(method, typ, name string, body []map[string]any) string
@@ -112,6 +119,12 @@ func (api *gdAPI) handler(t *testing.T) http.Handler {
 
 	mux.HandleFunc("GET /v1/domains/{domain}", func(w http.ResponseWriter, r *http.Request) {
 		i := slices.IndexFunc(api.domains, func(d map[string]any) bool { return d["domain"] == r.PathValue("domain") })
+		if i < 0 && api.missing != nil {
+			writeError(w, api.missing.status, api.missing.code, api.missing.message)
+
+			return
+		}
+
 		if i < 0 {
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "Domain not found")
 
@@ -170,6 +183,12 @@ func (api *gdAPI) handler(t *testing.T) http.Handler {
 
 		if got := r.Header.Get("Authorization"); got != "sso-key "+testToken {
 			t.Errorf("Authorization = %q, want the Account's key and secret", got)
+		}
+
+		if api.deny != nil {
+			writeError(w, api.deny.status, api.deny.code, api.deny.message)
+
+			return
 		}
 
 		mux.ServeHTTP(w, r)
@@ -261,6 +280,12 @@ func srvHost(rec map[string]any) string {
 	}
 
 	return labels[2]
+}
+
+// apiErr is a scripted GoDaddy error answer.
+type apiErr struct {
+	status        int
+	code, message string
 }
 
 // writeError answers with a GoDaddy error body.
@@ -384,6 +409,37 @@ func TestZoneOfADomainTheAccountDoesNotServeIsNotFound(t *testing.T) {
 	for _, name := range []string{"example.org", "gone.example", ""} {
 		if _, err := p.Zone(context.Background(), name); !errors.Is(err, dnsprovider.ErrNotFound) {
 			t.Errorf("Zone(%s): err = %v, want ErrNotFound", name, err)
+		}
+	}
+}
+
+func TestZoneOfADomainOfAnotherAccountIsNotFound(t *testing.T) {
+	answers := []*apiErr{
+		{http.StatusForbidden, "ACCESS_DENIED", "Authenticated user is not allowed access"},
+		{http.StatusUnprocessableEntity, "INVALID_DOMAIN", "domain is not valid"},
+		{http.StatusNotFound, "NOT_FOUND", "Domain not found"},
+	}
+
+	for _, a := range answers {
+		api := &gdAPI{missing: a, domains: []map[string]any{domain("example.com")}}
+
+		if _, err := newProvider(t, api).Zone(context.Background(), "example.org"); !errors.Is(err, dnsprovider.ErrNotFound) || errors.Is(err, dnsprovider.ErrUnauthorized) {
+			t.Errorf("Zone on %d %s: err = %v, want ErrNotFound alone", a.status, a.code, err)
+		}
+	}
+}
+
+func TestZoneWithAKeyGoDaddyRefusesIsUnauthorized(t *testing.T) {
+	refusals := []*apiErr{
+		{http.StatusUnauthorized, "UNABLE_TO_AUTHENTICATE", "Unable to authenticate"},
+		{http.StatusForbidden, "ACCESS_DENIED", "Authenticated user is not allowed access"},
+	}
+
+	for _, a := range refusals {
+		api := &gdAPI{deny: a, domains: []map[string]any{domain("example.com")}}
+
+		if _, err := newProvider(t, api).Zone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+			t.Errorf("Zone on %d %s: err = %v, want ErrUnauthorized", a.status, a.code, err)
 		}
 	}
 }

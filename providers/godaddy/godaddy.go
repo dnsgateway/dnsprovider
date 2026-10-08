@@ -165,6 +165,7 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 // Zone implements dnsprovider.Provider: the ACTIVE domain of that name,
 // read with GET /v1/domains/{domain}; ErrNotFound when the Account has
 // no such domain, or has it in another status, which Zones does not list.
+// A key GoDaddy refuses stays ErrUnauthorized; see listedDomain.
 func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	name = names.ZoneName(name)
 	notFound := fmt.Errorf("godaddy: zone %q: %w", name, dnsprovider.ErrNotFound)
@@ -174,15 +175,43 @@ func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, err
 	}
 
 	var d wireDomain
-	if err := p.api().Do(ctx, http.MethodGet, "/v1/domains/"+url.PathEscape(name), nil, nil, &d); err != nil {
-		return dnsprovider.Zone{}, err
+
+	err := p.api().Do(ctx, http.MethodGet, "/v1/domains/"+url.PathEscape(name), nil, nil, &d)
+
+	var apiErr *dnsprovider.APIError
+	if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusUnprocessableEntity) {
+		d, err = p.listedDomain(ctx, name)
 	}
 
-	if d.Status != "ACTIVE" || !strings.EqualFold(d.Domain, name) {
+	switch {
+	case err != nil:
+		return dnsprovider.Zone{}, err
+	case d.Status != "ACTIVE" || names.ZoneName(d.Domain) != name:
 		return dnsprovider.Zone{}, notFound
 	}
 
 	return toZone(d), nil
+}
+
+// listedDomain is the ACTIVE domain of that name in the Account's list,
+// read up to the page that holds it; ErrNotFound when the list has none.
+// Zone reads it when GoDaddy answers a domain the Account does not hold
+// with 403 ACCESS_DENIED or 422, as it does for one held by another
+// Account, which a key GoDaddy refuses altogether also gets: the list
+// tells them apart, failing for the key with ErrUnauthorized.
+func (p *Provider) listedDomain(ctx context.Context, name string) (wireDomain, error) {
+	isName := func(d wireDomain) bool { return names.ZoneName(d.Domain) == name }
+
+	read, err := p.pageDomains(ctx, func(page []wireDomain) bool { return slices.ContainsFunc(page, isName) })
+	if err != nil {
+		return wireDomain{}, err
+	}
+
+	if i := slices.IndexFunc(read, isName); i >= 0 {
+		return read[i], nil
+	}
+
+	return wireDomain{}, fmt.Errorf("godaddy: zone %q: %w", name, dnsprovider.ErrNotFound)
 }
 
 // toZone turns a v1 domain into a Zone.

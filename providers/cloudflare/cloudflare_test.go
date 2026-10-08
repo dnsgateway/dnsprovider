@@ -1694,6 +1694,32 @@ func TestRecordsFilteredByTypeAndNamePushBothToCloudflare(t *testing.T) {
 	}
 }
 
+func TestRecordsFilteredLeaveOutARecordTheyCannotReadOutsideTheFilter(t *testing.T) {
+	odd := mxRecord("r2", "example.com", "10 mail.example.com")
+	odd["priority"] = "ten"
+
+	for _, f := range []dnsprovider.RecordFilter{{Type: "A"}, {Contains: "www"}, {Type: "SPF"}} {
+		api := &cfAPI{ignoreRecordFilter: true, records: map[string][]map[string]any{"z1": {
+			cfRecord("r1", "A", "www.example.com", "192.0.2.1", 300, true, false),
+			odd,
+		}}}
+
+		rs, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, f)
+		if err != nil {
+			t.Fatalf("Records(%+v): %v", f, err)
+		}
+
+		want := []string{"r1"}
+		if f.Type == "SPF" {
+			want = []string{}
+		}
+
+		if got := recordIDs(rs.Records); !slices.Equal(got, want) {
+			t.Errorf("Records(%+v) = %v, want %v", f, got, want)
+		}
+	}
+}
+
 // cfRecordTypes are the record types Cloudflare's record list takes.
 var cfRecordTypes = []string{"A", "AAAA", "CAA", "CERT", "CNAME", "DNSKEY", "DS", "HTTPS", "LOC", "MX", "NAPTR", "NS", "OPENPGPKEY", "PTR", "SMIMEA", "SRV", "SSHFP", "SVCB", "TLSA", "TXT", "URI"}
 

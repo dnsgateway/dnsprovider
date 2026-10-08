@@ -401,6 +401,14 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprov
 
 	records := make([]dnsprovider.Record, 0, len(all))
 	for _, r := range all {
+		// The filter is matched on the record's type and name before the
+		// rest is read, so a record outside it cannot fail the read.
+		var head struct{ Type, Name string }
+		if f != (dnsprovider.RecordFilter{}) && json.Unmarshal([]byte(r.JSON.RawJSON()), &head) == nil &&
+			!dnsprovider.MatchRecord(f, dnsprovider.Record{Type: head.Type, Name: head.Name}) {
+			continue
+		}
+
 		rec, err := toRecord(r)
 		if err != nil {
 			return dnsprovider.RecordSet{}, err

@@ -434,7 +434,7 @@ func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, f dnsprovider.
 		return dnsprovider.RecordSet{}, fmt.Errorf("zone %s (%s) not found", z.Name, z.ID)
 	}
 
-	var matched []dnsprovider.Record
+	matched := make([]dnsprovider.Record, 0, len(records))
 
 	for _, r := range records {
 		if dnsprovider.MatchRecord(f, r) {

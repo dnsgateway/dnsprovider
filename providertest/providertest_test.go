@@ -330,6 +330,7 @@ func TestRecordsAreFilteredAndRecordTheFilter(t *testing.T) {
 		{dnsprovider.RecordFilter{Type: "mx"}, []dnsprovider.Record{mx}},
 		{dnsprovider.RecordFilter{Contains: "WWW."}, []dnsprovider.Record{a, aaaa}},
 		{dnsprovider.RecordFilter{Type: "AAAA", Contains: "www"}, []dnsprovider.Record{aaaa}},
+		{dnsprovider.RecordFilter{Type: "TXT"}, []dnsprovider.Record{}},
 	}
 
 	for _, c := range cases {

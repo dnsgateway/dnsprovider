@@ -70,4 +70,3 @@ func TestPerMinuteKeepsABurstUnderTheLimit(t *testing.T) {
 		}
 	}
 }
-

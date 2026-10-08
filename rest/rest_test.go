@@ -7,10 +7,12 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -271,5 +273,21 @@ func TestAWaitEndsWithTheContext(t *testing.T) {
 
 	if waited := time.Since(start); waited > 2*time.Second {
 		t.Errorf("Do returned after %v, want it to stop with the context", waited)
+	}
+}
+
+func TestARetryIsLogged(t *testing.T) {
+	var logs strings.Builder
+
+	f := &flaky{statuses: []int{503}}
+	c := quick(newClient(t, f))
+	c.Log = slog.New(slog.NewTextHandler(&logs, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	if err := c.Do(context.Background(), http.MethodGet, "/things", nil, nil, nil); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+
+	if !strings.Contains(logs.String(), "retry") || !strings.Contains(logs.String(), "/things") {
+		t.Errorf("logs = %q, want the retry of /things", logs.String())
 	}
 }

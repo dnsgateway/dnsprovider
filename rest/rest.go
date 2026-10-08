@@ -11,14 +11,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
 	"time"
 
-	"github.com/dnsgateway/dnsprovider"
-
 	"golang.org/x/time/rate"
+
+	"github.com/dnsgateway/dnsprovider"
 )
 
 // Retry defaults, for a Client field left zero.
@@ -44,6 +45,9 @@ type Client struct {
 	// Decode turns a non-2xx answer into an error, normally a
 	// *dnsprovider.APIError; nil gives an APIError with the status alone.
 	Decode func(res *http.Response, body []byte) error
+
+	// Log receives a debug line for each retry; nil logs nothing.
+	Log *slog.Logger
 
 	// Attempts bounds the tries of a retried call; zero is DefaultAttempts.
 	Attempts int
@@ -98,6 +102,10 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 		wait, ok := c.retryWait(method, err, backoff)
 		if !ok || try >= attempts {
 			return err
+		}
+
+		if c.Log != nil {
+			c.Log.DebugContext(ctx, "retry", "provider", c.Provider, "method", method, "path", path, "try", try, "wait", wait, "err", err)
 		}
 
 		t := time.NewTimer(wait)

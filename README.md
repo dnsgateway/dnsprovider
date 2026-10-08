@@ -31,7 +31,9 @@ p, err := cloudflare.New(cloudflare.Config{Token: token, TenantID: accountID},
 A consumer that picks its Provider at run time builds it from a plain field
 map instead. Each `Factory` lists its `Fields` (name, label, whether the
 field is secret, and whether it holds the Tenant ID), so a form and a
-credential store can be built from them:
+credential store can be built from them, and declares the optional Zone
+writes its Providers implement, so a consumer can offer one before it has
+the credentials (`f.Can(dnsprovider.CapZoneCreator)`, `CapZoneUpdater`):
 
 ```go
 reg := providers.Registry()
@@ -81,10 +83,10 @@ Onboarding is the optional `ZoneCreator`, Cloudflare's alone and found with
 hosting of the name in the Provider's Tenant (it never registers the domain)
 and returns the new Zone Pending, with the nameservers Delegation must name
 (its name alone, without an ID, when Cloudflare took the create but the Zone
-could not be read back).
-A name the Tenant already has, or that another account keeps under a zone
-hold, is `dnsprovider.ErrConflict` (without a hold, Cloudflare Onboards a
-name active in another account, pending until Delegation moves it); a Provider without a Tenant returns
+could not be read back). A name the Tenant already has, or that another
+account keeps under a zone hold, is `dnsprovider.ErrConflict`; without a
+hold, Cloudflare Onboards a name active in another account, pending until
+Delegation moves it. A Provider without a Tenant returns
 `dnsprovider.ErrNoTenant` without a request. The create is never retried.
 
 Zone Status (DNSSEC, HSTS) is the optional `ZoneStatusReader`, which only

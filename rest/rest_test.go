@@ -6,9 +6,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -107,5 +110,166 @@ func TestDoWithoutADecoderGivesTheStatusAndRetryAfter(t *testing.T) {
 
 	if apiErr.RetryAfter != 2*time.Minute {
 		t.Errorf("RetryAfter = %v, want the header's 2m0s", apiErr.RetryAfter)
+	}
+}
+
+// flaky answers each status in turn, with its Retry-After header if
+// retryAfter is set, then 200 with {}; it counts the requests and keeps
+// each body.
+type flaky struct {
+	statuses   []int
+	retryAfter string
+
+	calls  atomic.Int32
+	bodies []string
+}
+
+func (f *flaky) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	n := int(f.calls.Add(1))
+
+	b, _ := io.ReadAll(r.Body)
+	f.bodies = append(f.bodies, string(b))
+
+	if n <= len(f.statuses) {
+		if f.retryAfter != "" {
+			w.Header().Set("Retry-After", f.retryAfter)
+		}
+
+		w.WriteHeader(f.statuses[n-1])
+
+		return
+	}
+
+	_, _ = w.Write([]byte(`{}`))
+}
+
+// quick makes a Client's retries wait no time.
+func quick(c *rest.Client) *rest.Client {
+	c.Backoff = time.Nanosecond
+
+	return c
+}
+
+func TestIdempotentCallsRetry429And5xx(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete} {
+		for _, status := range []int{429, 500, 502, 503} {
+			t.Run(method+" "+strconv.Itoa(status), func(t *testing.T) {
+				f := &flaky{statuses: []int{status, status}}
+				c := quick(newClient(t, f))
+
+				body := map[string]string{"name": "www"}
+				if err := c.Do(context.Background(), method, "/things", nil, body, nil); err != nil {
+					t.Fatalf("Do: %v, want success on the third try", err)
+				}
+
+				if got := f.calls.Load(); got != 3 {
+					t.Errorf("sent %d requests, want 3", got)
+				}
+
+				if f.bodies[2] != f.bodies[0] || f.bodies[0] == "" {
+					t.Errorf("bodies = %q, want the same body on every try", f.bodies)
+				}
+			})
+		}
+	}
+}
+
+func TestAPOSTIsNeverRetried(t *testing.T) {
+	for _, status := range []int{429, 500, 503} {
+		t.Run(strconv.Itoa(status), func(t *testing.T) {
+			f := &flaky{statuses: []int{status}}
+			c := quick(newClient(t, f))
+
+			err := c.Do(context.Background(), http.MethodPost, "/things", nil, map[string]string{"name": "www"}, nil)
+
+			var apiErr *dnsprovider.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != status {
+				t.Errorf("err = %v, want the HTTP %d answer", err, status)
+			}
+
+			if got := f.calls.Load(); got != 1 {
+				t.Errorf("sent %d requests, want 1: a lost answer would create twice", got)
+			}
+		})
+	}
+}
+
+func TestOtherErrorsAreNotRetried(t *testing.T) {
+	f := &flaky{statuses: []int{http.StatusNotFound}}
+	c := quick(newClient(t, f))
+
+	if err := c.Do(context.Background(), http.MethodGet, "/things", nil, nil, nil); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+
+	if got := f.calls.Load(); got != 1 {
+		t.Errorf("sent %d requests, want 1", got)
+	}
+}
+
+func TestRetriesGiveUpWithTheLastError(t *testing.T) {
+	f := &flaky{statuses: []int{503, 503, 503, 503, 503}}
+	c := quick(newClient(t, f))
+	c.Attempts = 4
+
+	err := c.Do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
+
+	var apiErr *dnsprovider.APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != 503 {
+		t.Errorf("err = %v, want the HTTP 503 answer", err)
+	}
+
+	if got := f.calls.Load(); got != 4 {
+		t.Errorf("sent %d requests, want 4", got)
+	}
+}
+
+func TestA429WaitsWhatRetryAfterAsks(t *testing.T) {
+	f := &flaky{statuses: []int{429}, retryAfter: "1"}
+	c := quick(newClient(t, f))
+
+	start := time.Now()
+	if err := c.Do(context.Background(), http.MethodGet, "/things", nil, nil, nil); err != nil {
+		t.Fatalf("Do: %v", err)
+	}
+
+	if waited := time.Since(start); waited < time.Second {
+		t.Errorf("retried after %v, want Retry-After's 1s", waited)
+	}
+}
+
+func TestARetryAfterPastMaxWaitIsReportedNotWaited(t *testing.T) {
+	f := &flaky{statuses: []int{429}, retryAfter: "60"}
+	c := quick(newClient(t, f))
+	c.MaxWait = 10 * time.Second
+
+	err := c.Do(context.Background(), http.MethodGet, "/things", nil, nil, nil)
+
+	var apiErr *dnsprovider.APIError
+	if !errors.Is(err, dnsprovider.ErrRateLimited) || !errors.As(err, &apiErr) || apiErr.RetryAfter != time.Minute {
+		t.Errorf("err = %v, want ErrRateLimited asking for 1m0s", err)
+	}
+
+	if got := f.calls.Load(); got != 1 {
+		t.Errorf("sent %d requests, want 1", got)
+	}
+}
+
+func TestAWaitEndsWithTheContext(t *testing.T) {
+	f := &flaky{statuses: []int{503}, retryAfter: "5"}
+	c := newClient(t, f)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := c.Do(ctx, http.MethodGet, "/things", nil, nil, nil)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("err = %v, want the context's deadline", err)
+	}
+
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Errorf("Do returned after %v, want it to stop with the context", waited)
 	}
 }

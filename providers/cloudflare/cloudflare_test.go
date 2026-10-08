@@ -1115,8 +1115,9 @@ func TestErrorResponsesAreTypedErrors(t *testing.T) {
 }
 
 func TestAStalledConnectionTimesOut(t *testing.T) {
+	cloudflare.SetRequestTimeout(t, 50*time.Millisecond)
+
 	stalled := make(chan struct{})
-	t.Cleanup(func() { close(stalled) })
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Answer nothing, as a stalled connection does.
@@ -1126,8 +1127,12 @@ func TestAStalledConnectionTimesOut(t *testing.T) {
 		}
 	}))
 	t.Cleanup(srv.Close)
+	// Cleanups run last-in first-out: release the handler before Close
+	// waits on it.
+	t.Cleanup(func() { close(stalled) })
 
-	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"), dnsprovider.WithHTTPClient(&http.Client{Timeout: 50 * time.Millisecond}))
+	// The adapter's own client, so its own timeout is what ends the wait.
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -1146,6 +1151,34 @@ func TestAStalledConnectionTimesOut(t *testing.T) {
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("Zones still waits on a stalled connection")
+	}
+}
+
+func TestAConsumersClientKeepsItsOwnTimeouts(t *testing.T) {
+	cloudflare.SetRequestTimeout(t, 50*time.Millisecond)
+
+	api := &cfAPI{zones: []map[string]any{cfZone("z1", "example.com")}}
+	h := api.handler(t)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Slower than the adapter's timeout; the consumer's client sets none.
+		time.Sleep(300 * time.Millisecond)
+		h.ServeHTTP(w, r)
+	}))
+	t.Cleanup(srv.Close)
+
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"), dnsprovider.WithHTTPClient(&http.Client{}))
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+
+	zs, err := p.Zones(context.Background())
+	if err != nil {
+		t.Fatalf("Zones through the consumer's client: %v", err)
+	}
+
+	if len(zs) != 1 {
+		t.Errorf("Zones = %+v, want one", zs)
 	}
 }
 

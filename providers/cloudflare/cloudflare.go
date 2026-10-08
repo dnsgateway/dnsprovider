@@ -65,6 +65,9 @@ func Factory() dnsprovider.Factory {
 // failed request may be retried, each try with its own timeout.
 const DefaultRequestTimeout = 30 * time.Second
 
+// requestTimeout is DefaultRequestTimeout, which tests shorten.
+var requestTimeout = DefaultRequestTimeout
+
 // defaultHTTPClient is http.DefaultTransport with the timeouts
 // cloudflare-go's own default client sets, which building the services
 // from bare options leaves out.
@@ -75,13 +78,14 @@ func defaultHTTPClient() *http.Client {
 	}
 
 	t = t.Clone()
-	t.ResponseHeaderTimeout = DefaultRequestTimeout
+	t.ResponseHeaderTimeout = requestTimeout
 
 	return &http.Client{Transport: t}
 }
 
 // New builds the Cloudflare Provider for an Account, without a network
-// call. Without WithBaseURL it talks to DefaultBaseURL.
+// call. Without WithBaseURL it talks to DefaultBaseURL; without
+// WithHTTPClient each request times out after DefaultRequestTimeout.
 //
 // It ignores the CLOUDFLARE_* environment variables cloudflare-go reads by
 // default: the Config is the only credential.
@@ -97,8 +101,12 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		baseURL = DefaultBaseURL
 	}
 
+	// A consumer's client brings its own timeouts; the adapter's apply
+	// only to the client it builds.
 	client := o.HTTPClient
-	if client == nil {
+
+	usesOwnClient := client == nil
+	if usesOwnClient {
 		client = defaultHTTPClient()
 	}
 
@@ -107,7 +115,10 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		option.WithAPIToken(cfg.Token),
 		option.WithMiddleware(reportRateLimits),
 		option.WithHTTPClient(client),
-		option.WithRequestTimeout(DefaultRequestTimeout),
+	}
+
+	if usesOwnClient {
+		ropts = append(ropts, option.WithRequestTimeout(requestTimeout))
 	}
 
 	return &Provider{

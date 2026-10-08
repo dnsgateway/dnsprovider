@@ -13,7 +13,8 @@ import (
 // takes them as Option values.
 type Options struct {
 	// HTTPClient sends the requests; nil means the adapter's own client,
-	// with its request timeout.
+	// with its request timeout. A consumer's client keeps its own
+	// timeouts: no adapter adds its request timeout to it.
 	HTTPClient *http.Client
 	// BaseURL is the API endpoint, for tests and sandboxes; empty means
 	// the Provider's production API.

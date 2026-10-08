@@ -144,3 +144,42 @@ func TestTenantsAreListedOnlyOnceScripted(t *testing.T) {
 		t.Errorf("last call = %+v, want Tenants", calls[len(calls)-1])
 	}
 }
+
+func TestOptionalInterfacesAreScriptedIndependently(t *testing.T) {
+	fake := providertest.New()
+
+	p, err := fake.Factory().New(map[string]string{"token": "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if r := dnsprovider.TTLRangeOf(p); r != dnsprovider.DefaultTTLRange {
+		t.Errorf("unscripted TTL range = %+v, want the default", r)
+	}
+
+	if types := dnsprovider.ProxiableTypesOf(p); types != nil {
+		t.Errorf("unscripted proxiable types = %v, want none", types)
+	}
+
+	fake.SetTTLRange(60, 3600)
+	fake.SetAutoTTL(true)
+	fake.SetProxiableTypes("A")
+	fake.SetTenants(dnsprovider.Tenant{ID: "t1"})
+
+	p, err = fake.Factory().New(map[string]string{"token": "t"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if r, want := dnsprovider.TTLRangeOf(p), (dnsprovider.TTLRange{Min: 60, Max: 3600, Auto: true}); r != want {
+		t.Errorf("TTL range = %+v, want %+v", r, want)
+	}
+
+	if types := dnsprovider.ProxiableTypesOf(p); !reflect.DeepEqual(types, []string{"A"}) {
+		t.Errorf("proxiable types = %v, want [A]", types)
+	}
+
+	if !dnsprovider.CanListTenants(p) {
+		t.Error("a fake with scripted options and Tenants does not list Tenants")
+	}
+}

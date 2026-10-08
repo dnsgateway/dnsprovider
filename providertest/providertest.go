@@ -118,7 +118,7 @@ func (p *Provider) SetRecords(zoneID string, records ...dnsprovider.Record) {
 }
 
 // SetTTLRange makes the Providers New builds report a TTL range through
-// dnsprovider.TTLLimits. Unscripted, they do not implement it.
+// dnsprovider.TTLLimits. Unscripted, they report DefaultTTLRange.
 func (p *Provider) SetTTLRange(minTTL, maxTTL uint32) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -127,7 +127,7 @@ func (p *Provider) SetTTLRange(minTTL, maxTTL uint32) {
 }
 
 // SetProxiableTypes makes the Providers New builds proxy Records of these
-// types, through dnsprovider.ProxyFlag. Unscripted, they do not implement it.
+// types, through dnsprovider.ProxyFlag. Unscripted, they proxy none.
 // The fake stores Records as given, so scripted Records carry the flag
 // under dnsprovider.ExtraProxied as a real Provider's would.
 func (p *Provider) SetProxiableTypes(types ...string) {
@@ -138,7 +138,7 @@ func (p *Provider) SetProxiableTypes(types ...string) {
 }
 
 // SetAutoTTL makes the Providers New builds read TTL 1 as automatic,
-// through dnsprovider.AutoTTL. Unscripted, they do not implement it.
+// through dnsprovider.AutoTTL. Unscripted, they do not.
 func (p *Provider) SetAutoTTL(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -146,14 +146,20 @@ func (p *Provider) SetAutoTTL(on bool) {
 	p.autoTTL = on
 }
 
-// withOptions is the fake with its scripted optional interfaces.
-type withOptions struct {
-	*Provider
-}
+// The fake implements the optional interfaces whose absence the
+// dnsprovider helpers read as their unscripted answer, such as
+// TTLRangeOf's DefaultTTLRange. Only one whose absence a CanX helper
+// reports, such as TenantLister, needs a wrapper type, built when
+// scripted; see build.
+var (
+	_ dnsprovider.TTLLimits = (*Provider)(nil)
+	_ dnsprovider.AutoTTL   = (*Provider)(nil)
+	_ dnsprovider.ProxyFlag = (*Provider)(nil)
+)
 
 // TTLRange implements dnsprovider.TTLLimits; the default range when not
 // scripted.
-func (p withOptions) TTLRange() (minTTL, maxTTL uint32) {
+func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -165,7 +171,7 @@ func (p withOptions) TTLRange() (minTTL, maxTTL uint32) {
 }
 
 // AutoTTL implements dnsprovider.AutoTTL.
-func (p withOptions) AutoTTL() bool {
+func (p *Provider) AutoTTL() bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -173,7 +179,7 @@ func (p withOptions) AutoTTL() bool {
 }
 
 // ProxiableTypes implements dnsprovider.ProxyFlag.
-func (p withOptions) ProxiableTypes() []string {
+func (p *Provider) ProxiableTypes() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -211,23 +217,8 @@ type withTenants struct {
 	*Provider
 }
 
-// withOptionsAndTenants is the fake with scripted optional interfaces
-// and Tenants.
-type withOptionsAndTenants struct {
-	withOptions
-}
-
 // Tenants implements dnsprovider.TenantLister.
 func (p withTenants) Tenants(context.Context) ([]dnsprovider.Tenant, error) {
-	return p.listTenants()
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withOptionsAndTenants) Tenants(context.Context) ([]dnsprovider.Tenant, error) {
-	return p.listTenants()
-}
-
-func (p *Provider) listTenants() ([]dnsprovider.Tenant, error) {
 	if err := p.record(Call{Op: OpTenants}); err != nil {
 		return nil, err
 	}
@@ -318,14 +309,7 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	options := p.ttlRange != nil || p.proxiable != nil || p.autoTTL
-
-	switch {
-	case options && p.tenants != nil:
-		return withOptionsAndTenants{withOptions{p}}, nil
-	case options:
-		return withOptions{p}, nil
-	case p.tenants != nil:
+	if p.tenants != nil {
 		return withTenants{p}, nil
 	}
 

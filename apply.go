@@ -10,6 +10,10 @@ import (
 // Apply applies a Changeset. It first re-reads the Records the Changeset
 // modifies or deletes and, when any no longer matches its Before, refuses
 // the whole Changeset with a *StaleError (ErrStale) and writes nothing.
+// The re-check is one read more than the Changeset's writes take, also
+// where a Batcher reads the Zone again itself (Namecheap's getHosts before
+// its setHosts): it is made the same way for every Provider, with a
+// Batcher or without, so every one refuses a stale Changeset alike.
 // It then applies the Changeset through the Provider's Batcher when it has
 // one, otherwise one CRUD call per change, deletions first, then
 // modifications, then additions, so a Record that takes another's place

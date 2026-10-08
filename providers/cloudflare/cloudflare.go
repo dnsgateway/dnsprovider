@@ -190,6 +190,7 @@ var (
 	_ dnsprovider.TenantLister     = (*Provider)(nil)
 	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
 	_ dnsprovider.ZoneUpdater      = (*Provider)(nil)
+	_ dnsprovider.ZoneCreator      = (*Provider)(nil)
 )
 
 // AutoTTL implements dnsprovider.AutoTTL: Cloudflare reads TTL 1 as automatic.
@@ -266,6 +267,51 @@ func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, err
 	}
 
 	return dnsprovider.Zone{}, fmt.Errorf("cloudflare: zone %q: %w", name, dnsprovider.ErrNotFound)
+}
+
+// CreateZone implements dnsprovider.ZoneCreator: a POST /zones of a full
+// zone in the Tenant, which is never retried, as a retry of a create
+// Cloudflare took but whose answer was lost would fail as a conflict.
+// Cloudflare answers with the Zone pending and the nameservers it
+// assigned; an answer that holds no Zone is read back with Zone. A
+// Provider without a Tenant has nowhere to Onboard the name: ErrNoTenant,
+// without a request.
+func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if p.tenantID == "" {
+		return dnsprovider.Zone{}, fmt.Errorf("cloudflare: Onboard %q: %w", name, dnsprovider.ErrNoTenant)
+	}
+
+	name = names.ZoneName(strings.TrimSpace(name))
+	if name == "" {
+		return dnsprovider.Zone{}, errors.New("cloudflare: Onboard: no zone name")
+	}
+
+	body, err := json.Marshal(map[string]any{
+		"account": map[string]any{"id": p.tenantID},
+		"name":    name,
+		"type":    zones.TypeFull,
+	})
+	if err != nil {
+		return dnsprovider.Zone{}, fmt.Errorf("cloudflare: encode zone: %w", err)
+	}
+
+	result, err := p.do(ctx, body, func(opts ...option.RequestOption) error {
+		_, err := p.zones.New(ctx, zones.ZoneNewParams{}, append(opts, option.WithMaxRetries(0))...)
+
+		return err
+	})
+	if err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	// Cloudflare took the write (ADR-0001): a Zone its answer does not
+	// hold is read back.
+	var z zones.Zone
+	if err := json.Unmarshal(result, &z); err != nil || z.ID == "" {
+		return p.Zone(ctx, name)
+	}
+
+	return toZone(z), nil
 }
 
 // toZone turns a v4 zone into a Zone.

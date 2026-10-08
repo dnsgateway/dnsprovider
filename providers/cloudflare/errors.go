@@ -76,6 +76,7 @@ var errorCodes = map[int]error{
 	6111:  dnsprovider.ErrUnauthorized, // Invalid format for Authorization header
 	9106:  dnsprovider.ErrUnauthorized, // Missing X-Auth-Key, X-Auth-Email or Authorization headers
 	10000: dnsprovider.ErrUnauthorized, // Authentication error
+	1061:  dnsprovider.ErrConflict,     // <name> already exists (a zone name the account, or another one, holds)
 	7003:  dnsprovider.ErrNotFound,     // Could not route to …, perhaps your object identifier is invalid?
 	81044: errRecordMissing,            // Record does not exist.
 	81053: dnsprovider.ErrConflict,     // An A, AAAA, or CNAME record with that host already exists.

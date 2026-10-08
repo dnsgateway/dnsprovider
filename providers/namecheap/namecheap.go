@@ -264,10 +264,8 @@ func (p *Provider) pageDomains(ctx context.Context, search string, each func(wir
 			return errors.New("namecheap: the domain list answered the same page twice")
 		}
 
-		for _, d := range res.Domains {
-			if each(d) {
-				return nil
-			}
+		if slices.ContainsFunc(res.Domains, each) {
+			return nil
 		}
 
 		// A page shorter than the size Namecheap says it served (or, if it

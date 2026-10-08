@@ -424,9 +424,9 @@ func TestZoneReadsOneActiveDomainByName(t *testing.T) {
 }
 
 func TestZoneOfADomainTheAccountDoesNotServeIsNotFound(t *testing.T) {
-	cancelled := domain("gone.example")
-	cancelled["status"] = "CANCELLED"
-	api := &gdAPI{domains: []map[string]any{domain("example.com"), cancelled}}
+	canceled := domain("gone.example")
+	canceled["status"] = "CANCELLED" //nolint:misspell // Preserve the API's status spelling.
+	api := &gdAPI{domains: []map[string]any{domain("example.com"), canceled}}
 	p := newProvider(t, api)
 
 	for _, name := range []string{"example.org", "gone.example", ""} {

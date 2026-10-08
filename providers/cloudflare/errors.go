@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/cloudflare/cloudflare-go/v7/option"
-
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/rest"
 )
@@ -92,10 +91,10 @@ var errorCodes = map[int]error{
 // errRecordMissing is the kind of error Cloudflare's code 81044, "Record
 // does not exist", gives: dnsprovider.ErrNotFound, told apart from a Zone
 // Cloudflare cannot route to, which a retried delete does not take as done.
-var errRecordMissing error = recordMissing{}
+var errRecordMissing error = recordMissingError{}
 
-type recordMissing struct{}
+type recordMissingError struct{}
 
-func (recordMissing) Error() string { return dnsprovider.ErrNotFound.Error() }
+func (recordMissingError) Error() string { return dnsprovider.ErrNotFound.Error() }
 
-func (recordMissing) Is(target error) bool { return target == dnsprovider.ErrNotFound }
+func (recordMissingError) Is(target error) bool { return target == dnsprovider.ErrNotFound }

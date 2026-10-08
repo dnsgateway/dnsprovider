@@ -118,17 +118,17 @@ func newProviderIn(t *testing.T, api *cfAPI, tenants cfTenants, tenantID string)
 var acme = cfTenants{accounts: []map[string]any{cfAccount(acc1, "Acme Ltd"), cfAccount(acc2, "Side project")}}
 
 // accountOf returns what Account reports and the requests it sent.
-func accountOf(t *testing.T, tenants cfTenants, tenantID string) (dnsprovider.AccountInfo, error, string) {
+func accountOf(t *testing.T, tenants cfTenants, tenantID string) (dnsprovider.AccountInfo, string, error) {
 	t.Helper()
 
 	api := &cfAPI{}
 	info, err := newProviderIn(t, api, tenants, tenantID).Account(context.Background())
 
-	return info, err, strings.Join(api.Requests(), " ")
+	return info, strings.Join(api.Requests(), " "), err
 }
 
 func TestAccountOfAUserTokenVerifiesItAndNamesTheTenant(t *testing.T) {
-	info, err, reqs := accountOf(t, acme, acc1)
+	info, reqs, err := accountOf(t, acme, acc1)
 	if err != nil {
 		t.Fatalf("Account: %v", err)
 	}
@@ -147,7 +147,7 @@ func TestAccountOfAnAccountOwnedTokenVerifiesItWithinTheTenant(t *testing.T) {
 	tenants := acme
 	tenants.owner = acc2
 
-	info, err, reqs := accountOf(t, tenants, acc2)
+	info, reqs, err := accountOf(t, tenants, acc2)
 	if err != nil {
 		t.Fatalf("Account: %v", err)
 	}
@@ -168,7 +168,7 @@ func TestAccountOfATokenThatCannotReadAccountsIsTheTenantIDAlone(t *testing.T) {
 			tenants.owner = owner
 			tenants.listForbidden = true
 
-			info, err, _ := accountOf(t, tenants, acc1)
+			info, _, err := accountOf(t, tenants, acc1)
 			if err != nil {
 				t.Fatalf("Account: %v", err)
 			}
@@ -181,7 +181,7 @@ func TestAccountOfATokenThatCannotReadAccountsIsTheTenantIDAlone(t *testing.T) {
 }
 
 func TestAccountBeforeATenantIsSetVerifiesTheTokenAlone(t *testing.T) {
-	info, err, reqs := accountOf(t, acme, "")
+	info, reqs, err := accountOf(t, acme, "")
 	if err != nil {
 		t.Fatalf("Account: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestAccountWithABadTokenIsUnauthorized(t *testing.T) {
 			tenants.owner = owner
 			tenants.tokenStatus = status
 
-			if _, err, _ := accountOf(t, tenants, acc1); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+			if _, _, err := accountOf(t, tenants, acc1); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 				t.Errorf("%s token owned by %q: err = %v, want ErrUnauthorized", status, owner, err)
 			}
 		}
@@ -225,7 +225,7 @@ func TestAccountOfATenantTheTokenCannotReachIsUnauthorized(t *testing.T) {
 			tenants := acme
 			tenants.owner = owner
 
-			if _, err, _ := accountOf(t, tenants, accOther); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+			if _, _, err := accountOf(t, tenants, accOther); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 				t.Errorf("err = %v, want ErrUnauthorized", err)
 			}
 		})

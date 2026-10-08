@@ -59,10 +59,10 @@ type cfAPI struct {
 	reject func(method string, body map[string]any) string
 	nextID int
 	// ignoreName, when set, lists Zones without the name filter, as an
-	// API that does not honour it would.
+	// API that does not honor it would.
 	ignoreName bool
 	// ignoreRecordFilter, when set, lists Records without the type and
-	// name filters, as an API that does not honour them would.
+	// name filters, as an API that does not honor them would.
 	ignoreRecordFilter bool
 
 	mu sync.Mutex
@@ -736,9 +736,11 @@ func TestApplySendsDeletionsFirstAndReportsInChangesetOrder(t *testing.T) {
 	p := newProvider(t, api)
 
 	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "CNAME", Name: "www.example.com", Value: "example.com", TTL: 300}}
-	modify := dnsprovider.Change{Kind: dnsprovider.ChangeModify,
+	modify := dnsprovider.Change{
+		Kind:   dnsprovider.ChangeModify,
 		Before: dnsprovider.Record{ID: "r2", Type: "TXT", Name: "example.com", Value: "\"v=1\"", TTL: 300},
-		After:  dnsprovider.Record{ID: "r2", Type: "TXT", Name: "example.com", Value: "\"v=2\"", TTL: 300}}
+		After:  dnsprovider.Record{ID: "r2", Type: "TXT", Name: "example.com", Value: "\"v=2\"", TTL: 300},
+	}
 	del := dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}}
 
 	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add, modify, del}})

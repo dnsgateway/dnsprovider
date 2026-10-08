@@ -484,8 +484,10 @@ func TestZonesKeepOnlyMatchesWhenNamecheapSearchesLoosely(t *testing.T) {
 		t.Fatalf("Zones: %v", err)
 	}
 
-	want := []string{"d120.example", "d121.example", "d122.example", "d123.example", "d124.example",
-		"d125.example", "d126.example", "d127.example", "d128.example", "d129.example"}
+	want := []string{
+		"d120.example", "d121.example", "d122.example", "d123.example", "d124.example",
+		"d125.example", "d126.example", "d127.example", "d128.example", "d129.example",
+	}
 	if got := zoneNames(zones); !reflect.DeepEqual(got, want) {
 		t.Errorf("Zones = %v, want %v", got, want)
 	}

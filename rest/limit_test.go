@@ -2,6 +2,7 @@ package rest_test
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -23,8 +24,8 @@ func TestDoWaitsForTheRateLimiter(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	if err := c.Do(ctx, http.MethodGet, "/things", nil, nil, nil); err == nil {
-		t.Error("second Do succeeded, want it held back by the limiter until the context ended")
+	if err := c.Do(ctx, http.MethodGet, "/things", nil, nil, nil); !errors.Is(err, context.DeadlineExceeded) {
+		t.Errorf("second Do = %v, want it held back by the limiter and the context's deadline reported", err)
 	}
 
 	if got := f.calls.Load(); got != 1 {

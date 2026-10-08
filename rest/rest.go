@@ -162,7 +162,12 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 func (c *Client) send(ctx context.Context, method, u, contentType, accept string, data []byte) ([]byte, error) {
 	if c.Limit != nil {
 		if err := c.Limit.Wait(ctx); err != nil {
-			return nil, fmt.Errorf("%s: %w", c.Provider, err)
+			if ctx.Err() == nil {
+				// The limiter refuses at once a wait past the deadline.
+				return nil, fmt.Errorf("%s: %w: %w", c.Provider, context.DeadlineExceeded, err)
+			}
+
+			return nil, fmt.Errorf("%s: %w", c.Provider, ctx.Err())
 		}
 	}
 

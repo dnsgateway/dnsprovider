@@ -28,15 +28,17 @@ type TTLLimits interface {
 	TTLRange() (minTTL, maxTTL uint32)
 }
 
-// TTLRangeOf returns the TTLs a Provider takes.
+// TTLRangeOf returns the TTLs a Provider takes, with TTLAuto allowed when
+// it implements AutoTTL.
 func TTLRangeOf(p Provider) TTLRange {
+	r := DefaultTTLRange
 	if l, ok := p.(TTLLimits); ok {
-		minTTL, maxTTL := l.TTLRange()
-
-		return TTLRange{Min: minTTL, Max: maxTTL}
+		r.Min, r.Max = l.TTLRange()
 	}
 
-	return DefaultTTLRange
+	r.Auto = AutoTTLOf(p)
+
+	return r
 }
 
 // AutoTTL is implemented by a Provider that reads TTL TTLAuto as
@@ -53,9 +55,14 @@ func AutoTTLOf(p Provider) bool {
 	return ok && a.AutoTTL()
 }
 
+// ExtraProxied is the Record extra holding the proxy flag of a Provider
+// that implements ProxyFlag: "true" or "false". It is set only on Records
+// of the types the Provider can proxy.
+const ExtraProxied = "proxied"
+
 // ProxyFlag is implemented by a Provider that can proxy traffic to some
 // Record types, such as Cloudflare. Their Records carry the proxy flag in
-// an extra whose key the provider package exports (cloudflare.ExtraProxied).
+// the extra ExtraProxied.
 type ProxyFlag interface {
 	// ProxiableTypes are the Record types the Provider can proxy.
 	ProxiableTypes() []string

@@ -1303,14 +1303,19 @@ func assertRecords(t *testing.T, got, want []dnsprovider.Record) {
 	}
 }
 
-func TestCloudflareTakesTTLsFrom60Seconds(t *testing.T) {
+func TestCloudflareTakesTTLsFrom60SecondsOrAutomatic(t *testing.T) {
 	p, err := cloudflare.Config{}.New(testToken)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got, want := dnsprovider.TTLRangeOf(p), (dnsprovider.TTLRange{Min: 60, Max: 86400}); got != want {
-		t.Fatalf("TTL range = %+v, want %+v", got, want)
+	r := dnsprovider.TTLRangeOf(p)
+	if want := (dnsprovider.TTLRange{Min: 60, Max: 86400, Auto: true}); r != want {
+		t.Fatalf("TTL range = %+v, want %+v", r, want)
+	}
+
+	if err := r.Check(dnsprovider.TTLAuto); err != nil {
+		t.Errorf("TTL 1 refused: %v", err)
 	}
 }
 
@@ -1322,6 +1327,14 @@ func TestCloudflareTakesTTL1AsAutomatic(t *testing.T) {
 
 	if !dnsprovider.AutoTTLOf(p) {
 		t.Fatal("Cloudflare has no automatic TTL")
+	}
+}
+
+func TestCloudflareProxyFlagIsTheNeutralExtra(t *testing.T) {
+	// A consumer that only knows dnsprovider.ProxyFlag reads and writes the
+	// flag under dnsprovider.ExtraProxied, the key Cloudflare's Records use.
+	if cloudflare.ExtraProxied != dnsprovider.ExtraProxied {
+		t.Fatalf("cloudflare.ExtraProxied = %q, want dnsprovider.ExtraProxied %q", cloudflare.ExtraProxied, dnsprovider.ExtraProxied)
 	}
 }
 

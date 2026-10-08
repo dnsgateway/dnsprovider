@@ -28,7 +28,7 @@ const DefaultBaseURL = "https://api.cloudflare.com/client/v4/"
 // zonesPerPage is the largest page Cloudflare serves for Zones.
 const zonesPerPage = 50
 
-// recordsPerPage keeps a Refresh of a large Zone to a few requests.
+// recordsPerPage keeps reading a large Zone's Records to a few requests.
 const recordsPerPage = 1000
 
 // Config configures the Cloudflare Provider. Its zero value talks to the
@@ -67,7 +67,7 @@ func defaultHTTPClient() *http.Client {
 // Cloudflare API token.
 //
 // It ignores the CLOUDFLARE_* environment variables cloudflare-go reads by
-// default: an Account's credentials come only from the Account.
+// default: the token is the only credential.
 func (c Config) New(token string) (dnsprovider.Provider, error) {
 	if token == "" {
 		return nil, errors.New("cloudflare: no API token")
@@ -220,11 +220,10 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone) (dnsprovi
 	return dnsprovider.RecordSet{Records: records}, nil
 }
 
-// ExtraProxied is the Record extra holding Cloudflare's proxy flag. It is
-// set only on Records Cloudflare can proxy.
-// ExtraProxied is the Record extra holding the proxy flag of a Record of
-// a type Cloudflare can proxy: "true" or "false".
-const ExtraProxied = "proxied"
+// ExtraProxied is the Record extra holding Cloudflare's proxy flag, set
+// only on Records of a type Cloudflare can proxy: "true" or "false". It is
+// dnsprovider.ExtraProxied.
+const ExtraProxied = dnsprovider.ExtraProxied
 
 // ProxiableTypes implements dnsprovider.ProxyFlag.
 func (p *Provider) ProxiableTypes() []string {

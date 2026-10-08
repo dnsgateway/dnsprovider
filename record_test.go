@@ -58,6 +58,10 @@ func TestRelativeName(t *testing.T) {
 		{"example.com", "a.b.example.com.", "a.b"},
 		{"example.com", "www.other.org", "www.other.org."},
 		{"example.com", "notexample.com", "notexample.com."},
+		// Lowercasing "Ⱥ" (2 bytes) gives "ⱥ" (3 bytes): the cut must not shift.
+		{"example.com", "Ⱥ.example.com", "Ⱥ"},
+		{"example.com", "ȺȺȺ.example.com", "ȺȺȺ"},
+		{"example.com", "Ⱥ.other.org", "Ⱥ.other.org."},
 	}
 
 	for _, c := range cases {

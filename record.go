@@ -10,7 +10,7 @@ import (
 )
 
 // EditableTypes are the Record types the module can add and edit, in the
-// order the Record form offers them. Values are in zone-file presentation
+// order a Record form would offer them. Values are in zone-file presentation
 // form, so MX, SRV and URI put the priority first:
 //
 //	A      an IPv4 address                  192.0.2.1
@@ -102,28 +102,31 @@ func QualifyName(zone, name string) (string, error) {
 	return abs, nil
 }
 
-// RelativeName is a Record name as the Record form shows it: relative to
+// RelativeName is a Record name as a UI shows it: relative to
 // the Zone, "@" for the apex. A name outside the Zone stays absolute, with
 // a trailing dot.
 func RelativeName(zone, name string) string {
-	zone = strings.ToLower(strings.TrimSuffix(zone, "."))
-	lower := strings.ToLower(strings.TrimSuffix(name, "."))
+	zone = strings.TrimSuffix(zone, ".")
+	name = strings.TrimSuffix(name, ".")
 
+	// DNS names ignore case. Compare without lowercasing, which can change
+	// a name's byte length, so cut positions stay on the name as given.
 	switch {
-	case lower == zone:
+	case strings.EqualFold(name, zone):
 		return "@"
-	case strings.HasSuffix(lower, "."+zone):
-		return name[:len(lower)-len(zone)-1]
+	case len(name) > len(zone)+1 && name[len(name)-len(zone)-1] == '.' &&
+		strings.EqualFold(name[len(name)-len(zone):], zone):
+		return name[:len(name)-len(zone)-1]
 	}
 
-	return strings.TrimSuffix(name, ".") + "."
+	return name + "."
 }
 
 // CheckValue reports whether a Record value is in the format its type
 // takes; see EditableTypes.
 func CheckValue(typ, value string) error {
 	if strings.TrimSpace(value) == "" {
-		return errors.New("enter a value")
+		return errors.New("the value is empty")
 	}
 
 	f := strings.Fields(value)

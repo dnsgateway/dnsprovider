@@ -90,13 +90,17 @@ func (p *Provider) SetSerial(zoneID string, serial uint32) *Provider {
 	return p
 }
 
-// RemoveZone drops a scripted Zone, as if it was deleted outside the consumer.
+// RemoveZone drops a scripted Zone, as if it was deleted outside the
+// consumer, with its Records, serial and Zone Status: a Zone added again
+// with the same ID starts clean.
 func (p *Provider) RemoveZone(zoneID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	p.zones = slices.DeleteFunc(p.zones, func(z dnsprovider.Zone) bool { return z.ID == zoneID })
 	delete(p.records, zoneID)
+	delete(p.serials, zoneID)
+	delete(p.status, zoneID)
 }
 
 // SetRecords replaces a scripted Zone's Records, as if they were changed
@@ -119,6 +123,8 @@ func (p *Provider) SetTTLRange(minTTL, maxTTL uint32) {
 
 // SetProxiableTypes makes the Providers New builds proxy Records of these
 // types, through dnsprovider.ProxyFlag. Unscripted, they do not implement it.
+// The fake stores Records as given, so scripted Records carry the flag
+// under dnsprovider.ExtraProxied as a real Provider's would.
 func (p *Provider) SetProxiableTypes(types ...string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

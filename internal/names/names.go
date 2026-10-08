@@ -1,8 +1,17 @@
 // Package names converts Record names between the absolute form the module
 // uses and the zone-relative form GoDaddy and Namecheap write on the wire.
+//
+// The wire form differs from dnsprovider.QualifyName and
+// dnsprovider.RelativeName, which serve UIs: a wire name outside the Zone
+// has no trailing dot, and AbsoluteName trusts the Provider's names rather
+// than checking them, since a Record a Provider returns must not be lost.
 package names
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/dnsgateway/dnsprovider"
+)
 
 // AbsoluteName turns a name relative to a Zone, as GoDaddy and Namecheap
 // write it, into an absolute one: "@" or "" is the apex, and a ".@" suffix
@@ -18,20 +27,9 @@ func AbsoluteName(zone, name string) string {
 	return name + "." + zone
 }
 
-// RelativeName is AbsoluteName undone for GoDaddy and Namecheap: an
-// absolute name in a Zone becomes relative to it, "@" for the apex, keeping
-// the name's own case. A name outside the Zone is returned as given,
+// RelativeName is AbsoluteName undone for GoDaddy and Namecheap: it is
+// dnsprovider.RelativeName, except that a name outside the Zone is returned
 // without a trailing dot.
 func RelativeName(zone, name string) string {
-	name = strings.TrimSuffix(name, ".")
-	lower, z := strings.ToLower(name), strings.ToLower(strings.TrimSuffix(zone, "."))
-
-	switch {
-	case lower == z:
-		return "@"
-	case strings.HasSuffix(lower, "."+z):
-		return name[:len(name)-len(z)-1]
-	}
-
-	return name
+	return strings.TrimSuffix(dnsprovider.RelativeName(zone, name), ".")
 }

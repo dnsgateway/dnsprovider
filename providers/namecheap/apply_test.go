@@ -202,8 +202,7 @@ func TestApplyMakesSeveralChangesInOneCall(t *testing.T) {
 }
 
 // applyFails applies changes to example.com, checking that Apply fails as
-// a whole: nothing was applied, so it returns an error of its own (the TUI
-// then says it could not apply the changes and keeps them all pending)
+// a whole: it returns an error of its own rather than per-change errors,
 // holding msg, and kind when not nil.
 func applyFails(t *testing.T, api *ncAPI, msg string, kind error, changes ...dnsprovider.Change) {
 	t.Helper()
@@ -249,7 +248,7 @@ func TestApplyFailsWholeWhenARecordChangedAtNamecheap(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			api := zoneAPI()
 
-			applyFails(t, api, c.before.Type+" "+c.before.Name+" "+c.before.Value, dnsprovider.ErrNotFound,
+			applyFails(t, api, "nothing was applied: "+c.before.Type+" "+c.before.Name+" "+c.before.Value+" is no longer at Namecheap as read", dnsprovider.ErrNotFound,
 				add, dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: c.before})
 			wantNoSetHosts(t, api)
 		})
@@ -352,7 +351,7 @@ func TestApplyFailsWholeWhenTheWriteIsNotASuccess(t *testing.T) {
 	api := zoneAPI()
 	api.setHostsFalse = true
 
-	applyFails(t, api, "Refresh", nil, changesForAll()...)
+	applyFails(t, api, "setHosts answered without success; Namecheap may or may not have applied the changes", nil, changesForAll()...)
 }
 
 func TestApplyFailsWholeWhenTheZoneCannotBeRead(t *testing.T) {
@@ -427,7 +426,7 @@ func TestRecordsKeepTheirIDsAcrossAnApplyThatRenumbersEveryHost(t *testing.T) {
 		t.Fatalf("Records after the deletion =\n%v\nwant the cached ones, IDs included\n%v", got, cached[1:])
 	}
 
-	// The next Changeset, built from the cache, finds its Records.
+	// The next Changeset, built from the returned Records, finds its Records.
 	www := cached[1]
 	after := www
 	after.Value, after.ID = "shop.example.net", ""

@@ -34,10 +34,9 @@ type sendHost struct {
 //
 // The Changeset succeeds or fails as a whole. When it fails, nothing was
 // applied (or, when the write's answer was lost, Namecheap may have taken
-// it), so Apply returns an error of its own rather than per-change errors:
-// the TUI then reports the changes as not applied and keeps them pending.
+// it), so Apply returns an error of its own rather than per-change errors.
 // On success, each added or modified Record is returned as Records reads
-// it back, with its content ID, so it is cached without a Refresh.
+// it back, with its content ID, so a consumer need not read the Zone again.
 func (p *Provider) Apply(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 	for i, c := range cs.Changes {
@@ -118,7 +117,7 @@ func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent 
 			return s.read != nil && !s.matched && matches(cs.Zone.Name, *s.read, c.Before)
 		})
 		if i < 0 {
-			return nil, nil, fmt.Errorf("namecheap: conflict, nothing was applied: %s %s %s changed at Namecheap since the last Refresh (%w); Refresh the Zone and review the pending changes",
+			return nil, nil, fmt.Errorf("namecheap: conflict, nothing was applied: %s %s %s is no longer at Namecheap as read (%w)",
 				c.Before.Type, c.Before.Name, c.Before.Value, dnsprovider.ErrNotFound)
 		}
 
@@ -182,8 +181,8 @@ func writable(cs dnsprovider.Changeset) error {
 // mailWritable is an error when a Changeset adds or modifies an MX Record
 // of a domain whose EmailType is not MX ("Custom MX" in Namecheap's
 // console): Namecheap ignores MX hosts then. Apply keeps the EmailType
-// (mail forwarding or Private Email stays as set up), so the user changes
-// it in the console. Nil otherwise.
+// (mail forwarding or Private Email stays as set up); it is changed in
+// Namecheap's console. Nil otherwise.
 func mailWritable(cs dnsprovider.Changeset, emailType string) error {
 	if strings.EqualFold(emailType, "MX") {
 		return nil
@@ -191,7 +190,7 @@ func mailWritable(cs dnsprovider.Changeset, emailType string) error {
 
 	for _, c := range cs.Changes {
 		if c.Kind != dnsprovider.ChangeDelete && c.After.Type == "MX" {
-			return fmt.Errorf("namecheap: %s's mail setting is %q, so Namecheap ignores MX records; set it to \"Custom MX\" in Namecheap's console to write %s %s; nothing was applied",
+			return fmt.Errorf("namecheap: %s's mail setting is %q, so Namecheap ignores MX records such as %s %s until it is \"Custom MX\"; nothing was applied",
 				cs.Zone.Name, emailType, c.After.Type, c.After.Name)
 		}
 	}
@@ -279,9 +278,9 @@ func (p *Provider) setHosts(ctx context.Context, zone dnsprovider.Zone, emailTyp
 	case errors.As(err, &apiErr) && apiErr.StatusCode == 0:
 		return fmt.Errorf("%w; nothing was applied", err)
 	case err != nil:
-		return fmt.Errorf("%w; Namecheap may or may not have applied the changes, Refresh the Zone", err)
+		return fmt.Errorf("%w; Namecheap may or may not have applied the changes", err)
 	case !res.Result.IsSuccess:
-		return errors.New("namecheap: setHosts answered without success; Namecheap may or may not have applied the changes, Refresh the Zone")
+		return errors.New("namecheap: setHosts answered without success; Namecheap may or may not have applied the changes")
 	}
 
 	return nil

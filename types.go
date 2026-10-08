@@ -79,7 +79,7 @@ type ZoneStatus struct {
 // the two, or unknown, such as when the API token may not read it.
 type Setting int8
 
-// Settings. The zero value is Unknown. The values are stored in the cache:
+// Settings. The zero value is Unknown. Consumers may store the values:
 // append new ones, never renumber.
 const (
 	Unknown Setting = iota

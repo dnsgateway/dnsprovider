@@ -189,6 +189,7 @@ var (
 
 	_ dnsprovider.TenantLister     = (*Provider)(nil)
 	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
+	_ dnsprovider.ZoneUpdater      = (*Provider)(nil)
 )
 
 // AutoTTL implements dnsprovider.AutoTTL: Cloudflare reads TTL 1 as automatic.
@@ -638,9 +639,10 @@ func noID(r dnsprovider.Record) error {
 	return fmt.Errorf("cloudflare: %s %s has no record ID", r.Type, r.Name)
 }
 
-// do makes one request about a record, sending body when it is set, and
-// returns the answer's result: the record as Cloudflare holds it, for a
-// read, a create or an update, which storedRecord decodes after a write.
+// do makes one request about a record or a zone setting, sending body
+// when it is set, and returns the answer's result: the record or setting
+// as Cloudflare holds it, for a read or a write, which storedRecord
+// decodes after a record write.
 func (p *Provider) do(ctx context.Context, body []byte, call func(...option.RequestOption) error) (json.RawMessage, error) {
 	var (
 		env  envelope
@@ -866,18 +868,23 @@ func (p *Provider) dnssecStatus(ctx context.Context, zone dnsprovider.Zone) (dns
 		return settingError(err, raw)
 	}
 
-	// Pending and pending-disabled are being signed or unsigned; error is
-	// neither signed nor unsigned.
-	switch res.Status {
+	return dnssecSetting(res.Status), nil
+}
+
+// dnssecSetting is a DNSSEC status as a Setting. Pending and
+// pending-disabled are being signed or unsigned; error is neither signed
+// nor unsigned.
+func dnssecSetting(s cfdns.DNSSECStatus) dnsprovider.Setting {
+	switch s {
 	case cfdns.DNSSECStatusActive:
-		return dnsprovider.On, nil
+		return dnsprovider.On
 	case cfdns.DNSSECStatusDisabled:
-		return dnsprovider.Off, nil
+		return dnsprovider.Off
 	case cfdns.DNSSECStatusPending, cfdns.DNSSECStatusPendingDisabled:
-		return dnsprovider.Pending, nil
+		return dnsprovider.Pending
 	}
 
-	return dnsprovider.Unknown, nil
+	return dnsprovider.Unknown
 }
 
 // securityHeader is the part of the security_header setting the adapter reads.
@@ -905,6 +912,147 @@ func (p *Provider) hstsStatus(ctx context.Context, zone dnsprovider.Zone) (dnspr
 	var h securityHeader
 	if err := json.Unmarshal([]byte(res.JSON.RawJSON()), &h); err != nil {
 		return dnsprovider.Unknown, fmt.Errorf("cloudflare: decode security_header setting: %w", err)
+	}
+
+	if h.Value.StrictTransportSecurity.Enabled {
+		return dnsprovider.On, nil
+	}
+
+	return dnsprovider.Off, nil
+}
+
+// UpdateZone implements dnsprovider.ZoneUpdater: a PATCH of each setting
+// u sets, DNSSEC first, and a read of each it leaves nil. A setting left
+// nil that fails to read, or that the API token may not read, is unknown;
+// a write that fails is the error.
+func (p *Provider) UpdateZone(ctx context.Context, zone dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if u.DNSSEC == nil && u.HSTS == nil {
+		return p.ZoneStatus(ctx, zone)
+	}
+
+	var (
+		status dnsprovider.ZoneStatus
+		err    error
+	)
+
+	if u.DNSSEC != nil {
+		if status.DNSSEC, err = p.setDNSSEC(ctx, zone, *u.DNSSEC); err != nil {
+			return dnsprovider.ZoneStatus{}, err
+		}
+	} else {
+		status.DNSSEC, _ = p.dnssecStatus(ctx, zone)
+	}
+
+	if u.HSTS != nil {
+		if status.HSTS, err = p.setHSTS(ctx, zone, *u.HSTS); err != nil {
+			return dnsprovider.ZoneStatus{}, err
+		}
+	} else {
+		status.HSTS, _ = p.hstsStatus(ctx, zone)
+	}
+
+	return status, nil
+}
+
+// setDNSSEC signs or unsigns a Zone and returns DNSSEC as Cloudflare
+// answers, Pending while it signs or unsigns.
+func (p *Provider) setDNSSEC(ctx context.Context, zone dnsprovider.Zone, on bool) (dnsprovider.Setting, error) {
+	status := cfdns.DNSSECStatusDisabled
+	if on {
+		status = cfdns.DNSSECStatusActive
+	}
+
+	body, err := json.Marshal(map[string]any{"status": status})
+	if err != nil {
+		return dnsprovider.Unknown, fmt.Errorf("cloudflare: encode DNSSEC: %w", err)
+	}
+
+	var params cfdns.DNSSECEditParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	result, err := p.do(ctx, body, func(opts ...option.RequestOption) error {
+		_, err := p.dnssec.Edit(ctx, params, opts...)
+
+		return err
+	})
+	if err != nil {
+		return dnsprovider.Unknown, err
+	}
+
+	var res struct {
+		Status cfdns.DNSSECStatus `json:"status"`
+	}
+
+	if err := json.Unmarshal(result, &res); err != nil {
+		return dnsprovider.Unknown, nil //nolint:nilerr // Cloudflare took the write (ADR-0001); the next read tells
+	}
+
+	return dnssecSetting(res.Status), nil
+}
+
+// hstsMaxAge is the max-age HSTS is turned on with when the Zone holds
+// none: six months, Cloudflare's recommendation.
+const hstsMaxAge = 15552000
+
+// setHSTS turns HSTS on or off and returns it as Cloudflare answers.
+// Cloudflare replaces the whole strict_transport_security value, so the
+// one it holds is read first and sent back with enabled changed alone,
+// keeping its max-age, subdomains, preload and nosniff; HSTS turned on
+// without a max-age gets hstsMaxAge.
+func (p *Provider) setHSTS(ctx context.Context, zone dnsprovider.Zone, on bool) (dnsprovider.Setting, error) {
+	var get zones.SettingGetParams
+	get.ZoneID.Value, get.ZoneID.Present = zone.ID, true
+
+	held, err := p.do(ctx, nil, func(opts ...option.RequestOption) error {
+		_, err := p.settings.Get(ctx, "security_header", get, opts...)
+
+		return err
+	})
+	if err != nil {
+		return dnsprovider.Unknown, err
+	}
+
+	var cur struct {
+		Value struct {
+			StrictTransportSecurity map[string]any `json:"strict_transport_security"`
+		} `json:"value"`
+	}
+
+	if err := json.Unmarshal(held, &cur); err != nil {
+		return dnsprovider.Unknown, fmt.Errorf("cloudflare: decode security_header setting: %w", err)
+	}
+
+	sts := cur.Value.StrictTransportSecurity
+	if sts == nil {
+		sts = map[string]any{}
+	}
+
+	sts["enabled"] = on
+
+	if maxAge, _ := sts["max_age"].(float64); on && maxAge <= 0 {
+		sts["max_age"] = hstsMaxAge
+	}
+
+	body, err := json.Marshal(map[string]any{"value": map[string]any{"strict_transport_security": sts}})
+	if err != nil {
+		return dnsprovider.Unknown, fmt.Errorf("cloudflare: encode security_header setting: %w", err)
+	}
+
+	var params zones.SettingEditParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	result, err := p.do(ctx, body, func(opts ...option.RequestOption) error {
+		_, err := p.settings.Edit(ctx, "security_header", params, opts...)
+
+		return err
+	})
+	if err != nil {
+		return dnsprovider.Unknown, err
+	}
+
+	var h securityHeader
+	if err := json.Unmarshal(result, &h); err != nil {
+		return dnsprovider.Unknown, nil //nolint:nilerr // Cloudflare took the write (ADR-0001); the next read tells
 	}
 
 	if h.Value.StrictTransportSecurity.Enabled {

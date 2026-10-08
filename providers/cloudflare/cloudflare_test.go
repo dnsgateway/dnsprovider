@@ -43,6 +43,9 @@ type cfAPI struct {
 	records  map[string][]map[string]any // by zone ID
 	dnssec   map[string]string           // DNSSEC status by zone ID
 	hsts     map[string]bool             // HSTS enabled by zone ID
+	// sts is the strict_transport_security value written, by zone ID,
+	// over hsts.
+	sts map[string]map[string]any
 	// forbidden are the paths answered 403, as for a token that lacks
 	// the permission.
 	forbidden []string
@@ -76,13 +79,13 @@ type cfAPI struct {
 	writes []write
 }
 
-// write is one record create, update or delete the API received.
+// write is one record or zone setting write the API received.
 type write struct {
 	Method, Path string
 	Body         map[string]any
 }
 
-// Writes returns the record writes received, in order.
+// Writes returns the record and zone setting writes received, in order.
 func (api *cfAPI) Writes() []write {
 	api.mu.Lock()
 	defer api.mu.Unlock()
@@ -229,31 +232,60 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 	mux.HandleFunc("PATCH /client/v4/zones/{zone}/dns_records/{id}", api.writeRecord)
 	mux.HandleFunc("DELETE /client/v4/zones/{zone}/dns_records/{id}", api.writeRecord)
 	mux.HandleFunc("GET /client/v4/zones/{zone}/dnssec", func(w http.ResponseWriter, r *http.Request) {
-		writeResult(w, map[string]any{
-			"status":              api.dnssec[r.PathValue("zone")],
-			"algorithm":           "13",
-			"digest_type":         "2",
-			"flags":               257,
-			"key_tag":             42,
-			"modified_on":         "2024-01-02T03:04:05.000000Z",
-			"dnssec_multi_signer": false,
-		})
+		api.mu.Lock()
+		defer api.mu.Unlock()
+
+		writeResult(w, dnssecResult(api.dnssec[r.PathValue("zone")]))
+	})
+	mux.HandleFunc("PATCH /client/v4/zones/{zone}/dnssec", func(w http.ResponseWriter, r *http.Request) {
+		body, ok := api.writeSetting(w, r)
+		if !ok {
+			return
+		}
+
+		api.mu.Lock()
+		defer api.mu.Unlock()
+
+		// Cloudflare signs and unsigns a zone over time: it answers with
+		// the change pending.
+		status := "pending"
+		if body["status"] == "disabled" {
+			status = "pending-disabled"
+		}
+
+		if api.dnssec == nil {
+			api.dnssec = map[string]string{}
+		}
+
+		api.dnssec[r.PathValue("zone")] = status
+		writeResult(w, dnssecResult(status))
 	})
 	mux.HandleFunc("GET /client/v4/zones/{zone}/settings/security_header", func(w http.ResponseWriter, r *http.Request) {
-		writeResult(w, map[string]any{
-			"id": "security_header",
-			"value": map[string]any{
-				"strict_transport_security": map[string]any{
-					"enabled":            api.hsts[r.PathValue("zone")],
-					"max_age":            86400,
-					"include_subdomains": true,
-					"preload":            false,
-					"nosniff":            true,
-				},
-			},
-			"editable":    true,
-			"modified_on": "2024-01-02T03:04:05.000000Z",
-		})
+		api.mu.Lock()
+		defer api.mu.Unlock()
+
+		writeResult(w, securityHeader(api.hstsOf(r.PathValue("zone"))))
+	})
+	mux.HandleFunc("PATCH /client/v4/zones/{zone}/settings/security_header", func(w http.ResponseWriter, r *http.Request) {
+		body, ok := api.writeSetting(w, r)
+		if !ok {
+			return
+		}
+
+		api.mu.Lock()
+		defer api.mu.Unlock()
+
+		// Cloudflare replaces the whole value: what the body leaves out is
+		// gone.
+		value, _ := body["value"].(map[string]any)
+		sts, _ := value["strict_transport_security"].(map[string]any)
+
+		if api.sts == nil {
+			api.sts = map[string]map[string]any{}
+		}
+
+		api.sts[r.PathValue("zone")] = sts
+		writeResult(w, securityHeader(sts))
 	})
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -281,6 +313,62 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 
 		mux.ServeHTTP(w, r)
 	})
+}
+
+// dnssecResult is a DNSSEC answer with the status.
+func dnssecResult(status string) map[string]any {
+	return map[string]any{
+		"status":              status,
+		"algorithm":           "13",
+		"digest_type":         "2",
+		"flags":               257,
+		"key_tag":             42,
+		"modified_on":         "2024-01-02T03:04:05.000000Z",
+		"dnssec_multi_signer": false,
+	}
+}
+
+// hstsOf is a zone's strict_transport_security value: as last written,
+// else as scripted in hsts.
+func (api *cfAPI) hstsOf(zone string) map[string]any {
+	if sts, ok := api.sts[zone]; ok {
+		return sts
+	}
+
+	return map[string]any{
+		"enabled":            api.hsts[zone],
+		"max_age":            86400,
+		"include_subdomains": true,
+		"preload":            false,
+		"nosniff":            true,
+	}
+}
+
+// securityHeader is a security_header setting answer with the
+// strict_transport_security value.
+func securityHeader(sts map[string]any) map[string]any {
+	return map[string]any{
+		"id":          "security_header",
+		"value":       map[string]any{"strict_transport_security": sts},
+		"editable":    true,
+		"modified_on": "2024-01-02T03:04:05.000000Z",
+	}
+}
+
+// writeSetting decodes a zone setting write's body and records the write.
+func (api *cfAPI) writeSetting(w http.ResponseWriter, r *http.Request) (map[string]any, bool) {
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		writeErrors(w, http.StatusBadRequest, 9207, "Request body is invalid.")
+
+		return nil, false
+	}
+
+	api.mu.Lock()
+	api.writes = append(api.writes, write{Method: r.Method, Path: r.URL.Path, Body: body})
+	api.mu.Unlock()
+
+	return body, true
 }
 
 // writeRecord creates, updates or deletes a record as Cloudflare does,

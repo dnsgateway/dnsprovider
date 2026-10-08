@@ -458,3 +458,25 @@ func TestCRUDRefusesDuplicatesAndRecordsMissingByID(t *testing.T) {
 		t.Errorf("DeleteRecord: %v", err)
 	}
 }
+
+func TestBatcherFailsAChangeOfNoKnownKindAlone(t *testing.T) {
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	fake := providertest.New().AddZone(z)
+	fake.SetBatcher(true)
+
+	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	cs := dnsprovider.Changeset{Zone: z, Changes: []dnsprovider.Change{{After: add}, {Kind: dnsprovider.ChangeAdd, After: add}}}
+
+	res, err := dnsprovider.Apply(context.Background(), newFake(t, fake), cs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if r := res.Results[0]; r.Err == nil || !reflect.DeepEqual(r.Change, cs.Changes[0]) {
+		t.Errorf("change of no kind = %+v, want it failed", r)
+	}
+
+	if r := res.Results[1]; r.Err != nil {
+		t.Errorf("addition = %+v, want it made", r)
+	}
+}

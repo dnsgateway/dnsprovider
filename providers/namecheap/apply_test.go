@@ -639,3 +639,11 @@ func TestApplyAddsARecordInThePlaceOfOneItModifies(t *testing.T) {
 	hosts[0] = sentHost{"@", "A", "192.0.2.2", "", "1799"}
 	wantSetHosts(t, api, "FWD", append(hosts, sentHost{"@", "A", "192.0.2.1", "", "1799"}))
 }
+
+func TestApplyFailsWholeOnAChangeOfNoKnownKind(t *testing.T) {
+	api := zoneAPI()
+	r := dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 1799}
+
+	applyFails(t, api, "unknown change kind 0", nil, dnsprovider.Change{Before: r, After: r})
+	wantNoSetHosts(t, api)
+}

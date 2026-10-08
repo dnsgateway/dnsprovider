@@ -551,6 +551,10 @@ func (p *Provider) change(zid string, c dnsprovider.Change) dnsprovider.ChangeRe
 }
 
 func (p *Provider) applyChange(records []dnsprovider.Record, c dnsprovider.Change) ([]dnsprovider.Record, dnsprovider.Record, error) {
+	if c.Kind != dnsprovider.ChangeAdd && c.Kind != dnsprovider.ChangeModify && c.Kind != dnsprovider.ChangeDelete {
+		return records, dnsprovider.Record{}, fmt.Errorf("providertest: unknown change kind %d", c.Kind)
+	}
+
 	i := -1
 
 	if c.Kind != dnsprovider.ChangeAdd {
@@ -611,7 +615,7 @@ func (p *Provider) applyChangeset(_ context.Context, cs dnsprovider.Changeset) (
 
 	for _, kind := range []dnsprovider.ChangeKind{dnsprovider.ChangeDelete, dnsprovider.ChangeModify, dnsprovider.ChangeAdd} {
 		for i, c := range cs.Changes {
-			if c.Kind == kind {
+			if c.Kind == kind || (kind == dnsprovider.ChangeAdd && c.Kind != dnsprovider.ChangeDelete && c.Kind != dnsprovider.ChangeModify) {
 				res.Results[i] = p.change(zid, c)
 			}
 		}

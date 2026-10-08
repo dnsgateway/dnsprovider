@@ -498,6 +498,12 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 	for i, c := range cs.Changes {
 		res.Results[i] = dnsprovider.ChangeResult{Change: c}
 
+		if c.Kind != dnsprovider.ChangeAdd && c.Kind != dnsprovider.ChangeModify && c.Kind != dnsprovider.ChangeDelete {
+			res.Results[i].Err = fmt.Errorf("godaddy: unknown change kind %d", c.Kind)
+
+			continue
+		}
+
 		if c.Kind == dnsprovider.ChangeModify || c.Kind == dnsprovider.ChangeDelete {
 			g := group(c.Before)
 			g.ops = append(g.ops, rrOp{index: i, remove: true, rec: c.Before})

@@ -1391,3 +1391,28 @@ func TestCreateRecordReturnsTheRecordAsRecordsReadsItBack(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyFailsAChangeOfNoKnownKindAlone(t *testing.T) {
+	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {}}}
+
+	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
+
+	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
+		{After: add},
+		{Kind: 99, Before: add, After: add},
+		{Kind: dnsprovider.ChangeAdd, After: add},
+	}})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	for i, fails := range []bool{true, true, false} {
+		if got := res.Results[i].Err; (got != nil) != fails {
+			t.Errorf("result %d: err = %v, want failure %v", i, got, fails)
+		}
+	}
+
+	if got := api.Writes(); len(got) != 1 {
+		t.Errorf("writes = %v, want the addition alone", got)
+	}
+}

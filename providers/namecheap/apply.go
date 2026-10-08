@@ -179,12 +179,17 @@ func matches(zone string, h wireHost, before dnsprovider.Record) bool {
 // for them. Any type can be deleted.
 var writeTypes = []string{"A", "AAAA", "CNAME", "MX", "TXT", "NS"}
 
-// writable is an error naming each Record a Changeset adds or modifies to
-// a type Apply does not write, or to NS at the apex; nil if there is none.
+// writable is an error for a change of no known kind, or naming each
+// Record a Changeset adds or modifies to a type Apply does not write, or
+// to NS at the apex; nil if there is none.
 func writable(cs dnsprovider.Changeset) error {
 	var bad []string
 
 	for _, c := range cs.Changes {
+		if c.Kind != dnsprovider.ChangeAdd && c.Kind != dnsprovider.ChangeModify && c.Kind != dnsprovider.ChangeDelete {
+			return fmt.Errorf("namecheap: unknown change kind %d; nothing was applied", c.Kind)
+		}
+
 		r := c.After
 		if c.Kind == dnsprovider.ChangeDelete {
 			continue

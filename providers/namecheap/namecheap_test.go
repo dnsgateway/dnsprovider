@@ -951,3 +951,45 @@ func TestZoneStopsReadingTheListAtItsName(t *testing.T) {
 		t.Errorf("sent %d getList requests, want one: the name is on the first page", n)
 	}
 }
+
+func TestRecordsAreFilteredByTypeAndNameAfterOneGetHosts(t *testing.T) {
+	cases := []struct {
+		name   string
+		filter dnsprovider.RecordFilter
+		want   []string // type and name of each Record
+	}{
+		{"type", dnsprovider.RecordFilter{Type: "mx"}, []string{"MX example.com"}},
+		{"name", dnsprovider.RecordFilter{Contains: "SHOP."}, []string{"A Shop.example.com", "TXT shop.example.com"}},
+		{"type and name", dnsprovider.RecordFilter{Type: "A", Contains: "shop.example.com."}, []string{"A Shop.example.com"}},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			api := &ncAPI{hosts: map[string][]ncHost{"example.com": {
+				{ID: "11", Name: "@", Type: "A", Address: "192.0.2.1", TTL: 1799},
+				{ID: "12", Name: "@", Type: "MX", Address: "mx1.example.net.", MXPref: 10, TTL: 3600},
+				{ID: "13", Name: "Shop", Type: "A", Address: "192.0.2.3", TTL: 300},
+				{ID: "14", Name: "shop", Type: "TXT", Address: "x", TTL: 300},
+				{ID: "15", Name: "shopping", Type: "A", Address: "192.0.2.4", TTL: 300},
+			}}}
+
+			set, err := newProvider(t, api).Records(context.Background(), example, c.filter)
+			if err != nil {
+				t.Fatalf("Records: %v", err)
+			}
+
+			got := make([]string, 0, len(set.Records))
+			for _, r := range set.Records {
+				got = append(got, r.Type+" "+r.Name)
+			}
+
+			if !slices.Equal(got, c.want) {
+				t.Errorf("Records = %v, want %v", got, c.want)
+			}
+
+			if cmds := api.Commands(); !slices.Equal(cmds, []string{"namecheap.domains.dns.getHosts"}) {
+				t.Errorf("commands = %v, want one getHosts", cmds)
+			}
+		})
+	}
+}

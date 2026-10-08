@@ -307,8 +307,9 @@ type getHostsResult struct {
 }
 
 // Records implements dnsprovider.Provider. getHosts answers the whole host
-// list at once. Namecheap reports no SOA serial.
-func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, _ dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+// list at once, so the filter is applied here with dnsprovider.MatchRecord.
+// Namecheap reports no SOA serial.
+func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	res, err := p.getHosts(ctx, zone)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err
@@ -316,7 +317,9 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, _ dnsprov
 
 	records := make([]dnsprovider.Record, 0, len(res.Result.Hosts))
 	for _, h := range res.Result.Hosts {
-		records = append(records, toRecord(zone.Name, h))
+		if rec := toRecord(zone.Name, h); dnsprovider.MatchRecord(f, rec) {
+			records = append(records, rec)
+		}
 	}
 
 	return dnsprovider.RecordSet{Records: records}, nil

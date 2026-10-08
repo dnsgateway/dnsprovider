@@ -325,7 +325,28 @@ func (p *Provider) ZoneStatus(context.Context, dnsprovider.Zone) (dnsprovider.Zo
 // Nameservers implements dnsprovider.Provider: Namecheap's BasicDNS
 // nameservers, the same for every Account.
 func (p *Provider) Nameservers(context.Context) ([]string, error) {
-	return []string{"dns1.registrar-servers.com", "dns2.registrar-servers.com"}, nil
+	return basicDNS(), nil
+}
+
+// basicDNS are Namecheap's BasicDNS nameservers, the same for every Account.
+func basicDNS() []string {
+	return []string{"dns1.registrar-servers.com", "dns2.registrar-servers.com"}
+}
+
+// Account implements dnsprovider.Provider. users.getBalances is the
+// cheapest authenticated command, so it checks the API user, key and
+// client IP. The Tenant is the API user, and the nameservers are BasicDNS.
+func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error) {
+	if _, err := call[struct{}](ctx, p, "namecheap.users.getBalances", nil); err != nil {
+		return dnsprovider.AccountInfo{}, err
+	}
+
+	user := p.auth.Get("ApiUser")
+
+	return dnsprovider.AccountInfo{
+		Tenant:      dnsprovider.Tenant{ID: user, Name: user},
+		Nameservers: basicDNS(),
+	}, nil
 }
 
 // apiResponse is the envelope of every answer, around a command's own

@@ -132,6 +132,8 @@ func (api *ncAPI) handler(t *testing.T) http.Handler {
 			api.getHosts(w, r)
 		case "namecheap.domains.dns.setHosts":
 			api.setHosts(w, r)
+		case "namecheap.users.getBalances":
+			writeOK(w, cmd, `<UserGetBalancesResult Currency="USD" AvailableBalance="4932.96" AccountBalance="4932.96" EarnedAmount="381.70" WithdrawableAmount="1243.36" FundsRequiredForAutoRenew="0.00" />`)
 		default:
 			writeErrors(w, ncError{1010104, "Command " + cmd + " is invalid"})
 		}

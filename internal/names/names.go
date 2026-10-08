@@ -33,3 +33,9 @@ func AbsoluteName(zone, name string) string {
 func RelativeName(zone, name string) string {
 	return strings.TrimSuffix(dnsprovider.RelativeName(zone, name), ".")
 }
+
+// ZoneName is a zone name as the Providers list it: lower case, without
+// a trailing dot.
+func ZoneName(name string) string {
+	return strings.ToLower(strings.TrimSuffix(name, "."))
+}

@@ -138,6 +138,7 @@ func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 // wireDomain is the part of a v1 domain that the adapter reads.
 type wireDomain struct {
 	Domain      string   `json:"domain"`
+	Status      string   `json:"status"`
 	NameServers []string `json:"nameServers"`
 }
 
@@ -159,6 +160,29 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 	}
 
 	return out, nil
+}
+
+// Zone implements dnsprovider.Provider: the ACTIVE domain of that name,
+// read with GET /v1/domains/{domain}; ErrNotFound when the Account has
+// no such domain, or has it in another status, which Zones does not list.
+func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	name = names.ZoneName(name)
+	notFound := fmt.Errorf("godaddy: zone %q: %w", name, dnsprovider.ErrNotFound)
+
+	if name == "" {
+		return dnsprovider.Zone{}, notFound
+	}
+
+	var d wireDomain
+	if err := p.api().Do(ctx, http.MethodGet, "/v1/domains/"+url.PathEscape(name), nil, nil, &d); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	if d.Status != "ACTIVE" || !strings.EqualFold(d.Domain, name) {
+		return dnsprovider.Zone{}, notFound
+	}
+
+	return toZone(d), nil
 }
 
 // toZone turns a v1 domain into an Active Zone.

@@ -24,6 +24,7 @@ import (
 
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
+	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
 // DefaultBaseURL is the Cloudflare v4 API.
@@ -228,6 +229,32 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 	}
 
 	return out, nil
+}
+
+// Zone implements dnsprovider.Provider: the Tenant's Zone of that exact
+// name, read with Cloudflare's name filter; ErrNotFound when the Tenant
+// has none, and ErrNoTenant before a Tenant is set.
+func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	name = names.ZoneName(name)
+
+	if err := p.needTenant(); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	if name != "" {
+		all, err := p.listZones(ctx, name)
+		if err != nil {
+			return dnsprovider.Zone{}, err
+		}
+
+		for _, z := range all {
+			if strings.EqualFold(z.Name, name) {
+				return toZone(z), nil
+			}
+		}
+	}
+
+	return dnsprovider.Zone{}, fmt.Errorf("cloudflare: zone %q: %w", name, dnsprovider.ErrNotFound)
 }
 
 // toZone turns a v4 zone into a Zone.

@@ -308,6 +308,10 @@ func TestZoneCallsNeedATenant(t *testing.T) {
 	p := newProviderIn(t, api, acme, "")
 	ctx := context.Background()
 
+	if _, err := p.Zone(ctx, zone.Name); !errors.Is(err, dnsprovider.ErrNoTenant) {
+		t.Errorf("Zone: err = %v, want ErrNoTenant", err)
+	}
+
 	_, err := p.Records(ctx, zone)
 	if !errors.Is(err, dnsprovider.ErrNoTenant) {
 		t.Errorf("Records: err = %v, want ErrNoTenant", err)

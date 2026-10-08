@@ -504,6 +504,41 @@ func TestZonesCarryTheirHostingState(t *testing.T) {
 	}
 }
 
+func TestZoneReadsOneZoneOfTheTenantByItsExactName(t *testing.T) {
+	pending := cfZone("z2", "example.com", "cruz.ns.cloudflare.com", "dee.ns.cloudflare.com")
+	pending["status"] = "pending"
+	api := &cfAPI{zones: []map[string]any{cfZone("z1", "shop.example.com"), pending}}
+
+	got, err := newProvider(t, api).Zone(context.Background(), "Example.COM.")
+	if err != nil {
+		t.Fatalf("Zone: %v", err)
+	}
+
+	want := dnsprovider.Zone{ID: "z2", Name: "example.com", State: dnsprovider.HostingPending, Nameservers: []string{"cruz.ns.cloudflare.com", "dee.ns.cloudflare.com"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Zone = %+v, want %+v", got, want)
+	}
+
+	q := api.ZoneQueries()
+	if len(q) != 1 || q[0].Get("name") != "example.com" || q[0].Get("account.id") != acc1 {
+		t.Errorf("zone list queries = %v, want name=example.com within the Tenant", q)
+	}
+}
+
+func TestZoneOfANameTheTenantDoesNotHostIsNotFound(t *testing.T) {
+	api := &cfAPI{zones: []map[string]any{cfZone("z1", "shop.example.com")}}
+
+	if _, err := newProvider(t, api).Zone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("Zone: err = %v, want ErrNotFound", err)
+	}
+
+	// Cloudflare takes a name it does not know for a filter it ignores.
+	api = &cfAPI{ignoreName: true, zones: []map[string]any{cfZone("z1", "shop.example.com")}}
+	if _, err := newProvider(t, api).Zone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("Zone with the name ignored: err = %v, want ErrNotFound", err)
+	}
+}
+
 func TestZonesCarryTheNameserversCloudflareAssignedToEachZone(t *testing.T) {
 	api := &cfAPI{zones: []map[string]any{
 		cfZone("z1", "example.com", "bob.ns.cloudflare.com", "ada.ns.cloudflare.com"),

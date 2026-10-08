@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -24,6 +25,7 @@ type Op string
 const (
 	OpNew        Op = "New"
 	OpZones      Op = "Zones"
+	OpZone       Op = "Zone"
 	OpRecords    Op = "Records"
 	OpApply      Op = "Apply"
 	OpZoneStatus Op = "ZoneStatus"
@@ -36,7 +38,8 @@ type Call struct {
 	Op Op
 	// Fields are the field map, set for OpNew.
 	Fields map[string]string
-	// Zone is set for the Zone operations.
+	// Zone is set for the Zone operations; for OpZone, its Name alone,
+	// as asked for.
 	Zone dnsprovider.Zone
 	// ZoneFilter is set for OpZones.
 	ZoneFilter dnsprovider.ZoneFilter
@@ -364,6 +367,25 @@ func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) ([]dnsprov
 	}
 
 	return out, nil
+}
+
+// Zone implements dnsprovider.Provider: the scripted Zone of that name,
+// ignoring case and a trailing dot; ErrNotFound when none is.
+func (p *Provider) Zone(_ context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.record(Call{Op: OpZone, Zone: dnsprovider.Zone{Name: name}}); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	for _, z := range p.zones {
+		if strings.EqualFold(z.Name, strings.TrimSuffix(name, ".")) {
+			return cloneZone(z), nil
+		}
+	}
+
+	return dnsprovider.Zone{}, fmt.Errorf("providertest: zone %q: %w", name, dnsprovider.ErrNotFound)
 }
 
 // cloneZone is a Zone that shares nothing with the script.

@@ -177,6 +177,28 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 	return out, nil
 }
 
+// Zone implements dnsprovider.Provider: the domain of that exact name on
+// Namecheap's DNS, found through getList's SearchTerm; ErrNotFound when
+// the Account has none, or has it delegated elsewhere.
+func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	name = names.ZoneName(name)
+
+	if name != "" {
+		all, err := p.listDomains(ctx, name)
+		if err != nil {
+			return dnsprovider.Zone{}, err
+		}
+
+		for _, d := range all {
+			if strings.EqualFold(d.Name, name) {
+				return toZone(d), nil
+			}
+		}
+	}
+
+	return dnsprovider.Zone{}, fmt.Errorf("namecheap: zone %q: %w", name, dnsprovider.ErrNotFound)
+}
+
 // toZone turns a domain on Namecheap's DNS into an Active Zone.
 func toZone(d wireDomain) dnsprovider.Zone {
 	return dnsprovider.Zone{Name: d.Name, ID: d.Name, State: dnsprovider.HostingActive}

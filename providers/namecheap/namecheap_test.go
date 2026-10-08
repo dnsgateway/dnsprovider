@@ -507,6 +507,40 @@ func TestZonesAreActive(t *testing.T) {
 	}
 }
 
+func TestZoneReadsOneDomainOnNamecheapDNSByItsExactName(t *testing.T) {
+	api := &ncAPI{domains: []ncDomain{
+		{Name: "shop-example.com", OurDNS: true},
+		{Name: "example.com", OurDNS: true},
+	}}
+
+	got, err := newProvider(t, api).Zone(context.Background(), "Example.COM.")
+	if err != nil {
+		t.Fatalf("Zone: %v", err)
+	}
+
+	if want := (dnsprovider.Zone{ID: "example.com", Name: "example.com", State: dnsprovider.HostingActive}); !reflect.DeepEqual(got, want) {
+		t.Errorf("Zone = %+v, want %+v", got, want)
+	}
+
+	if reqs := api.Requests(); len(reqs) != 1 || reqs[0].Get("Command") != "namecheap.domains.getList" || reqs[0].Get("SearchTerm") != "example.com" {
+		t.Errorf("requests = %v, want one getList with SearchTerm example.com", reqs)
+	}
+}
+
+func TestZoneOfADomainNotOnNamecheapDNSIsNotFound(t *testing.T) {
+	api := &ncAPI{domains: []ncDomain{
+		{Name: "shop-example.com", OurDNS: true},
+		{Name: "elsewhere.com", OurDNS: false},
+	}}
+	p := newProvider(t, api)
+
+	for _, name := range []string{"example.com", "elsewhere.com"} {
+		if _, err := p.Zone(context.Background(), name); !errors.Is(err, dnsprovider.ErrNotFound) {
+			t.Errorf("Zone(%s): err = %v, want ErrNotFound", name, err)
+		}
+	}
+}
+
 func TestZonesReadEveryPageWhenTheAnswerHasNoTotal(t *testing.T) {
 	api := &ncAPI{noPaging: true}
 

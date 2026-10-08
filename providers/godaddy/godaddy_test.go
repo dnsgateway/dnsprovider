@@ -110,6 +110,17 @@ func (api *gdAPI) handler(t *testing.T) http.Handler {
 		writeJSON(w, http.StatusOK, api.domains[start:min(start+api.size(r), len(api.domains))])
 	})
 
+	mux.HandleFunc("GET /v1/domains/{domain}", func(w http.ResponseWriter, r *http.Request) {
+		i := slices.IndexFunc(api.domains, func(d map[string]any) bool { return d["domain"] == r.PathValue("domain") })
+		if i < 0 {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "Domain not found")
+
+			return
+		}
+
+		writeJSON(w, http.StatusOK, api.domains[i])
+	})
+
 	mux.HandleFunc("GET /v1/domains/{domain}/records", func(w http.ResponseWriter, r *http.Request) {
 		records, ok := api.records[r.PathValue("domain")]
 		if !ok {
@@ -322,6 +333,40 @@ func TestZonesAreActive(t *testing.T) {
 	for _, z := range zones {
 		if z.State != dnsprovider.HostingActive {
 			t.Errorf("Zone %s is %v, want Active: GoDaddy lists only the domains it serves", z.Name, z.State)
+		}
+	}
+}
+
+func TestZoneReadsOneActiveDomainByName(t *testing.T) {
+	api := &gdAPI{domains: []map[string]any{
+		domain("shop.example.com"),
+		domain("example.com", "ns43.domaincontrol.com", "ns44.domaincontrol.com"),
+	}}
+
+	got, err := newProvider(t, api).Zone(context.Background(), "Example.COM.")
+	if err != nil {
+		t.Fatalf("Zone: %v", err)
+	}
+
+	want := dnsprovider.Zone{ID: "example.com", Name: "example.com", State: dnsprovider.HostingActive, Nameservers: []string{"ns43.domaincontrol.com", "ns44.domaincontrol.com"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("Zone = %+v, want %+v", got, want)
+	}
+
+	if reqs := api.Requests(); len(reqs) != 1 || reqs[0].Path != "/v1/domains/example.com" {
+		t.Errorf("requests = %v, want one GET /v1/domains/example.com", reqs)
+	}
+}
+
+func TestZoneOfADomainTheAccountDoesNotServeIsNotFound(t *testing.T) {
+	cancelled := domain("gone.example")
+	cancelled["status"] = "CANCELLED"
+	api := &gdAPI{domains: []map[string]any{domain("example.com"), cancelled}}
+	p := newProvider(t, api)
+
+	for _, name := range []string{"example.org", "gone.example", ""} {
+		if _, err := p.Zone(context.Background(), name); !errors.Is(err, dnsprovider.ErrNotFound) {
+			t.Errorf("Zone(%s): err = %v, want ErrNotFound", name, err)
 		}
 	}
 }

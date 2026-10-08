@@ -33,3 +33,11 @@ func TestAbsoluteNameUndoesRelativeName(t *testing.T) {
 		}
 	}
 }
+
+func TestZoneNameIsLowerCaseWithoutATrailingDot(t *testing.T) {
+	for in, want := range map[string]string{"Example.COM.": "example.com", "example.com": "example.com", "": ""} {
+		if got := names.ZoneName(in); got != want {
+			t.Errorf("ZoneName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}

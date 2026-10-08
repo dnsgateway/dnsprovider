@@ -231,3 +231,26 @@ func TestSetHostingStateChangesAScriptedZone(t *testing.T) {
 		t.Errorf("Zones = %+v, want example.com Active", zones)
 	}
 }
+
+func TestZoneReadsOneScriptedZoneByName(t *testing.T) {
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingMoved, Nameservers: []string{"ns1.example.net"}}
+	fake := providertest.New().AddZone(z).AddZone(dnsprovider.Zone{ID: "z2", Name: "shop.example.com"})
+	p := newFake(t, fake)
+
+	got, err := p.Zone(context.Background(), "example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(got, z) {
+		t.Errorf("Zone = %+v, want %+v", got, z)
+	}
+
+	if _, err := p.Zone(context.Background(), "example"); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("Zone(example) error = %v, want ErrNotFound", err)
+	}
+
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZone || calls[len(calls)-1].Zone.Name != "example" {
+		t.Errorf("last call = %+v, want Zone with the name asked for", calls[len(calls)-1])
+	}
+}

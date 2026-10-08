@@ -20,7 +20,8 @@ func Env(typ, field string) string {
 }
 
 // Run builds a Provider from its Factory's fields, read from the
-// environment (see Env), and reads its Account without writing to it. It
+// environment (see Env), and reads its Account, Zones, one Zone by name and its Records without
+// writing to it. It
 // skips the test unless every secret field is set. A Provider that lists
 // Tenants has them listed, and its Zones read only when its Tenant is set
 // too: Zones failing with dnsprovider.ErrNoTenant ends the test there.
@@ -85,6 +86,15 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 
 	if len(zones) == 0 {
 		return
+	}
+
+	z, err := p.Zone(ctx, zones[0].Name)
+	if err != nil {
+		t.Fatalf("Zone(%s): %v", zones[0].Name, err)
+	}
+
+	if z.ID != zones[0].ID || z.State != zones[0].State {
+		t.Errorf("Zone(%s) = %+v, want %+v as Zones listed it", zones[0].Name, z, zones[0])
 	}
 
 	if _, err := p.Records(ctx, zones[0]); err != nil {

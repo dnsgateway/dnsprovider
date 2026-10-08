@@ -12,6 +12,9 @@ type Provider interface {
 	// and Nameservers when the Provider assigns them per Zone. The adapter
 	// pages through the whole list.
 	Zones(ctx context.Context, f ZoneFilter) ([]Zone, error)
+	// Zone reads one Zone by its name, in any Hosting State, set as Zones
+	// sets it: ErrNotFound when the Account has no Zone of that name.
+	Zone(ctx context.Context, name string) (Zone, error)
 	// Records lists a Zone's Records, with the SOA serial when available.
 	Records(ctx context.Context, zone Zone) (RecordSet, error)
 	// Apply applies a Changeset and reports the result of each change.

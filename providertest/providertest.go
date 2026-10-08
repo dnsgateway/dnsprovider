@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -23,14 +24,18 @@ type Op string
 
 // Operations.
 const (
-	OpNew        Op = "New"
-	OpZones      Op = "Zones"
-	OpZone       Op = "Zone"
-	OpRecords    Op = "Records"
-	OpApply      Op = "Apply"
-	OpZoneStatus Op = "ZoneStatus"
-	OpAccount    Op = "Account"
-	OpTenants    Op = "Tenants"
+	OpNew     Op = "New"
+	OpZones   Op = "Zones"
+	OpZone    Op = "Zone"
+	OpRecords Op = "Records"
+	OpApply   Op = "Apply"
+	// The CRUD operations of a Provider without a Batcher.
+	OpCreateRecord Op = "CreateRecord"
+	OpUpdateRecord Op = "UpdateRecord"
+	OpDeleteRecord Op = "DeleteRecord"
+	OpZoneStatus   Op = "ZoneStatus"
+	OpAccount      Op = "Account"
+	OpTenants      Op = "Tenants"
 )
 
 // Call is one recorded call.
@@ -47,6 +52,8 @@ type Call struct {
 	RecordFilter dnsprovider.RecordFilter
 	// Changeset is set for OpApply.
 	Changeset dnsprovider.Changeset
+	// Change is the change a CRUD operation makes.
+	Change dnsprovider.Change
 }
 
 // Provider is the fake. Its zero value is not usable; call New.
@@ -445,80 +452,110 @@ func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, f dnsprovider.
 	return dnsprovider.RecordSet{Records: matched, Serial: p.serial(z.ID)}, nil
 }
 
-// Apply implements dnsprovider.Provider. It applies each change to the
-// scripted Records, unless FailChanges fails it, and bumps the serial when
-// any change succeeded.
-func (p *Provider) Apply(_ context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	if err := p.record(Call{Op: OpApply, Zone: cs.Zone, Changeset: cs}); err != nil {
-		return dnsprovider.ApplyResult{}, err
+// CreateRecord implements dnsprovider.Provider: it adds the Record with
+// a new ID, unless FailChanges fails it, and bumps the serial. A Record
+// identical to one the Zone holds (type, name and Value) fails with
+// dnsprovider.ErrConflict.
+func (p *Provider) CreateRecord(_ context.Context, z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
+	return p.write(OpCreateRecord, z, dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: r})
+}
+
+// UpdateRecord implements dnsprovider.Provider: it replaces the Record
+// with before's ID by after, keeping the ID, unless FailChanges fails it,
+// and bumps the serial. Before's ID not in the Zone fails with
+// dnsprovider.ErrNotFound.
+func (p *Provider) UpdateRecord(_ context.Context, z dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
+	return p.write(OpUpdateRecord, z, dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: after})
+}
+
+// DeleteRecord implements dnsprovider.Provider: it drops the Record with
+// r's ID, unless FailChanges fails it, and bumps the serial. An ID not in
+// the Zone fails with dnsprovider.ErrNotFound.
+func (p *Provider) DeleteRecord(_ context.Context, z dnsprovider.Zone, r dnsprovider.Record) error {
+	_, err := p.write(OpDeleteRecord, z, dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: r})
+
+	return err
+}
+
+// write records a CRUD call and makes its change.
+func (p *Provider) write(op Op, z dnsprovider.Zone, c dnsprovider.Change) (dnsprovider.Record, error) {
+	if err := p.record(Call{Op: op, Zone: z, Change: c}); err != nil {
+		return dnsprovider.Record{}, err
 	}
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	zid := cs.Zone.ID
-
-	records, ok := p.records[zid]
-	if !ok {
-		return dnsprovider.ApplyResult{}, fmt.Errorf("zone %s (%s) not found", cs.Zone.Name, zid)
+	if _, ok := p.records[z.ID]; !ok {
+		return dnsprovider.Record{}, fmt.Errorf("providertest: zone %s (%s): %w", z.Name, z.ID, dnsprovider.ErrNotFound)
 	}
 
-	var res dnsprovider.ApplyResult
-
-	for _, c := range cs.Changes {
-		r := dnsprovider.ChangeResult{Change: c}
-		if p.failChange != nil {
-			r.Err = p.failChange(c)
-		}
-
-		if r.Err == nil {
-			records, r.Record, r.Err = p.applyChange(records, c)
-		}
-
-		if p.withhold {
-			r.Record = dnsprovider.Record{}
-		}
-
-		res.Results = append(res.Results, r)
+	r := p.change(z.ID, c)
+	if r.Err == nil {
+		p.serials[z.ID]++
 	}
 
-	p.records[zid] = records
+	return r.Record, r.Err
+}
 
-	for _, r := range res.Results {
-		if r.Err == nil {
-			p.serials[zid]++
-			res.Serial = p.serial(zid)
-
-			break
-		}
+// change makes one change to a Zone's Records, unless FailChanges fails
+// it, and returns its result, with no Record when WithholdRecords is on.
+func (p *Provider) change(zid string, c dnsprovider.Change) dnsprovider.ChangeResult {
+	r := dnsprovider.ChangeResult{Change: c}
+	if p.failChange != nil {
+		r.Err = p.failChange(c)
 	}
 
-	return res, nil
+	if r.Err == nil {
+		p.records[zid], r.Record, r.Err = p.applyChange(p.records[zid], c)
+	}
+
+	if p.withhold || r.Err != nil {
+		r.Record = dnsprovider.Record{}
+	}
+
+	return r
 }
 
 func (p *Provider) applyChange(records []dnsprovider.Record, c dnsprovider.Change) ([]dnsprovider.Record, dnsprovider.Record, error) {
-	if c.Kind == dnsprovider.ChangeAdd {
-		p.nextID++
-		r := c.After
-		r.ID = fmt.Sprintf("fake-%d", p.nextID)
+	i := -1
 
-		return append(records, r), r, nil
-	}
-
-	i := slices.IndexFunc(records, func(r dnsprovider.Record) bool { return r.ID == c.Before.ID })
-	if i < 0 {
-		return records, dnsprovider.Record{}, fmt.Errorf("record %s not found", c.Before.ID)
+	if c.Kind != dnsprovider.ChangeAdd {
+		i = slices.IndexFunc(records, func(r dnsprovider.Record) bool { return r.ID == c.Before.ID })
+		if i < 0 {
+			return records, dnsprovider.Record{}, fmt.Errorf("providertest: record %s: %w", c.Before.ID, dnsprovider.ErrNotFound)
+		}
 	}
 
 	if c.Kind == dnsprovider.ChangeDelete {
 		return slices.Delete(records, i, i+1), dnsprovider.Record{}, nil
 	}
 
+	for j, r := range records {
+		if j != i && identical(r, c.After) {
+			return records, dnsprovider.Record{}, fmt.Errorf("providertest: %s %s %s: %w", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
+		}
+	}
+
 	r := c.After
+
+	if c.Kind == dnsprovider.ChangeAdd {
+		p.nextID++
+		r.ID = fmt.Sprintf("fake-%d", p.nextID)
+
+		return append(records, r), r, nil
+	}
+
 	r.ID = c.Before.ID
 	records[i] = r
 
 	return records, r, nil
+}
+
+// identical reports whether two Records hold the same type, name and
+// Value, the names ignoring case.
+func identical(a, b dnsprovider.Record) bool {
+	return strings.EqualFold(a.Type, b.Type) && strings.EqualFold(a.Name, b.Name) && a.Value == b.Value
 }
 
 // withZoneStatus is the fake with scripted Zone Status.

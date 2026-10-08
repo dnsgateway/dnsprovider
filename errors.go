@@ -17,6 +17,9 @@ var (
 	ErrUnauthorized = errors.New("not authorized")
 	// ErrNotFound means the Provider does not know the Zone or Record.
 	ErrNotFound = errors.New("not found")
+	// ErrConflict means a write collides with what the Provider holds,
+	// such as a Record identical to one the Zone has.
+	ErrConflict = errors.New("conflicts with what the Provider holds")
 	// ErrNoTenant means a call scoped to a Tenant was made before the
 	// Provider's Config set one. A Provider that returns it implements
 	// TenantLister, which lists the Tenants to pick from.

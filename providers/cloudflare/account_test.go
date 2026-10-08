@@ -321,7 +321,7 @@ func TestZoneCallsNeedATenant(t *testing.T) {
 		Kind:  dnsprovider.ChangeAdd,
 		After: dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300},
 	}}}
-	if _, err := p.Apply(ctx, cs); !errors.Is(err, dnsprovider.ErrNoTenant) {
+	if _, err := dnsprovider.Apply(ctx, p, cs); !errors.Is(err, dnsprovider.ErrNoTenant) {
 		t.Errorf("Apply: err = %v, want ErrNoTenant", err)
 	}
 

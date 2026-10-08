@@ -18,8 +18,26 @@ type Provider interface {
 	// Records lists a Zone's Records that match the filter, exactly
 	// filtered, with the SOA serial when the Provider reports it.
 	Records(ctx context.Context, zone Zone, f RecordFilter) (RecordSet, error)
-	// Apply applies a Changeset and reports the result of each change.
-	Apply(ctx context.Context, cs Changeset) (ApplyResult, error)
+	// CreateRecord adds a Record and returns it as the Provider stored
+	// it, with its ID: ErrConflict when the Zone holds a Record identical
+	// to it.
+	CreateRecord(ctx context.Context, zone Zone, r Record) (Record, error)
+	// UpdateRecord changes before, the Record as last read, into after
+	// and returns after as the Provider stored it, with its ID. A Provider
+	// with record IDs finds before by its ID; one without, by its content,
+	// and fails with ErrNotFound when the Zone no longer holds it.
+	UpdateRecord(ctx context.Context, zone Zone, before, after Record) (Record, error)
+	// DeleteRecord removes a Record as last read, found as UpdateRecord
+	// finds before.
+	DeleteRecord(ctx context.Context, zone Zone, r Record) error
+}
+
+// Batcher is implemented by a Provider that writes several Records in
+// fewer calls than one per change, or atomically. Apply goes through it.
+type Batcher interface {
+	// ApplyChangeset applies a Changeset and reports the result of each
+	// change, or an error when the Changeset failed as a whole.
+	ApplyChangeset(ctx context.Context, cs Changeset) (ApplyResult, error)
 }
 
 // ZoneStatusReader is implemented by a Provider that reads the

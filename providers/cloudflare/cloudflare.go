@@ -185,6 +185,7 @@ type Provider struct {
 var (
 	_ dnsprovider.Provider  = (*Provider)(nil)
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
+	_ dnsprovider.Batcher   = (*Provider)(nil)
 	_ dnsprovider.ProxyFlag = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
 
@@ -480,12 +481,12 @@ func decodeRecord(data []byte) (dnsprovider.Record, error) {
 	return rec, nil
 }
 
-// Apply implements dnsprovider.Provider. Each change is its own API call,
+// ApplyChangeset implements dnsprovider.Batcher. Each change is its own API call,
 // made one at a time: deletions first, then modifications, then additions,
 // so a Record that takes the place of another does not collide with it. A
 // failed change does not stop the others. The results are in Changeset
 // order, and carry no serial: Cloudflare's API does not report it.
-func (p *Provider) Apply(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	if err := p.needTenant(); err != nil {
 		return dnsprovider.ApplyResult{}, err
 	}
@@ -949,4 +950,19 @@ func (p *Provider) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 	}
 
 	return out, nil
+}
+
+// CreateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+func (p *Provider) CreateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) (dnsprovider.Record, error) {
+	return dnsprovider.Record{}, fmt.Errorf("%s: CreateRecord: %w", "cloudflare", dnsprovider.ErrNotImplemented)
+}
+
+// UpdateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+func (p *Provider) UpdateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record, dnsprovider.Record) (dnsprovider.Record, error) {
+	return dnsprovider.Record{}, fmt.Errorf("%s: UpdateRecord: %w", "cloudflare", dnsprovider.ErrNotImplemented)
+}
+
+// DeleteRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+func (p *Provider) DeleteRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) error {
+	return fmt.Errorf("%s: DeleteRecord: %w", "cloudflare", dnsprovider.ErrNotImplemented)
 }

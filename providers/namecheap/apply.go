@@ -28,7 +28,7 @@ type sendHost struct {
 	TTL    uint32
 }
 
-// Apply implements dnsprovider.Provider. setHosts replaces a domain's whole
+// ApplyChangeset implements dnsprovider.Batcher. setHosts replaces a domain's whole
 // host list, so Apply reads the list and the EmailType with getHosts, makes
 // the Changeset's changes to it, and sends the result in one call.
 //
@@ -37,7 +37,7 @@ type sendHost struct {
 // it), so Apply returns an error of its own rather than per-change errors.
 // On success, each added or modified Record is returned as Records reads
 // it back, with its content ID, so a consumer need not read the Zone again.
-func (p *Provider) Apply(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 	for i, c := range cs.Changes {
 		res.Results[i] = dnsprovider.ChangeResult{Change: c}
@@ -284,4 +284,19 @@ func (p *Provider) setHosts(ctx context.Context, zone dnsprovider.Zone, emailTyp
 	}
 
 	return nil
+}
+
+// CreateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+func (p *Provider) CreateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) (dnsprovider.Record, error) {
+	return dnsprovider.Record{}, fmt.Errorf("%s: CreateRecord: %w", "namecheap", dnsprovider.ErrNotImplemented)
+}
+
+// UpdateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+func (p *Provider) UpdateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record, dnsprovider.Record) (dnsprovider.Record, error) {
+	return dnsprovider.Record{}, fmt.Errorf("%s: UpdateRecord: %w", "namecheap", dnsprovider.ErrNotImplemented)
+}
+
+// DeleteRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+func (p *Provider) DeleteRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) error {
+	return fmt.Errorf("%s: DeleteRecord: %w", "namecheap", dnsprovider.ErrNotImplemented)
 }

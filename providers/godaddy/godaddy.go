@@ -127,6 +127,7 @@ func (p *Provider) api() *rest.Client {
 var (
 	_ dnsprovider.Provider  = (*Provider)(nil)
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
+	_ dnsprovider.Batcher   = (*Provider)(nil)
 )
 
 // TTLRange implements dnsprovider.TTLLimits: a GoDaddy TTL is at least 600
@@ -465,7 +466,7 @@ type rrGroup struct {
 	ops []rrOp
 }
 
-// Apply implements dnsprovider.Provider. GoDaddy has no record IDs, so each
+// ApplyChangeset implements dnsprovider.Batcher. GoDaddy has no record IDs, so each
 // RRset a Changeset touches is one call: it is read, has the changes made
 // to it, and is replaced, or deleted when they leave it empty. RRsets left
 // with only deletions go first, so a Record that takes the place of
@@ -473,7 +474,7 @@ type rrGroup struct {
 // result of its call; a failed RRset does not stop the others. A
 // modification that moves a Record between RRsets and is made in only
 // one of them is undone. The results are in Changeset order, with no serial.
-func (p *Provider) Apply(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 
 	var groups []*rrGroup
@@ -786,4 +787,19 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 	}
 
 	return info, nil
+}
+
+// CreateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+func (p *Provider) CreateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) (dnsprovider.Record, error) {
+	return dnsprovider.Record{}, fmt.Errorf("%s: CreateRecord: %w", "godaddy", dnsprovider.ErrNotImplemented)
+}
+
+// UpdateRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+func (p *Provider) UpdateRecord(context.Context, dnsprovider.Zone, dnsprovider.Record, dnsprovider.Record) (dnsprovider.Record, error) {
+	return dnsprovider.Record{}, fmt.Errorf("%s: UpdateRecord: %w", "godaddy", dnsprovider.ErrNotImplemented)
+}
+
+// DeleteRecord implements dnsprovider.Provider; not yet: ErrNotImplemented.
+func (p *Provider) DeleteRecord(context.Context, dnsprovider.Zone, dnsprovider.Record) error {
+	return fmt.Errorf("%s: DeleteRecord: %w", "godaddy", dnsprovider.ErrNotImplemented)
 }

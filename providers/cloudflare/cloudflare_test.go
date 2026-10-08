@@ -624,7 +624,7 @@ func TestApplyCreatesARecordWithTheProxyFlag(t *testing.T) {
 		Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300, Extras: map[string]string{cloudflare.ExtraProxied: "true"},
 	}}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -648,7 +648,7 @@ func TestApplyUpdatesARecordInPlaceAndTurnsTheProxyOff(t *testing.T) {
 	after := dnsprovider.Record{ID: "r1", Type: "CNAME", Name: "www.example.com", Value: "example.net", TTL: 300, Extras: map[string]string{cloudflare.ExtraProxied: "false"}}
 	modify := dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: after}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{modify}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{modify}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -683,7 +683,7 @@ func TestApplyTurnsTheProxyOffWhenARecordChangesToATypeThatCannotHaveIt(t *testi
 	after := dnsprovider.Record{ID: "r1", Type: "TXT", Name: "www.example.com", Value: "\"hi\"", TTL: 1}
 	modify := dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: after}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{modify}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{modify}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -697,7 +697,7 @@ func TestApplyDeletesARecord(t *testing.T) {
 
 	del := dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: dnsprovider.Record{ID: "r1", Type: "TXT", Name: "example.com", Value: "\"old\"", TTL: 300}}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{del}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{del}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -725,7 +725,7 @@ func TestApplySendsDeletionsFirstAndReportsInChangesetOrder(t *testing.T) {
 		After:  dnsprovider.Record{ID: "r2", Type: "TXT", Name: "example.com", Value: "\"v=2\"", TTL: 300}}
 	del := dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add, modify, del}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add, modify, del}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -764,7 +764,7 @@ func TestApplyKeepsGoingAfterAChangeFails(t *testing.T) {
 	good2 := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "two.example.com", Value: "\"2\"", TTL: 300}}
 	gone := dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: dnsprovider.Record{ID: "r9", Type: "TXT", Name: "gone.example.com", Value: "\"9\"", TTL: 300}}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{good1, bad, good2, gone}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{good1, bad, good2, gone}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -794,7 +794,7 @@ func TestApplyTakesAnySuccessful2xxResponse(t *testing.T) {
 
 			add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "\"hi\"", TTL: 300}}
 
-			res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
+			res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
 			if err != nil {
 				t.Fatalf("Apply: %v", err)
 			}
@@ -819,7 +819,7 @@ func TestApplyFailsAChangeCloudflareDoesNotMarkAsSuccess(t *testing.T) {
 
 	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "\"hi\"", TTL: 300}}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -842,7 +842,7 @@ func TestApplyTakesA2xxResponseWithoutASuccessField(t *testing.T) {
 
 	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "example.com", Value: `"hi"`, TTL: 300}}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -885,7 +885,7 @@ func TestApplyDoesNotRetryACreate(t *testing.T) {
 
 	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "example.com", Value: `"hi"`, TTL: 300}}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -933,7 +933,7 @@ func TestApplyTakesADeleteWhoseRetryFindsTheRecordGone(t *testing.T) {
 
 	del := dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: dnsprovider.Record{ID: "r1", Type: "TXT", Name: "example.com", Value: `"hi"`, TTL: 300}}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{del}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{del}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -954,7 +954,7 @@ func TestApplyRejectsCAAFlagsAbove255(t *testing.T) {
 
 	add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "CAA", Name: "example.com", Value: `256 issue "letsencrypt.org"`, TTL: 300}}
 
-	res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{add}})
 	if err != nil {
 		t.Fatalf("Apply: %v", err)
 	}
@@ -991,7 +991,7 @@ func TestApplySplitsThePriorityAndDataOutOfTheValue(t *testing.T) {
 			rec := dnsprovider.Record{Type: c.typ, Name: c.name, Value: c.value, TTL: 3600}
 			add := dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: rec}
 
-			res, err := p.Apply(context.Background(), dnsprovider.Changeset{Zone: zone, Changes: []dnsprovider.Change{add}})
+			res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: zone, Changes: []dnsprovider.Change{add}})
 			if err != nil {
 				t.Fatalf("Apply: %v", err)
 			}

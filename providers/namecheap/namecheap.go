@@ -132,6 +132,7 @@ type Provider struct {
 var (
 	_ dnsprovider.Provider  = (*Provider)(nil)
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
+	_ dnsprovider.Batcher   = (*Provider)(nil)
 )
 
 // TTLRange implements dnsprovider.TTLLimits. Namecheap's "Automatic" TTL is

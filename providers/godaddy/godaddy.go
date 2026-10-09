@@ -353,7 +353,7 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprov
 
 	all, err := p.listRecords(ctx, zone, typ)
 	if err != nil {
-		return dnsprovider.RecordSet{}, err
+		return dnsprovider.RecordSet{}, p.notServed(ctx, zone, err)
 	}
 
 	records := make([]dnsprovider.Record, 0, len(all))
@@ -369,6 +369,22 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprov
 	}
 
 	return dnsprovider.RecordSet{Records: records}, nil
+}
+
+// notServed turns the not-found of a Zone's records into ErrNotServed when
+// the Account still holds the domain: GoDaddy keeps no zone file for a
+// domain it registers while its Delegation names other nameservers. A
+// domain gone from the Account, and any other error, is left as it is.
+func (p *Provider) notServed(ctx context.Context, zone dnsprovider.Zone, err error) error {
+	if !errors.Is(err, dnsprovider.ErrNotFound) {
+		return err
+	}
+
+	if _, zerr := p.Zone(ctx, zone.Name); zerr != nil {
+		return err
+	}
+
+	return fmt.Errorf("godaddy: zone %q: %w: %w", zone.Name, dnsprovider.ErrNotServed, err)
 }
 
 // listRecords reads every page of a domain's records, only those of a

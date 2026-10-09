@@ -958,6 +958,25 @@ func TestApplyKeepsTheServiceOfSRVRecordsNamedWithoutServiceFields(t *testing.T)
 	}
 }
 
+// GoDaddy keeps no zone file for a domain it registers while its Delegation
+// names other nameservers: its records are not served, not found. A
+// domain the Account no longer holds stays not found.
+func TestRecordsOfADomainWithoutAZoneFileAreNotServed(t *testing.T) {
+	api := &gdAPI{domains: []map[string]any{domain("example.com", "ns1.elsewhere.example")}}
+
+	_, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	if !errors.Is(err, dnsprovider.ErrNotServed) || !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("Records of a held domain: err = %v, want ErrNotServed", err)
+	}
+
+	api.domains = nil
+
+	_, err = newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	if !errors.Is(err, dnsprovider.ErrNotFound) || errors.Is(err, dnsprovider.ErrNotServed) {
+		t.Errorf("Records of a domain gone: err = %v, want ErrNotFound alone", err)
+	}
+}
+
 func TestRecordsTurnAnAtTargetIntoTheZoneName(t *testing.T) {
 	api := &gdAPI{records: map[string][]map[string]any{"example.com": {
 		{"type": "MX", "name": "@", "data": "@", "priority": 10, "ttl": 3600},

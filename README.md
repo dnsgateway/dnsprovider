@@ -1,7 +1,7 @@
 # dnsprovider
 
 `github.com/dnsgateway/dnsprovider` manages DNS hosting at DNS Providers
-(Cloudflare, ClouDNS, DNSimple, Gandi, GoDaddy, Internet.bs, Namecheap, Porkbun) through one
+(Cloudflare, ClouDNS, DigitalOcean, DNSimple, Gandi, GoDaddy, Internet.bs, Namecheap, Porkbun) through one
 Go interface: lean, provider-neutral Zone and Record types, the record rules every consumer needs
 to build valid Records, and Changesets applied to a Zone. It never registers,
 renews or cancels a domain.
@@ -13,6 +13,7 @@ providertest/        fake Provider for consumers' tests
 providers/           Registry() of every adapter below
 providers/cloudflare
 providers/cloudns
+providers/digitalocean
 providers/dnsimple
 providers/gandi
 providers/godaddy
@@ -99,6 +100,7 @@ Provider setup, behavior, limitations, and live-test credentials:
 
 - [Cloudflare](docs/provider/cloudflare.md)
 - [ClouDNS](docs/provider/cloudns.md)
+- [DigitalOcean](docs/provider/digitalocean.md)
 - [DNSimple](docs/provider/dnsimple.md)
 - [Gandi](docs/provider/gandi.md)
 - [GoDaddy](docs/provider/godaddy.md)

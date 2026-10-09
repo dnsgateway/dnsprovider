@@ -7,6 +7,7 @@ import (
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/providers/cloudflare"
 	"github.com/dnsgateway/dnsprovider/providers/cloudns"
+	"github.com/dnsgateway/dnsprovider/providers/digitalocean"
 	"github.com/dnsgateway/dnsprovider/providers/dnsimple"
 	"github.com/dnsgateway/dnsprovider/providers/gandi"
 	"github.com/dnsgateway/dnsprovider/providers/godaddy"
@@ -19,13 +20,14 @@ import (
 // Provider type.
 func Registry() dnsprovider.Registry {
 	return dnsprovider.Registry{
-		"cloudflare": cloudflare.Factory(),
-		"cloudns":    cloudns.Factory(),
-		"dnsimple":   dnsimple.Factory(),
-		"godaddy":    godaddy.Factory(),
-		"gandi":      gandi.Factory(),
-		"internetbs": internetbs.Factory(),
-		"namecheap":  namecheap.Factory(),
-		"porkbun":    porkbun.Factory(),
+		"cloudflare":   cloudflare.Factory(),
+		"cloudns":      cloudns.Factory(),
+		"digitalocean": digitalocean.Factory(),
+		"dnsimple":     dnsimple.Factory(),
+		"godaddy":      godaddy.Factory(),
+		"gandi":        gandi.Factory(),
+		"internetbs":   internetbs.Factory(),
+		"namecheap":    namecheap.Factory(),
+		"porkbun":      porkbun.Factory(),
 	}
 }

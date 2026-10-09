@@ -1,0 +1,46 @@
+{
+  "status": "SUCCESS",
+  "records": [
+    {
+      "id": "101",
+      "name": "Example.COM.",
+      "type": "MX",
+      "content": "mail.example.net.",
+      "ttl": "600",
+      "prio": "10",
+      "notes": "keep"
+    },
+    {
+      "id": "102",
+      "name": "_sip._tcp.example.com",
+      "type": "SRV",
+      "content": "5 443 sip.example.net.",
+      "ttl": "600",
+      "prio": "20"
+    },
+    {
+      "id": "103",
+      "name": "*.example.com",
+      "type": "TXT",
+      "content": "hello \"world\"",
+      "ttl": "600",
+      "prio": null
+    },
+    {
+      "id": "104",
+      "name": "example.com",
+      "type": "CAA",
+      "content": "0 issue \"letsencrypt.org\"",
+      "ttl": "600",
+      "prio": null
+    },
+    {
+      "id": "105",
+      "name": "example.com",
+      "type": "HTTPS",
+      "content": "1 . alpn=h2",
+      "ttl": "600",
+      "prio": null
+    }
+  ]
+}

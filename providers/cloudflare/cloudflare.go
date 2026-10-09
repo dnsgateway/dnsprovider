@@ -56,8 +56,8 @@ const (
 )
 
 // Factory builds the Cloudflare Provider from a field map, for a
-// dnsprovider.Registry. It declares the Zone writes, ZoneCreator and
-// ZoneUpdater, which every Cloudflare Provider implements.
+// dnsprovider.Registry. It declares the Zone writes, ZoneCreator,
+// ZoneUpdater and ZoneDeleter, which every Cloudflare Provider implements.
 func Factory() dnsprovider.Factory {
 	fs := []dnsprovider.Field{
 		{Name: FieldToken, Label: "API token", Secret: true},
@@ -67,7 +67,7 @@ func Factory() dnsprovider.Factory {
 	f := fields.Factory("cloudflare", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Token: m[FieldToken], TenantID: m[FieldTenantID]}, opts...)
 	})
-	f.Capabilities = []dnsprovider.Capability{dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater}
+	f.Capabilities = []dnsprovider.Capability{dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter}
 
 	return f
 }
@@ -195,6 +195,7 @@ var (
 	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
 	_ dnsprovider.ZoneUpdater      = (*Provider)(nil)
 	_ dnsprovider.ZoneCreator      = (*Provider)(nil)
+	_ dnsprovider.ZoneDeleter      = (*Provider)(nil)
 )
 
 // AutoTTL implements dnsprovider.AutoTTL: Cloudflare reads TTL 1 as automatic.
@@ -315,6 +316,45 @@ func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zon
 	}
 
 	return p.readBackCreated(ctx, name), nil
+}
+
+// DeleteZone implements dnsprovider.ZoneDeleter: a DELETE /zones/{id},
+// which Offboards the Zone and drops its Records at Cloudflare; the
+// domain's registration is not Cloudflare's to touch here. A delete is
+// idempotent, so it is retried as reads are. A retry that Cloudflare
+// answers with a not-found for the zone (it cannot route to it, or the
+// zone identifier is invalid) succeeds: the earlier try, whose answer was
+// lost, Offboarded it. On the first try the same answer stays
+// ErrNotFound: nothing this call sent could have Offboarded it, and
+// Cloudflare does not say whether the ID was ever a Zone the token
+// reaches. A Zone without an ID fails without a request.
+func (p *Provider) DeleteZone(ctx context.Context, zone dnsprovider.Zone) error {
+	if zone.ID == "" {
+		return fmt.Errorf("cloudflare: Offboard %q: no zone ID", zone.Name)
+	}
+
+	var params zones.ZoneDeleteParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	// tries counts the requests the delete takes, retries included.
+	var tries int
+
+	count := option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+		tries++
+
+		return next(req)
+	})
+
+	_, err := p.do(ctx, nil, func(opts ...option.RequestOption) error {
+		_, err := p.zones.Delete(ctx, params, append(opts, count)...)
+
+		return err
+	})
+	if tries > 1 && errors.Is(err, dnsprovider.ErrNotFound) {
+		return nil
+	}
+
+	return err
 }
 
 // readBackCreated is the Zone a create Cloudflare took without answering

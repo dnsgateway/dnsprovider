@@ -97,8 +97,12 @@ var errorCodes = map[int]error{
 	// answers (https://github.com/midl-dev/tezos-on-gke/issues/3) and
 	// mapped by libcloud as ZoneAlreadyExistsError
 	// (https://libcloud.readthedocs.io/en/v3.3.0/_modules/libcloud/dns/drivers/cloudflare.html).
-	1061:  dnsprovider.ErrConflict,
-	7003:  dnsprovider.ErrNotFound, // Could not route to …, perhaps your object identifier is invalid?
+	1061: dnsprovider.ErrConflict,
+	7003: dnsprovider.ErrNotFound, // Could not route to …, perhaps your object identifier is invalid?
+	// 1001, "Invalid zone identifier", answers a zone ID Cloudflare does
+	// not know, as for a zone deleted since. Cloudflare's docs leave it
+	// out; it is seen in real answers to calls on a zone that is gone.
+	1001:  dnsprovider.ErrNotFound,
 	81044: errRecordMissing,        // Record does not exist.
 	81053: dnsprovider.ErrConflict, // An A, AAAA, or CNAME record with that host already exists.
 	81054: dnsprovider.ErrConflict, // A CNAME record with that host already exists.

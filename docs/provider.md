@@ -45,6 +45,7 @@ dnsprovider/
     ├── internetbs/
     ├── namecheap/
     ├── porkbun/
+    ├── scaleway/
     └── vultr/
 ```
 
@@ -108,6 +109,7 @@ Cloudflare can proxy A, AAAA, and CNAME Records.
 | DNSimple | 0 | 4294967295 | No; API schema bounds, with plan restrictions enforced by the service |
 | Gandi | 300 | 2592000 | No; siblings in an RRset share their TTL |
 | DigitalOcean | 30 | 86400 | No; the default range, as DigitalOcean documents no bounds |
+| Scaleway | 60 | 2592000 | No; explicit TTL, as validated by the official Terraform provider |
 | Vultr | 30 | 86400 | No; the default range, as Vultr documents no bounds |
 
 `TTLRange.Check` validates a TTL. Shared validation helpers are available
@@ -125,6 +127,7 @@ validates configuration without making a network call.
 | Namecheap | `User`, `Key`, `ClientIP` | `user`, `key`, `client_ip` |
 | Gandi | `Token` | `token` |
 | DigitalOcean | `Token` | `token` |
+| Scaleway | `SecretKey`, `ProjectID` | `secret_key` (secret), `project_id` |
 | Vultr | `APIKey` | `api_key` |
 | Internet.bs | `Key`, `Password` | `key`, `password` |
 
@@ -441,6 +444,7 @@ Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:
 | GoDaddy | `DNSPROVIDER_GODADDY_KEY`, `DNSPROVIDER_GODADDY_SECRET` |
 | Internet.bs | `DNSPROVIDER_INTERNETBS_KEY`, `DNSPROVIDER_INTERNETBS_PASSWORD` |
 | Namecheap | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |
+| Scaleway | `DNSPROVIDER_SCALEWAY_SECRET_KEY`, `DNSPROVIDER_SCALEWAY_PROJECT_ID` |
 | Vultr | `DNSPROVIDER_VULTR_API_KEY` |
 
 `DNSPROVIDER_<PROVIDER>_BASE_URL` overrides the live-test endpoint for a
@@ -478,3 +482,10 @@ type changes by replacement. Account verification uses `GET /v2/account`;
 DNS Domains are Zones keyed by name with Unknown Hosting State; Records are
 written by native ID with POST, PATCH and DELETE. Creates and PATCH updates
 are never retried. The adapter uses the common Apply CRUD fallback.
+
+## Scaleway
+
+[Scaleway setup and limitations](provider/scaleway.md) cover Project scope,
+secret key authentication, DNS permissions, targeted batched operations,
+metadata retention, TTL bounds and uncertain completion. The adapter never
+creates Zones implicitly.

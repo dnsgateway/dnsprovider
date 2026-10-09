@@ -13,6 +13,7 @@ providertest/        fake Provider for consumers' tests
 providers/           Registry() of every adapter below
 providers/cloudflare
 providers/cloudns
+providers/dnsimple
 providers/godaddy
 providers/namecheap
 providers/porkbun
@@ -96,6 +97,7 @@ Provider setup, behavior, limitations, and live-test credentials:
 
 - [Cloudflare](docs/provider/cloudflare.md)
 - [ClouDNS](docs/provider/cloudns.md)
+- [DNSimple](docs/provider/dnsimple.md)
 - [GoDaddy](docs/provider/godaddy.md)
 - [Namecheap](docs/provider/namecheap.md)
 - [Porkbun](docs/provider/porkbun.md)

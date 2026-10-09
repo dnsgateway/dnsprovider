@@ -87,5 +87,74 @@ This is done by committing with the `--signoff` flag.
 
 ## Development
 
-The build process for this project is designed to run entirely in containers.
-To get started, run `make help` and follow the instructions.
+Install Git, make, and Go matching `go.mod` (currently Go 1.24.0). CI reads
+its Go version from that file. Install golangci-lint v2.13.2, the version
+used by CI, for the configured lint checks. Docker is needed for conformance;
+normal builds and tests run locally and do not require containers. The Go
+requirement printed by `make help` may differ; follow `go.mod`.
+
+Clone the repository and download dependencies:
+
+```sh
+git clone https://github.com/dnsgateway/dnsprovider.git
+cd dnsprovider
+go mod download
+make help
+```
+
+Validate changes with:
+
+```sh
+make unit                 # all Go tests
+make vet                  # go vet ./...
+make lint                 # .golangci.yml, including tests
+go test -race ./...       # race checks
+make conformance          # commit policy and DCO; requires Docker
+```
+
+Report unavailable tooling and failed checks accurately in the PR checklist.
+Run `gofmt` on changed Go files. `make test` combines lint and unit tests.
+`make tools` installs the optional license checker; `make licenses` runs it.
+
+### Deterministic and live tests
+
+Default tests use local HTTP fixtures and require no real provider account.
+Keep `DNSPROVIDER_*` credentials unset for deterministic test and lint runs:
+live tests share the normal test suite and activate when their required secret
+fields are configured. Live checks only read Account, Zones, and Records; they
+must never mutate real DNS. Each adapter's documentation in `docs/provider/`
+lists its environment variables and optional endpoint override.
+
+To run Internet.bs read-only checks explicitly, configure
+`DNSPROVIDER_INTERNETBS_KEY` and `DNSPROVIDER_INTERNETBS_PASSWORD`, then run
+`go test ./providers/internetbs -run '^TestLive$' -v`. The optional
+`DNSPROVIDER_INTERNETBS_BASE_URL` selects another endpoint. Public sandbox
+credentials must never be enabled implicitly.
+
+### Adding or changing a provider
+
+Start from the associated GitHub issue and verify the protocol against official
+provider documentation. Read relevant domain vocabulary and decisions in
+`GLOSSARY.md` and `docs/adr/` when present. Keep the root Provider interface
+stable and use shared Options, validation, filters, error types, and Apply.
+
+An adapter in `providers/<name>` exports typed `Config`, `New`, and `Factory`.
+Construction validates locally without network calls. Mark secret Factory
+fields, reject unknown fields, and declare only implemented optional
+capabilities. Honor custom HTTP clients, endpoint overrides, and logging;
+prevent credentials from reaching diagnostics. Discover complete inventories,
+normalize names, preserve unrelated Records, and make uncertain write outcomes
+and retry behavior explicit.
+
+Test consumer-visible behavior through the exported Provider and Apply using
+protocol-faithful local `httptest` fixtures in the external test package.
+Cover configuration, filtering, errors, write selection, preservation of
+siblings, and partial failures. Register the adapter in `providers.Registry`
+while retaining existing entries and independent Registry maps, and update
+Registry contract tests. Add an optional read-only live test using
+`internal/livetest`, a setup/limitations page in `docs/provider/`, and entries
+in README.md and `docs/provider.md`. Add the provider scope to `.conform.yaml`.
+
+Before submitting, run the validation commands above, preserve the PR template,
+squash the final PR to one lowercase Conventional Commit, and include its
+`Signed-off-by:` footer. Disclose AI usage honestly.

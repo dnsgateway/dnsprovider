@@ -11,7 +11,7 @@ import (
 func TestRegistryHasOneFactoryPerProvider(t *testing.T) {
 	r := providers.Registry()
 
-	if got, want := r.Types(), []string{"cloudflare", "cloudns", "dnsimple", "gandi", "godaddy", "namecheap", "porkbun"}; !slices.Equal(got, want) {
+	if got, want := r.Types(), []string{"cloudflare", "cloudns", "dnsimple", "gandi", "godaddy", "internetbs", "namecheap", "porkbun"}; !slices.Equal(got, want) {
 		t.Fatalf("Types() = %v, want %v", got, want)
 	}
 
@@ -50,6 +50,7 @@ var validFields = map[string]map[string]string{
 	"cloudflare": {"token": "t", "tenant_id": "0123456789abcdef0123456789abcdef"},
 	"dnsimple":   {"token": "t", "account_id": "12"},
 	"godaddy":    {"key": "k", "secret": "s"},
+	"internetbs": {"key": "k", "password": "s"},
 	"gandi":      {"token": "t"},
 	"porkbun":    {"key": "k", "secret": "s"},
 	"cloudns":    {"password": "s", "auth_id": "123"},
@@ -76,5 +77,24 @@ func TestEachFactoryDeclaresTheZoneWritesItsProvidersImplement(t *testing.T) {
 		if f.Can(dnsprovider.CapZoneDeleter) != dnsprovider.CanDeleteZone(p) {
 			t.Errorf("%s: Factory declares ZoneDeleter %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneDeleter), dnsprovider.CanDeleteZone(p))
 		}
+	}
+}
+
+func TestRegistryReturnsIndependentFactories(t *testing.T) {
+	first := providers.Registry()
+	f, ok := first["internetbs"]
+	if !ok {
+		t.Fatal("Internet.bs is absent from Registry")
+	}
+	f.Fields[0].Label = "changed"
+	first["internetbs"] = f
+	delete(first, "cloudflare")
+
+	second := providers.Registry()
+	if _, ok := second["cloudflare"]; !ok {
+		t.Error("changing one Registry removed another Registry entry")
+	}
+	if got := second["internetbs"].Fields[0].Label; got == "changed" {
+		t.Error("changing one Factory mutated another Registry's fields")
 	}
 }

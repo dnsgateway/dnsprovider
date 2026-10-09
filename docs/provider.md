@@ -35,12 +35,13 @@ dnsprovider/
 ├── providertest/    scriptable in-memory Provider for consumers' tests
 ├── internal/        adapter helpers and test support
 └── providers/
-    ├── registry.go  Registry() collecting all seven adapters
+    ├── registry.go  Registry() collecting all eight adapters
     ├── cloudflare/
     ├── cloudns/
     ├── dnsimple/
     ├── gandi/
     ├── godaddy/
+    ├── internetbs/
     ├── namecheap/
     └── porkbun/
 ```
@@ -72,7 +73,7 @@ type Record struct {
 }
 ```
 
-Cloudflare assigns record IDs. GoDaddy, Namecheap, and Gandi use content-derived
+Cloudflare assigns record IDs. GoDaddy, Namecheap, Gandi, and Internet.bs use content-derived
 keys, which change when the Record changes. Keep the whole Record as read
 for updates and deletions.
 
@@ -119,6 +120,7 @@ validates configuration without making a network call.
 | GoDaddy | `Key`, `Secret` | `key`, `secret` |
 | Namecheap | `User`, `Key`, `ClientIP` | `user`, `key`, `client_ip` |
 | Gandi | `Token` | `token` |
+| Internet.bs | `Key`, `Password` | `key`, `password` |
 
 Cloudflare's Tenant ID must be 32 lower-case hex digits. Its constructor
 uses Config credentials rather than the SDK's environment credentials.
@@ -186,8 +188,7 @@ Adapters push filters down where possible and apply `MatchZone` or
 `Zone(ctx, name)` matches an exact name ignoring case and a trailing dot,
 and returns `ErrNotFound` when absent.
 
-`RecordSet` contains Records and an optional SOA Serial. All three current
-adapters return zero for the serial.
+`RecordSet` contains Records and an optional SOA Serial. Adapters return zero for the serial when it is unknown.
 
 ## Accounts, Tenants, and Hosting State
 
@@ -431,7 +432,20 @@ Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:
 | --- | --- |
 | Cloudflare | `DNSPROVIDER_CLOUDFLARE_TOKEN`, optional `DNSPROVIDER_CLOUDFLARE_TENANT_ID` |
 | GoDaddy | `DNSPROVIDER_GODADDY_KEY`, `DNSPROVIDER_GODADDY_SECRET` |
+| Internet.bs | `DNSPROVIDER_INTERNETBS_KEY`, `DNSPROVIDER_INTERNETBS_PASSWORD` |
 | Namecheap | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |
 
 `DNSPROVIDER_<PROVIDER>_BASE_URL` overrides the live-test endpoint for a
 sandbox or alternate API.
+
+## Internet.bs
+
+[Internet.bs setup and limitations](provider/internetbs.md) cover API access,
+full unpaginated domain discovery, DNS eligibility, supported writes, exact
+content selection, and replacement failures. Account verification uses
+`Account/Balance/Get`; discovery uses `Domain/List`; DNS operations use
+`Domain/DnsRecord/List`, `Add`, `Update`, and `Remove`. All commands use
+form-encoded POST with body credentials and are never automatically retried.
+Registration state does not establish DNS Hosting State, which is Unknown.
+The adapter uses the common Apply CRUD fallback and content-derived Record
+IDs; retain the complete Before Record for later edits and deletion.

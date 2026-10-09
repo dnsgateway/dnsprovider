@@ -90,6 +90,35 @@ type Changeset struct {
 type ZoneStatus struct {
 	DNSSEC Setting
 	HSTS   Setting
+	// MinTLS is the oldest TLS version the Provider's edge accepts for
+	// HTTPS to the zone, such as Cloudflare's minimum TLS version;
+	// TLSUnknown when the Provider has none, or it could not be read.
+	MinTLS TLSVersion
+}
+
+// TLSVersion is a TLS protocol version, such as "1.2". The zero value is
+// TLSUnknown. Consumers may store the values.
+type TLSVersion string
+
+// TLS versions.
+const (
+	TLSUnknown TLSVersion = ""
+	TLS10      TLSVersion = "1.0"
+	TLS11      TLSVersion = "1.1"
+	TLS12      TLSVersion = "1.2"
+	TLS13      TLSVersion = "1.3"
+)
+
+// TLSVersions are the TLS versions, oldest first.
+var TLSVersions = []TLSVersion{TLS10, TLS11, TLS12, TLS13}
+
+// String is the version, such as "1.2", or "?" when it is unknown.
+func (v TLSVersion) String() string {
+	if v == TLSUnknown {
+		return "?"
+	}
+
+	return string(v)
 }
 
 // Setting is a Zone setting that is on, off, pending a change between

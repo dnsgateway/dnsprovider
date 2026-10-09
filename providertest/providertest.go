@@ -312,7 +312,8 @@ func (p *Provider) SetBatcher(on bool) {
 
 // SetZoneUpdater makes the Providers New builds implement
 // dnsprovider.ZoneUpdater, recorded as OpUpdateZone: UpdateZone turns
-// HSTS On or Off as it is given, and DNSSEC, either way, Pending, as
+// HSTS On or Off and sets the minimum TLS version as it is given, and
+// DNSSEC, either way, Pending, as
 // Cloudflare signs and unsigns a Zone over time, in the scripted Zone
 // Status, which a fake that reads Zone Status (see SetZoneStatus) then
 // reports, and returns that Zone Status; SetZoneStatus settles DNSSEC.
@@ -761,7 +762,8 @@ func (p *Provider) zoneStatus(_ context.Context, z dnsprovider.Zone) (dnsprovide
 }
 
 // updateZone is the fake's dnsprovider.ZoneUpdater: it turns HSTS On or
-// Off and DNSSEC Pending in the scripted Zone Status and returns it;
+// Off, sets the minimum TLS version and turns DNSSEC Pending in the
+// scripted Zone Status and returns it;
 // ErrNotFound for a Zone not scripted.
 func (p *Provider) updateZone(_ context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
 	if err := p.record(Call{Op: OpUpdateZone, Zone: z, ZoneUpdate: u}); err != nil {
@@ -784,6 +786,10 @@ func (p *Provider) updateZone(_ context.Context, z dnsprovider.Zone, u dnsprovid
 
 	if u.HSTS != nil {
 		st.HSTS = setting(*u.HSTS)
+	}
+
+	if u.MinTLS != nil {
+		st.MinTLS = *u.MinTLS
 	}
 
 	p.status[z.ID] = st

@@ -104,6 +104,8 @@ type ZoneUpdater interface {
 type ZoneUpdate struct {
 	DNSSEC *bool
 	HSTS   *bool
+	// MinTLS is one of TLSVersions.
+	MinTLS *TLSVersion
 }
 
 // CanUpdateZone reports whether a Provider implements ZoneUpdater.

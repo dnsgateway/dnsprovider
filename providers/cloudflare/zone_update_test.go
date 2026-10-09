@@ -279,3 +279,57 @@ func TestUpdateZoneKeepsTheSecurityHeaderFieldsItDoesNotKnow(t *testing.T) {
 		}},
 	}})
 }
+
+func TestUpdateZoneSetsTheMinimumTLSVersionAndWritesNothingElse(t *testing.T) {
+	api := &cfAPI{dnssec: map[string]string{"z1": "active"}, hsts: map[string]bool{"z1": true}, minTLS: map[string]string{"z1": "1.0"}}
+	v := dnsprovider.TLS12
+
+	got, err := updateZone(t, newProvider(t, api), dnsprovider.ZoneUpdate{MinTLS: &v})
+	if err != nil {
+		t.Fatalf("UpdateZone: %v", err)
+	}
+
+	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On, MinTLS: dnsprovider.TLS12}); got != want {
+		t.Errorf("UpdateZone = %+v, want %+v", got, want)
+	}
+
+	assertWrites(t, api, []write{{Method: "PATCH", Path: "/client/v4/zones/z1/settings/min_tls_version", Body: map[string]any{"value": "1.2"}}})
+}
+
+func TestUpdateZoneRefusesATLSVersionItDoesNotKnowWritingNothing(t *testing.T) {
+	api := &cfAPI{minTLS: map[string]string{"z1": "1.0"}}
+	v := dnsprovider.TLSVersion("1.4")
+
+	if _, err := updateZone(t, newProvider(t, api), dnsprovider.ZoneUpdate{MinTLS: &v}); err == nil {
+		t.Error("UpdateZone of TLS 1.4 succeeded")
+	}
+
+	assertWrites(t, api, nil)
+}
+
+func TestUpdateZoneWhoseMinimumTLSVersionFailsKeepsTheSettingsWrittenBefore(t *testing.T) {
+	api := &cfAPI{
+		dnssec: map[string]string{"z1": "disabled"},
+		hsts:   map[string]bool{"z1": false},
+		minTLS: map[string]string{"z1": "1.0"},
+		intercept: func(w http.ResponseWriter, r *http.Request) bool {
+			if r.Method != http.MethodPatch || r.URL.Path != "/client/v4/zones/z1/settings/min_tls_version" {
+				return false
+			}
+
+			writeErrors(w, http.StatusForbidden, 9109, "Unauthorized to access requested resource")
+
+			return true
+		},
+	}
+	on, v := true, dnsprovider.TLS13
+
+	got, err := updateZone(t, newProvider(t, api), dnsprovider.ZoneUpdate{DNSSEC: &on, HSTS: &on, MinTLS: &v})
+	if !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		t.Fatalf("UpdateZone error = %v, want ErrUnauthorized", err)
+	}
+
+	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Pending, HSTS: dnsprovider.On}); got != want {
+		t.Errorf("UpdateZone = %+v, want %+v", got, want)
+	}
+}

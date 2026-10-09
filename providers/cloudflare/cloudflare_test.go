@@ -46,6 +46,9 @@ type cfAPI struct {
 	// sts is the strict_transport_security value written, by zone ID,
 	// over hsts.
 	sts map[string]map[string]any
+	// minTLS is the min_tls_version value by zone ID, as scripted or
+	// written; empty when neither, which no TLS version is.
+	minTLS map[string]string
 	// forbidden are the paths answered 403, as for a token that lacks
 	// the permission.
 	forbidden []string
@@ -273,6 +276,29 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 		api.dnssec[r.PathValue("zone")] = status
 		writeResult(w, dnssecResult(status))
 	})
+	mux.HandleFunc("GET /client/v4/zones/{zone}/settings/min_tls_version", func(w http.ResponseWriter, r *http.Request) {
+		api.mu.Lock()
+		defer api.mu.Unlock()
+
+		writeResult(w, minTLSResult(api.minTLS[r.PathValue("zone")]))
+	})
+	mux.HandleFunc("PATCH /client/v4/zones/{zone}/settings/min_tls_version", func(w http.ResponseWriter, r *http.Request) {
+		body, ok := api.writeSetting(w, r)
+		if !ok {
+			return
+		}
+
+		api.mu.Lock()
+		defer api.mu.Unlock()
+
+		if api.minTLS == nil {
+			api.minTLS = map[string]string{}
+		}
+
+		v, _ := body["value"].(string)
+		api.minTLS[r.PathValue("zone")] = v
+		writeResult(w, minTLSResult(v))
+	})
 	mux.HandleFunc("GET /client/v4/zones/{zone}/settings/security_header", func(w http.ResponseWriter, r *http.Request) {
 		api.mu.Lock()
 		defer api.mu.Unlock()
@@ -354,6 +380,16 @@ func (api *cfAPI) hstsOf(zone string) map[string]any {
 		"include_subdomains": true,
 		"preload":            false,
 		"nosniff":            true,
+	}
+}
+
+// minTLSResult is a min_tls_version setting answer with the value.
+func minTLSResult(v string) map[string]any {
+	return map[string]any{
+		"id":          "min_tls_version",
+		"value":       v,
+		"editable":    true,
+		"modified_on": "2024-01-02T03:04:05.000000Z",
 	}
 }
 
@@ -1186,8 +1222,12 @@ func TestZoneStatusReadsDNSSECAndHSTSFromTheZoneSettings(t *testing.T) {
 				t.Errorf("ZoneStatus = %+v, want %+v", got, tt.want)
 			}
 
-			// The two settings are read concurrently, in either order.
-			want := []string{"/client/v4/zones/z1/dnssec?page=", "/client/v4/zones/z1/settings/security_header?page="}
+			// The settings are read concurrently, in any order.
+			want := []string{
+				"/client/v4/zones/z1/dnssec?page=",
+				"/client/v4/zones/z1/settings/min_tls_version?page=",
+				"/client/v4/zones/z1/settings/security_header?page=",
+			}
 			if reqs := slices.Sorted(slices.Values(api.Requests())); !slices.Equal(reqs, want) {
 				t.Errorf("requests = %q, want %q", reqs, want)
 			}
@@ -1866,4 +1906,50 @@ func recordIDs(records []dnsprovider.Record) []string {
 	}
 
 	return ids
+}
+
+func TestZoneStatusReadsTheMinimumTLSVersion(t *testing.T) {
+	tests := []struct {
+		value string
+		want  dnsprovider.TLSVersion
+	}{
+		{"1.0", dnsprovider.TLS10},
+		{"1.2", dnsprovider.TLS12},
+		{"1.3", dnsprovider.TLS13},
+		// A version dnsprovider does not know is unknown.
+		{"1.4", dnsprovider.TLSUnknown},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.value, func(t *testing.T) {
+			api := &cfAPI{dnssec: map[string]string{"z1": "active"}, hsts: map[string]bool{"z1": true}, minTLS: map[string]string{"z1": tt.value}}
+
+			got, err := dnsprovider.ZoneStatusOf(context.Background(), newProvider(t, api), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			if err != nil {
+				t.Fatalf("ZoneStatus: %v", err)
+			}
+
+			if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On, MinTLS: tt.want}); got != want {
+				t.Errorf("ZoneStatus = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestZoneStatusMinimumTLSVersionTheTokenMayNotReadIsUnknown(t *testing.T) {
+	api := &cfAPI{
+		dnssec:    map[string]string{"z1": "active"},
+		hsts:      map[string]bool{"z1": true},
+		minTLS:    map[string]string{"z1": "1.2"},
+		forbidden: []string{"/client/v4/zones/z1/settings/min_tls_version"},
+	}
+
+	got, err := dnsprovider.ZoneStatusOf(context.Background(), newProvider(t, api), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	if err != nil {
+		t.Fatalf("ZoneStatus: %v", err)
+	}
+
+	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On}); got != want {
+		t.Errorf("ZoneStatus = %+v, want %+v", got, want)
+	}
 }

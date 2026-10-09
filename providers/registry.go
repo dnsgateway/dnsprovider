@@ -9,6 +9,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/providers/cloudns"
 	"github.com/dnsgateway/dnsprovider/providers/godaddy"
 	"github.com/dnsgateway/dnsprovider/providers/namecheap"
+	"github.com/dnsgateway/dnsprovider/providers/porkbun"
 )
 
 // Registry returns a new Registry with one Factory per adapter, by
@@ -19,5 +20,6 @@ func Registry() dnsprovider.Registry {
 		"cloudns":    cloudns.Factory(),
 		"godaddy":    godaddy.Factory(),
 		"namecheap":  namecheap.Factory(),
+		"porkbun":    porkbun.Factory(),
 	}
 }

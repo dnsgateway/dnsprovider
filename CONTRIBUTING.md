@@ -18,9 +18,6 @@ Every PR must include:
   - [ ] ran unit tests (`make unit`)
   - [ ] disclosed AI usage honestly
 
-Run `make help` to discover available targets before claiming a checklist item is complete.
-Keep PRs focused: one logical change per PR. Split larger work into multiple PRs when possible.
-
 ### Maintaining Pull Requests
 
 - Address review feedback by force-pushing to the PR branch.
@@ -32,7 +29,8 @@ All PRs require a single commit.
 
 Having one commit in a Pull Request is very important for several reasons:
 * A single commit per PR keeps the git history clean and readable.
-  It helps reviewers and future developers understand the change as one atomic unit of work, instead of sifting through many intermediate or redundant commits.
+  It helps reviewers and future developers understand the change as one atomic unit of work,
+  instead of sifting through many intermediate or redundant commits.
 * One commit is easier to cherry-pick into another branch or to track in changelogs.
 * Squashing into one meaningful commit ensures the final PR only contains what matters.
 
@@ -54,7 +52,7 @@ when helpful, and keep the PR title aligned with its single commit's header.
 For example:
 
 ```text
-feat(cloudns): add the cloudns provider
+feat(provider-name): add the cloudns provider
 ```
 
 Put an optional body and footers after a blank line. Mark breaking changes

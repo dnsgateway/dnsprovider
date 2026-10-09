@@ -13,5 +13,3 @@ Please use the following checklist:
 - [ ] you linted your code (`make lint`)
 - [ ] you ran unit tests (`make unit`)
 - [ ] I disclosed AI usage honestly (if applicable)
-
-> See `make help` for a description of the available targets.

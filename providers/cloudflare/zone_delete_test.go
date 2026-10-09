@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -189,7 +190,8 @@ func TestDeleteZoneOfAZoneCloudflareDoesNotKnowOnTheFirstTryIsNotFound(t *testin
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
-			o := &offboard{answer: func(w http.ResponseWriter, _ *http.Request, _ int) bool {
+			// The Tenant's zone is read, then gone by the DELETE.
+			o := &offboard{api: &cfAPI{zones: []map[string]any{cfZone("gone", "example.net")}}, answer: func(w http.ResponseWriter, _ *http.Request, _ int) bool {
 				unknown(w)
 
 				return true
@@ -294,8 +296,8 @@ func TestDeleteZoneWhoseRetryFindsTheZoneGoneAfterAnUnansweredTrySucceeds(t *tes
 	}
 }
 
-// unsentFirst fails the first request before sending any of it, as a
-// refused connection does, and sends the others.
+// unsentFirst fails the first DELETE before sending any of it, as a
+// refused connection does, and sends the other requests.
 type unsentFirst struct {
 	mu    sync.Mutex
 	tries int
@@ -303,11 +305,13 @@ type unsentFirst struct {
 
 func (u *unsentFirst) RoundTrip(r *http.Request) (*http.Response, error) {
 	u.mu.Lock()
-	u.tries++
+	if r.Method == http.MethodDelete {
+		u.tries++
+	}
 	try := u.tries
 	u.mu.Unlock()
 
-	if try == 1 {
+	if try == 1 && r.Method == http.MethodDelete {
 		return nil, errors.New("connection refused")
 	}
 
@@ -315,8 +319,12 @@ func (u *unsentFirst) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func TestDeleteZoneNotFoundAfterATryNeverSentIsNotFound(t *testing.T) {
-	api := &cfAPI{zones: []map[string]any{cfZone("z2", "example.org")}}
-	o := &offboard{api: api}
+	api := &cfAPI{zones: []map[string]any{cfZone("z1", "example.com")}}
+	o := &offboard{api: api, answer: func(w http.ResponseWriter, _ *http.Request, _ int) bool {
+		writeErrors(w, http.StatusNotFound, 7003, "Could not route to /zones/z1, perhaps your object identifier is invalid?")
+
+		return true
+	}}
 	o.install()
 
 	srv := httptest.NewServer(api.handler(t))
@@ -335,5 +343,66 @@ func TestDeleteZoneNotFoundAfterATryNeverSentIsNotFound(t *testing.T) {
 
 	if o.tries != 1 {
 		t.Errorf("got %d DELETEs at Cloudflare, want 1", o.tries)
+	}
+}
+
+// zoneOf is a Cloudflare zone of another account than the Tenant.
+func zoneOf(id, name, account string) map[string]any {
+	z := cfZone(id, name)
+	z["account"] = map[string]any{"id": account, "name": "Other"}
+
+	return z
+}
+
+func TestDeleteZoneRefusesAZoneOfAnotherAccountThanTheTenantWithoutDeleting(t *testing.T) {
+	o := &offboard{api: &cfAPI{zones: []map[string]any{zoneOf("z1", "example.com", acc2)}}}
+
+	err := newOffboarding(t, o).DeleteZone(context.Background(), offboardZone)
+	if err == nil || !strings.Contains(err.Error(), acc2) {
+		t.Errorf("err = %v, want a refusal naming the zone's account", err)
+	}
+
+	if o.tries != 0 {
+		t.Errorf("got %d DELETEs, want none", o.tries)
+	}
+
+	if got := o.api.Requests(); !slices.Contains(got, "/client/v4/zones/z1?page=") {
+		t.Errorf("requests = %q, want the zone read by its ID first", got)
+	}
+}
+
+func TestDeleteZoneOfAZoneTheTenantCannotReadIsNotFoundWithoutDeleting(t *testing.T) {
+	o := &offboard{}
+
+	err := newOffboarding(t, o).DeleteZone(context.Background(), dnsprovider.Zone{ID: "gone", Name: "example.net"})
+	if !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+
+	if o.tries != 0 {
+		t.Errorf("got %d DELETEs, want none", o.tries)
+	}
+}
+
+func TestDeleteZoneWithoutATenantDeletesWithoutReadingTheZone(t *testing.T) {
+	// Unscoped, every account the token reaches is the Provider's: the
+	// caller owns the check that the Zone is the one it means.
+	o := &offboard{api: &cfAPI{zones: []map[string]any{zoneOf("z1", "example.com", acc2)}}}
+	o.install()
+
+	srv := httptest.NewServer(o.api.handler(t))
+	t.Cleanup(srv.Close)
+
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken}, dnsprovider.WithBaseURL(srv.URL+"/client/v4/"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := p.DeleteZone(context.Background(), offboardZone); err != nil {
+		t.Fatalf("DeleteZone: %v", err)
+	}
+
+	if got := o.api.Requests(); !slices.Equal(got, []string{"/client/v4/zones/z1?page="}) || o.tries != 1 {
+		t.Errorf("requests = %q, want the DELETE alone", got)
 	}
 }

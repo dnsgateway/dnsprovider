@@ -193,6 +193,19 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 
 		api.page(w, r, api.zonesNamed(r.URL.Query().Get("name")))
 	})
+	mux.HandleFunc("GET /client/v4/zones/{zone}", func(w http.ResponseWriter, r *http.Request) {
+		api.mu.Lock()
+		defer api.mu.Unlock()
+
+		i := slices.IndexFunc(api.zones, func(z map[string]any) bool { return z["id"] == r.PathValue("zone") })
+		if i < 0 {
+			writeErrors(w, http.StatusNotFound, 7003, "Could not route to /zones/"+r.PathValue("zone")+", perhaps your object identifier is invalid?")
+
+			return
+		}
+
+		writeResult(w, api.zones[i])
+	})
 	mux.HandleFunc("GET /client/v4/zones/{zone}/dns_records", func(w http.ResponseWriter, r *http.Request) {
 		api.mu.Lock()
 		api.recordQueries = append(api.recordQueries, r.URL.Query())

@@ -170,7 +170,7 @@ func isAccountID(s string) bool {
 // With Config.TenantID set, Zones and Zone list the Tenant's Zones alone;
 // without one, every Zone the API token reaches. The calls on a Zone work
 // by its ID: they trust that it came from Zones or Zone and do not read it
-// again to check its Tenant.
+// again to check its Tenant, except DeleteZone, which cannot be undone.
 type Provider struct {
 	// tenantID is the Cloudflare account Zone lists are scoped to; empty
 	// for every account the API token reaches.
@@ -331,9 +331,21 @@ func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zon
 // stays ErrNotFound: nothing this call sent could have Offboarded it, and
 // Cloudflare does not say whether the ID was ever a Zone the token
 // reaches. A Zone without an ID fails without a request.
+//
+// With a Tenant set, the zone is first read by its ID (GET /zones/{id}),
+// an extra request, and a zone of another account is refused with an
+// error, without the DELETE: the token may reach accounts besides the
+// Tenant, and a Zone ID from elsewhere must not Offboard one of theirs. A
+// zone that read does not find is ErrNotFound, without the DELETE.
+// Without a Tenant, every account the token reaches is the Provider's,
+// and the caller owns the check that the Zone is the one it means.
 func (p *Provider) DeleteZone(ctx context.Context, zone dnsprovider.Zone) error {
 	if zone.ID == "" {
 		return fmt.Errorf("cloudflare: Offboard %q: no zone ID", zone.Name)
+	}
+
+	if err := p.inTenant(ctx, zone); err != nil {
+		return err
 	}
 
 	var params zones.ZoneDeleteParams
@@ -367,6 +379,38 @@ func (p *Provider) DeleteZone(ctx context.Context, zone dnsprovider.Zone) error 
 	}
 
 	return err
+}
+
+// inTenant reads zone by its ID and fails unless it is the Tenant's; it
+// passes without a request when no Tenant is set.
+func (p *Provider) inTenant(ctx context.Context, zone dnsprovider.Zone) error {
+	if p.tenantID == "" {
+		return nil
+	}
+
+	var params zones.ZoneGetParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	result, err := p.do(ctx, nil, func(opts ...option.RequestOption) error {
+		_, err := p.zones.Get(ctx, params, opts...)
+
+		return err
+	})
+	if err != nil {
+		return fmt.Errorf("cloudflare: Offboard %q: read zone %s: %w", zone.Name, zone.ID, err)
+	}
+
+	var z zones.Zone
+	if err := json.Unmarshal(result, &z); err != nil {
+		return fmt.Errorf("cloudflare: Offboard %q: read zone %s: %w", zone.Name, zone.ID, err)
+	}
+
+	if z.Account.ID != p.tenantID {
+		return fmt.Errorf("cloudflare: Offboard %q: zone %s belongs to account %q, not the Tenant %s; nothing was deleted",
+			zone.Name, zone.ID, z.Account.ID, p.tenantID)
+	}
+
+	return nil
 }
 
 // readBackCreated is the Zone a create Cloudflare took without answering

@@ -39,6 +39,12 @@ help: ## This help menu
 clean: ## Clean
 	rm -rf bin/ dist/ .cache/ .gocache/
 
+.PHONY: tools
+tools:
+	go install github.com/google/go-licenses@latest
+
+############
+
 .PHONY: lint
 lint: ## Lint Code
 	golangci-lint run --config .golangci.yml
@@ -54,6 +60,12 @@ unit: ## Unit Tests
 .PHONY: test
 test: lint unit ## Run all tests
 
+############
+
 .PHONY: licenses
-licenses:
+licenses: ## Check licenses
 	go-licenses check ./... --disallowed_types=forbidden,restricted,unknown
+
+.PHONY: conformance
+conformance: ## Conformance
+	docker run --rm -it -v $(PWD):/src -w /src ghcr.io/siderolabs/conform:v0.1.0-alpha.31 enforce

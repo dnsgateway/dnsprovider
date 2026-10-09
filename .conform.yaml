@@ -1,0 +1,31 @@
+policies:
+  - type: commit
+    spec:
+      header:
+        length: 90
+        imperative: true
+        case: lower
+        invalidLastCharacters: .
+      body:
+        required: false
+      dco: true
+      spellcheck:
+        locale: US
+      maximumOfOneCommit: true
+      conventional:
+        types:
+          - chore
+          - docs
+          - refactor
+          - revert
+          - style
+          - test
+        scopes:
+          - cloudflare
+          - cloudns
+          - dnsimple
+          - gandi
+          - godaddy
+          - namecheap
+          - porkbun
+        descriptionLength: 80

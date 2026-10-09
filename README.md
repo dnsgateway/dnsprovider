@@ -33,7 +33,8 @@ map instead. Each `Factory` lists its `Fields` (name, label, whether the
 field is secret, and whether it holds the Tenant ID), so a form and a
 credential store can be built from them, and declares the optional Zone
 writes its Providers implement, so a consumer can offer one before it has
-the credentials (`f.Can(dnsprovider.CapZoneCreator)`, `CapZoneUpdater`):
+the credentials (`f.Can(dnsprovider.CapZoneCreator)`, `CapZoneUpdater`,
+`CapZoneDeleter`):
 
 ```go
 reg := providers.Registry()
@@ -88,6 +89,16 @@ account keeps under a zone hold, is `dnsprovider.ErrConflict`; without a
 hold, Cloudflare Onboards a name active in another account, pending until
 Delegation moves it. A Provider without a Tenant returns
 `dnsprovider.ErrNoTenant` without a request. The create is never retried.
+
+Offboarding is the optional `ZoneDeleter`, also Cloudflare's alone and found
+with `dnsprovider.CanDeleteZone(p)`: `DeleteZone(ctx, zone)` stops DNS
+hosting of the Zone, by its ID, and drops its Records there; it never
+touches the registration (GoDaddy's `DELETE /v1/domains`, which cancels it,
+is never called). It cannot be undone, so a consumer asks first and never
+Offboards the Live Zone. The delete is retried like a read: a retry that
+finds the Zone gone succeeds, as an earlier try whose answer was lost
+Offboarded it, while a first try that finds no such Zone is
+`dnsprovider.ErrNotFound`. A Zone without an ID fails without a request.
 
 Zone Status (DNSSEC, HSTS) is the optional `ZoneStatusReader`, which only
 Cloudflare implements. `dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and

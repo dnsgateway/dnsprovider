@@ -14,6 +14,7 @@ policies:
       maximumOfOneCommit: true
       conventional:
         types:
+          - feat
           - chore
           - docs
           - refactor
@@ -30,5 +31,6 @@ policies:
           - internetbs
           - namecheap
           - porkbun
+          - scaleway
           - vultr
         descriptionLength: 80

@@ -11,7 +11,7 @@ import (
 func TestRegistryHasOneFactoryPerProvider(t *testing.T) {
 	r := providers.Registry()
 
-	if got, want := r.Types(), []string{"cloudflare", "cloudns", "digitalocean", "dnsimple", "gandi", "godaddy", "internetbs", "namecheap", "porkbun", "vultr"}; !slices.Equal(got, want) {
+	if got, want := r.Types(), []string{"cloudflare", "cloudns", "digitalocean", "dnsimple", "gandi", "godaddy", "internetbs", "namecheap", "porkbun", "scaleway", "vultr"}; !slices.Equal(got, want) {
 		t.Fatalf("Types() = %v, want %v", got, want)
 	}
 
@@ -57,6 +57,7 @@ var validFields = map[string]map[string]string{
 	"cloudns":      {"password": "s", "auth_id": "123"},
 	"namecheap":    {"user": "u", "key": "k", "client_ip": "192.0.2.1"},
 	"vultr":        {"api_key": "k"},
+	"scaleway":     {"secret_key": "s", "project_id": "11111111-1111-4111-8111-111111111111"},
 }
 
 func TestEachFactoryDeclaresTheZoneWritesItsProvidersImplement(t *testing.T) {

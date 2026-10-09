@@ -14,6 +14,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/providers/internetbs"
 	"github.com/dnsgateway/dnsprovider/providers/namecheap"
 	"github.com/dnsgateway/dnsprovider/providers/porkbun"
+	"github.com/dnsgateway/dnsprovider/providers/scaleway"
 	"github.com/dnsgateway/dnsprovider/providers/vultr"
 )
 
@@ -31,5 +32,6 @@ func Registry() dnsprovider.Registry {
 		"namecheap":    namecheap.Factory(),
 		"porkbun":      porkbun.Factory(),
 		"vultr":        vultr.Factory(),
+		"scaleway":     scaleway.Factory(),
 	}
 }

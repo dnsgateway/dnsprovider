@@ -56,7 +56,11 @@ func TestUpdateRecordPatchesItByIDAndKeepsItsCommentAndTags(t *testing.T) {
 	assertWrites(t, api, []write{{Method: "PATCH", Path: "/client/v4/zones/z1/dns_records/r1", Body: map[string]any{
 		"type": "A", "name": "www.example.com", "content": "192.0.2.2", "ttl": 300.0, "proxied": true,
 	}}})
-	assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{after})
+
+	// The Record as stored carries the comment and tags Cloudflare kept.
+	want := after
+	want.Extras = map[string]string{cloudflare.ExtraProxied: "true", cloudflare.ExtraComment: "web front", cloudflare.ExtraTags: `["team:web","env:prod"]`}
+	assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{want})
 
 	rec := api.records["z1"][0]
 	if rec["comment"] != "web front" || !reflect.DeepEqual(rec["tags"], []any{"team:web", "env:prod"}) {
@@ -333,7 +337,10 @@ func TestUpdateRecordChangingItsTypeReplacesItAndKeepsItsCommentAndTags(t *testi
 	assertWrites(t, api, []write{{Method: "PUT", Path: "/client/v4/zones/z1/dns_records/r1", Body: map[string]any{
 		"type": "TXT", "name": "example.com", "content": `"hi"`, "ttl": 300.0, "comment": "mail", "tags": []any{"team:mail"},
 	}}})
-	assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{after})
+
+	want := after
+	want.Extras = map[string]string{cloudflare.ExtraComment: "mail", cloudflare.ExtraTags: `["team:mail"]`}
+	assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{want})
 
 	rec := api.records["z1"][0]
 	if _, ok := rec["priority"]; ok {

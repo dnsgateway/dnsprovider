@@ -569,6 +569,17 @@ func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprov
 // dnsprovider.ExtraProxied.
 const ExtraProxied = dnsprovider.ExtraProxied
 
+const (
+	// ExtraComment is the Record extra holding Cloudflare's comment on a
+	// record, a note not served in DNS; set only when it has one. It is
+	// read only: a write keeps the comment Cloudflare holds.
+	ExtraComment = "comment"
+	// ExtraTags is the Record extra holding Cloudflare's tags on a record,
+	// as a JSON array of strings, such as ["env:prod"]; set only when it
+	// has some. It is read only, as ExtraComment.
+	ExtraTags = "tags"
+)
+
 // ProxiableTypes implements dnsprovider.ProxyFlag.
 func (p *Provider) ProxiableTypes() []string {
 	return []string{"A", "AAAA", "CNAME"}
@@ -580,14 +591,16 @@ func (p *Provider) ProxiableTypes() []string {
 // into an untagged union that settles on the A-record shape for every type,
 // dropping type-specific fields such as the MX priority.
 type wireRecord struct {
-	ID        string  `json:"id"`
-	Type      string  `json:"type"`
-	Name      string  `json:"name"`
-	Content   string  `json:"content"`
-	TTL       uint32  `json:"ttl"`
-	Priority  float64 `json:"priority"`
-	Proxiable bool    `json:"proxiable"`
-	Proxied   bool    `json:"proxied"`
+	ID        string   `json:"id"`
+	Type      string   `json:"type"`
+	Name      string   `json:"name"`
+	Content   string   `json:"content"`
+	TTL       uint32   `json:"ttl"`
+	Priority  float64  `json:"priority"`
+	Proxiable bool     `json:"proxiable"`
+	Proxied   bool     `json:"proxied"`
+	Comment   string   `json:"comment"`
+	Tags      []string `json:"tags"`
 }
 
 func toRecord(r cfdns.RecordResponse) (dnsprovider.Record, error) {
@@ -615,8 +628,27 @@ func decodeRecord(data []byte) (dnsprovider.Record, error) {
 		rec.Value = strconv.FormatFloat(w.Priority, 'f', -1, 64) + " " + w.Content
 	}
 
+	extras := map[string]string{}
+
 	if w.Proxiable {
-		rec.Extras = map[string]string{ExtraProxied: strconv.FormatBool(w.Proxied)}
+		extras[ExtraProxied] = strconv.FormatBool(w.Proxied)
+	}
+
+	if w.Comment != "" {
+		extras[ExtraComment] = w.Comment
+	}
+
+	if len(w.Tags) > 0 {
+		tags, err := json.Marshal(w.Tags)
+		if err != nil {
+			return dnsprovider.Record{}, fmt.Errorf("cloudflare: encode record tags: %w", err)
+		}
+
+		extras[ExtraTags] = string(tags)
+	}
+
+	if len(extras) > 0 {
+		rec.Extras = extras
 	}
 
 	return rec, nil

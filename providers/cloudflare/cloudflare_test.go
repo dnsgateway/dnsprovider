@@ -794,8 +794,15 @@ func TestApplyUpdatesARecordInPlaceAndTurnsTheProxyOff(t *testing.T) {
 	api := &cfAPI{records: map[string][]map[string]any{"z1": {stored}}}
 	p := newProvider(t, api)
 
-	before := dnsprovider.Record{ID: "r1", Type: "CNAME", Name: "www.example.com", Value: "example.com", TTL: 1, Extras: map[string]string{cloudflare.ExtraProxied: "true"}}
-	after := dnsprovider.Record{ID: "r1", Type: "CNAME", Name: "www.example.com", Value: "example.net", TTL: 300, Extras: map[string]string{cloudflare.ExtraProxied: "false"}}
+	// The Records carry the comment as read; it is not written.
+	before := dnsprovider.Record{
+		ID: "r1", Type: "CNAME", Name: "www.example.com", Value: "example.com", TTL: 1,
+		Extras: map[string]string{cloudflare.ExtraProxied: "true", cloudflare.ExtraComment: "kept by Cloudflare"},
+	}
+	after := dnsprovider.Record{
+		ID: "r1", Type: "CNAME", Name: "www.example.com", Value: "example.net", TTL: 300,
+		Extras: map[string]string{cloudflare.ExtraProxied: "false", cloudflare.ExtraComment: "kept by Cloudflare"},
+	}
 	modify := dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: after}
 
 	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: dnsprovider.Zone{Name: "example.com", ID: "z1"}, Changes: []dnsprovider.Change{modify}})
@@ -1952,4 +1959,33 @@ func TestZoneStatusMinimumTLSVersionTheTokenMayNotReadIsUnknown(t *testing.T) {
 	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On}); got != want {
 		t.Errorf("ZoneStatus = %+v, want %+v", got, want)
 	}
+}
+
+func TestRecordsCarryTheirCommentAndTags(t *testing.T) {
+	commented := cfRecord("r1", "A", "example.com", "192.0.2.1", 300, true, false)
+	commented["comment"] = "origin in fra1"
+	commented["tags"] = []any{"env:prod", "team:web"}
+
+	api := &cfAPI{
+		zones: []map[string]any{cfZone("z1", "example.com")},
+		records: map[string][]map[string]any{"z1": {
+			commented,
+			cfRecord("r2", "TXT", "example.com", "\"v=spf1 -all\"", 3600, false, false),
+		}},
+	}
+	p := newProvider(t, api)
+
+	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
+	if err != nil {
+		t.Fatalf("Records: %v", err)
+	}
+
+	// A Record without a comment or tags carries neither.
+	want := []dnsprovider.Record{
+		{ID: "r1", Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300, Extras: map[string]string{
+			cloudflare.ExtraProxied: "false", cloudflare.ExtraComment: "origin in fra1", cloudflare.ExtraTags: `["env:prod","team:web"]`,
+		}},
+		{ID: "r2", Type: "TXT", Name: "example.com", Value: "\"v=spf1 -all\"", TTL: 3600},
+	}
+	assertRecords(t, rs.Records, want)
 }

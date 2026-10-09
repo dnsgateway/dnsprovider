@@ -70,7 +70,7 @@ the DCO `Signed-off-by:` footer; the lowercase rule applies only to the header.
   - A clear, descriptive **title**.
   - A concise **description** of the problem or request.
   - **Steps to reproduce** for bugs.
-- Preserve the template's frontmatter (`name`, `about`, `title`) and section headings. Fill in the body, do not remove the "Community Note" section.
+- Fill in the body, do not remove the "Community Note" section.
 - Link related issues or PRs in the description when applicable.
 
 ### Maintaining Issues

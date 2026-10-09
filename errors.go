@@ -17,6 +17,10 @@ var (
 	ErrUnauthorized = errors.New("not authorized")
 	// ErrNotFound means the Provider does not know the Zone or Record.
 	ErrNotFound = errors.New("not found")
+	// ErrNotServed means the Account holds the domain, such as one it only
+	// registers, but the Provider serves no DNS for it: its Delegation
+	// names other nameservers. It is a kind of ErrNotFound, and matches it.
+	ErrNotServed = fmt.Errorf("DNS not served by the Provider: %w", ErrNotFound)
 	// ErrConflict means a write collides with what the Provider holds,
 	// such as a Record identical to one the Zone has.
 	ErrConflict = errors.New("conflicts with what the Provider holds")

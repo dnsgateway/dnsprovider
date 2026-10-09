@@ -27,7 +27,7 @@ var errorKinds = map[string]error{
 	"2016166": dnsprovider.ErrNotFound,
 	// getHosts of a domain that is not on Namecheap's DNS ("domain is not
 	// using proper DNS servers"): the Zone has moved away.
-	"2030288": dnsprovider.ErrNotFound,
+	"2030288": dnsprovider.ErrNotServed,
 	// Too many requests.
 	"500000": dnsprovider.ErrRateLimited,
 }

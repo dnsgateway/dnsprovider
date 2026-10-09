@@ -746,7 +746,7 @@ func TestErrorAnswersAreTypedErrorsWithTheirNumbers(t *testing.T) {
 		{"unknown domain", []ncError{{2019166, "Domain not found"}}, dnsprovider.ErrNotFound, "2019166: Domain not found"},
 		{"not the Account's domain", []ncError{{2016166, "Domain is not associated with your account"}}, dnsprovider.ErrNotFound, "2016166: Domain is not associated with your account"},
 		{"rate limited", []ncError{{500000, "Too many requests"}}, dnsprovider.ErrRateLimited, "500000: Too many requests"},
-		{"domain not on Namecheap DNS", []ncError{{2030288, "Cannot complete this command as this domain is not using proper DNS servers"}}, dnsprovider.ErrNotFound, "2030288: Cannot complete this command"},
+		{"domain not on Namecheap DNS", []ncError{{2030288, "Cannot complete this command as this domain is not using proper DNS servers"}}, dnsprovider.ErrNotServed, "2030288: Cannot complete this command"},
 		{"unknown number, too many requests", []ncError{{9999901, "Too many requests"}}, dnsprovider.ErrRateLimited, "9999901: Too many requests"},
 		{"unknown number, IP not whitelisted", []ncError{{9999902, "Invalid request IP: 198.51.100.7"}}, dnsprovider.ErrUnauthorized, "9999902: Invalid request IP"},
 		{"unknown number, IP not on the whitelist", []ncError{{9999903, "Your IP is not whitelisted"}}, dnsprovider.ErrUnauthorized, "9999903: Your IP is not whitelisted"},
@@ -768,9 +768,10 @@ func TestErrorAnswersAreTypedErrorsWithTheirNumbers(t *testing.T) {
 				t.Fatalf("err = %v, want an APIError", err)
 			}
 
-			for _, kind := range []error{dnsprovider.ErrUnauthorized, dnsprovider.ErrNotFound, dnsprovider.ErrRateLimited} {
-				if errors.Is(err, kind) != (kind == c.kind) {
-					t.Errorf("errors.Is(%v, %v) = %v", err, kind, kind != c.kind)
+			// A kind matches the kinds it wraps too: ErrNotServed is an ErrNotFound.
+			for _, kind := range []error{dnsprovider.ErrUnauthorized, dnsprovider.ErrNotFound, dnsprovider.ErrNotServed, dnsprovider.ErrRateLimited} {
+				if want := c.kind != nil && errors.Is(c.kind, kind); errors.Is(err, kind) != want {
+					t.Errorf("errors.Is(%v, %v) = %v", err, kind, !want)
 				}
 			}
 

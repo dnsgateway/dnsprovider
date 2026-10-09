@@ -352,7 +352,10 @@ constructed from the sent hosts; no post-write refresh is performed.
 ## Errors
 
 Use `errors.Is` for `ErrRateLimited`, `ErrUnauthorized`, `ErrNotFound`,
-`ErrConflict`, `ErrNoTenant`, `ErrStale`, and `ErrNotImplemented`.
+`ErrNotServed`, `ErrConflict`, `ErrNoTenant`, `ErrStale`, and
+`ErrNotImplemented`. `ErrNotServed` is a domain the Account holds but the
+Provider serves no DNS for, such as one delegated elsewhere; it also matches
+`ErrNotFound`.
 `errors.As` exposes `*APIError` or `*StaleError` details.
 
 `APIError` holds Provider, StatusCode, Messages, RetryAfter, and optional

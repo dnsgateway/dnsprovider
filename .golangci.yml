@@ -104,6 +104,8 @@ linters:
       tab-width: 1
     misspell:
       locale: US
+      ignore-rules:
+        - internetbs
     nolintlint:
       require-explanation: false
       require-specific: true

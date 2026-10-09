@@ -26,6 +26,7 @@ policies:
           - dnsimple
           - gandi
           - godaddy
+          - internetbs
           - namecheap
           - porkbun
         descriptionLength: 80

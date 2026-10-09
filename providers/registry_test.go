@@ -11,7 +11,7 @@ import (
 func TestRegistryHasOneFactoryPerProvider(t *testing.T) {
 	r := providers.Registry()
 
-	if got, want := r.Types(), []string{"cloudflare", "godaddy", "namecheap"}; !slices.Equal(got, want) {
+	if got, want := r.Types(), []string{"cloudflare", "cloudns", "godaddy", "namecheap"}; !slices.Equal(got, want) {
 		t.Fatalf("Types() = %v, want %v", got, want)
 	}
 
@@ -49,6 +49,7 @@ func TestRegistryHasOneFactoryPerProvider(t *testing.T) {
 var validFields = map[string]map[string]string{
 	"cloudflare": {"token": "t", "tenant_id": "0123456789abcdef0123456789abcdef"},
 	"godaddy":    {"key": "k", "secret": "s"},
+	"cloudns":    {"password": "s", "auth_id": "123"},
 	"namecheap":  {"user": "u", "key": "k", "client_ip": "192.0.2.1"},
 }
 

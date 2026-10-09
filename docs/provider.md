@@ -35,9 +35,10 @@ dnsprovider/
 ├── providertest/    scriptable in-memory Provider for consumers' tests
 ├── internal/        adapter helpers and test support
 └── providers/
-    ├── registry.go  Registry() collecting all eight adapters
+    ├── registry.go  Registry() collecting all nine adapters
     ├── cloudflare/
     ├── cloudns/
+    ├── digitalocean/
     ├── dnsimple/
     ├── gandi/
     ├── godaddy/
@@ -105,6 +106,7 @@ Cloudflare can proxy A, AAAA, and CNAME Records.
 | Namecheap | 60 | 60000 | No; its 1799-second automatic value is an ordinary TTL here |
 | DNSimple | 0 | 4294967295 | No; API schema bounds, with plan restrictions enforced by the service |
 | Gandi | 300 | 2592000 | No; siblings in an RRset share their TTL |
+| DigitalOcean | 30 | 86400 | No; the default range, as DigitalOcean documents no bounds |
 
 `TTLRange.Check` validates a TTL. Shared validation helpers are available
 to consumers; `Apply` does not run them automatically.
@@ -120,6 +122,7 @@ validates configuration without making a network call.
 | GoDaddy | `Key`, `Secret` | `key`, `secret` |
 | Namecheap | `User`, `Key`, `ClientIP` | `user`, `key`, `client_ip` |
 | Gandi | `Token` | `token` |
+| DigitalOcean | `Token` | `token` |
 | Internet.bs | `Key`, `Password` | `key`, `password` |
 
 Cloudflare's Tenant ID must be 32 lower-case hex digits. Its constructor
@@ -431,6 +434,7 @@ Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:
 | Provider | Environment variables |
 | --- | --- |
 | Cloudflare | `DNSPROVIDER_CLOUDFLARE_TOKEN`, optional `DNSPROVIDER_CLOUDFLARE_TENANT_ID` |
+| DigitalOcean | `DNSPROVIDER_DIGITALOCEAN_TOKEN` |
 | GoDaddy | `DNSPROVIDER_GODADDY_KEY`, `DNSPROVIDER_GODADDY_SECRET` |
 | Internet.bs | `DNSPROVIDER_INTERNETBS_KEY`, `DNSPROVIDER_INTERNETBS_PASSWORD` |
 | Namecheap | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |
@@ -449,3 +453,14 @@ form-encoded POST with body credentials and are never automatically retried.
 Registration state does not establish DNS Hosting State, which is Unknown.
 The adapter uses the common Apply CRUD fallback and content-derived Record
 IDs; retain the complete Before Record for later edits and deletion.
+
+## DigitalOcean
+
+[DigitalOcean setup and limitations](provider/digitalocean.md) cover the
+token, the `account:read` scope for verification and the `domain:*` scopes
+for DNS, paginated discovery through validated next links, structured MX,
+SRV and CAA fields, the provider-managed SOA, and type changes by
+replacement. Account verification uses `GET /v2/account`; Domains are Zones
+keyed by name with Unknown Hosting State; Domain Records are written by
+native ID with POST, PUT and DELETE. Creates are never retried. The adapter
+uses the common Apply CRUD fallback.

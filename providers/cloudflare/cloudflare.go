@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptrace"
 	"slices"
 	"strconv"
 	"strings"
@@ -321,11 +322,13 @@ func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zon
 // DeleteZone implements dnsprovider.ZoneDeleter: a DELETE /zones/{id},
 // which Offboards the Zone and drops its Records at Cloudflare; the
 // domain's registration is not Cloudflare's to touch here. A delete is
-// idempotent, so it is retried as reads are. A retry that Cloudflare
-// answers with a not-found for the zone (it cannot route to it, or the
-// zone identifier is invalid) succeeds: the earlier try, whose answer was
-// lost, Offboarded it. On the first try the same answer stays
-// ErrNotFound: nothing this call sent could have Offboarded it, and
+// idempotent, so it is retried as reads are. A not-found for the zone (it
+// cannot route to it, or the zone identifier is invalid) after a try
+// whose outcome is unknown succeeds: that try, whose answer was lost,
+// Offboarded it. A try's outcome is unknown when it was sent and got no
+// answer, or a server error. After tries that were never sent, or that
+// Cloudflare answered without acting, such as a conflict, the same answer
+// stays ErrNotFound: nothing this call sent could have Offboarded it, and
 // Cloudflare does not say whether the ID was ever a Zone the token
 // reaches. A Zone without an ID fails without a request.
 func (p *Provider) DeleteZone(ctx context.Context, zone dnsprovider.Zone) error {
@@ -336,21 +339,30 @@ func (p *Provider) DeleteZone(ctx context.Context, zone dnsprovider.Zone) error 
 	var params zones.ZoneDeleteParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	// tries counts the requests the delete takes, retries included.
-	var tries int
+	// unknown is set once a try may have Offboarded the zone.
+	var unknown bool
 
-	count := option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-		tries++
+	watch := option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+		var sent bool
 
-		return next(req)
+		req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{
+			WroteRequest: func(i httptrace.WroteRequestInfo) { sent = sent || i.Err == nil },
+		}))
+
+		res, err := next(req)
+		if sent && (err != nil || res == nil || res.StatusCode >= http.StatusInternalServerError) {
+			unknown = true
+		}
+
+		return res, err
 	})
 
 	_, err := p.doCoded(ctx, nil, deleteZoneCodes, func(opts ...option.RequestOption) error {
-		_, err := p.zones.Delete(ctx, params, append(opts, count)...)
+		_, err := p.zones.Delete(ctx, params, append(opts, watch)...)
 
 		return err
 	})
-	if tries > 1 && errors.Is(err, dnsprovider.ErrNotFound) {
+	if unknown && errors.Is(err, dnsprovider.ErrNotFound) {
 		return nil
 	}
 

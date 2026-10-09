@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"slices"
+	"sync"
 	"testing"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -238,5 +240,100 @@ func TestDeleteZoneCloudflareTookWithoutAReadableAnswerSucceeds(t *testing.T) {
 
 	if err := newOffboarding(t, o).DeleteZone(context.Background(), offboardZone); err != nil {
 		t.Errorf("DeleteZone: %v, want the delete Cloudflare took to succeed", err)
+	}
+}
+
+func TestDeleteZoneNotFoundAfterTriesCloudflareAnsweredWithoutActingIsNotFound(t *testing.T) {
+	// A 409 answers a try Cloudflare did not act on: the retry finding no
+	// zone is no sign this call Offboarded it.
+	o := &offboard{answer: func(w http.ResponseWriter, _ *http.Request, try int) bool {
+		if try == 1 {
+			w.Header().Set("Retry-After-Ms", "0")
+			writeErrors(w, http.StatusConflict, 1000, "Conflict")
+		} else {
+			writeErrors(w, http.StatusNotFound, 7003, "Could not route to /zones/z1, perhaps your object identifier is invalid?")
+		}
+
+		return true
+	}}
+
+	err := newOffboarding(t, o).DeleteZone(context.Background(), offboardZone)
+	if !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound", err)
+	}
+
+	if o.tries != 2 {
+		t.Errorf("got %d DELETEs, want 2: a conflict is retried", o.tries)
+	}
+}
+
+func TestDeleteZoneWhoseRetryFindsTheZoneGoneAfterAnUnansweredTrySucceeds(t *testing.T) {
+	// The first try reaches Cloudflare, but the connection drops before
+	// the answer: it may have Offboarded the zone.
+	o := &offboard{answer: func(w http.ResponseWriter, _ *http.Request, try int) bool {
+		if try == 1 {
+			conn, _, err := w.(http.Hijacker).Hijack()
+			if err != nil {
+				t.Errorf("hijack: %v", err)
+
+				return true
+			}
+
+			_ = conn.Close()
+
+			return true
+		}
+
+		writeErrors(w, http.StatusNotFound, 7003, "Could not route to /zones/z1, perhaps your object identifier is invalid?")
+
+		return true
+	}}
+
+	if err := newOffboarding(t, o).DeleteZone(context.Background(), offboardZone); err != nil {
+		t.Errorf("DeleteZone: %v, want the retry finding the Zone gone to succeed", err)
+	}
+}
+
+// unsentFirst fails the first request before sending any of it, as a
+// refused connection does, and sends the others.
+type unsentFirst struct {
+	mu    sync.Mutex
+	tries int
+}
+
+func (u *unsentFirst) RoundTrip(r *http.Request) (*http.Response, error) {
+	u.mu.Lock()
+	u.tries++
+	try := u.tries
+	u.mu.Unlock()
+
+	if try == 1 {
+		return nil, errors.New("connection refused")
+	}
+
+	return http.DefaultTransport.RoundTrip(r)
+}
+
+func TestDeleteZoneNotFoundAfterATryNeverSentIsNotFound(t *testing.T) {
+	api := &cfAPI{zones: []map[string]any{cfZone("z2", "example.org")}}
+	o := &offboard{api: api}
+	o.install()
+
+	srv := httptest.NewServer(api.handler(t))
+	t.Cleanup(srv.Close)
+
+	p, err := cloudflare.New(cloudflare.Config{Token: testToken, TenantID: acc1},
+		dnsprovider.WithBaseURL(srv.URL+"/client/v4/"), dnsprovider.WithHTTPClient(&http.Client{Transport: &unsentFirst{}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = p.DeleteZone(context.Background(), offboardZone)
+	if !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("err = %v, want ErrNotFound: the try that failed never reached Cloudflare", err)
+	}
+
+	if o.tries != 1 {
+		t.Errorf("got %d DELETEs at Cloudflare, want 1", o.tries)
 	}
 }

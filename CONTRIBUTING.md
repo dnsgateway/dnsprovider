@@ -36,6 +36,31 @@ Having one commit in a Pull Request is very important for several reasons:
 * One commit is easier to cherry-pick into another branch or to track in changelogs.
 * Squashing into one meaningful commit ensures the final PR only contains what matters.
 
+### Commit Messages and PR Titles
+
+Use [Conventional Commits 1.0.0](https://www.conventionalcommits.org/en/v1.0.0/)
+for commit messages and PR titles:
+
+```text
+<type>[optional scope][!]: <description>
+```
+
+Keep the entire header lowercase, including the type, scope, and description.
+This lowercase requirement is a repository convention. Use `feat` for new
+features, `fix` for bug fixes, and an appropriate type such as `docs`, `test`,
+or `refactor` for other changes. Use a scope to identify the affected area
+when helpful, and keep the PR title aligned with its single commit's header.
+
+For example:
+
+```text
+feat(cloudns): add the cloudns provider
+```
+
+Put an optional body and footers after a blank line. Mark breaking changes
+with `!` before the colon or an uppercase `BREAKING CHANGE:` footer. Preserve
+the DCO `Signed-off-by:` footer; the lowercase rule applies only to the header.
+
 ## GitHub Issues
 
 ### Creating Issues

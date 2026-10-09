@@ -35,10 +35,13 @@ dnsprovider/
 ├── providertest/    scriptable in-memory Provider for consumers' tests
 ├── internal/        adapter helpers and test support
 └── providers/
-    ├── registry.go  Registry() collecting all three adapters
+    ├── registry.go  Registry() collecting all six adapters
     ├── cloudflare/
+    ├── cloudns/
+    ├── dnsimple/
     ├── godaddy/
-    └── namecheap/
+    ├── namecheap/
+    └── porkbun/
 ```
 
 Consumers can import only the adapters they use. Importing `providers`
@@ -98,6 +101,7 @@ Cloudflare can proxy A, AAAA, and CNAME Records.
 | Cloudflare | 60 | 86400 | `TTLAuto` (1) |
 | GoDaddy | 600 | 86400 | No |
 | Namecheap | 60 | 60000 | No; its 1799-second automatic value is an ordinary TTL here |
+| DNSimple | 0 | 4294967295 | No; API schema bounds, with plan restrictions enforced by the service |
 
 `TTLRange.Check` validates a TTL. Shared validation helpers are available
 to consumers; `Apply` does not run them automatically.

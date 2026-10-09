@@ -5,7 +5,6 @@ package vultr
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -84,19 +83,17 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 // shares one.
 var limits = struct {
 	sync.Mutex
-	m map[[32]byte]*rate.Limiter
-}{m: map[[32]byte]*rate.Limiter{}}
+	m map[string]*rate.Limiter
+}{m: map[string]*rate.Limiter{}}
 
 func endpointLimit(endpoint string) *rate.Limiter {
-	id := sha256.Sum256([]byte(endpoint))
-
 	limits.Lock()
 	defer limits.Unlock()
 
-	l, ok := limits.m[id]
+	l, ok := limits.m[endpoint]
 	if !ok {
 		l = rate.NewLimiter(callsPerSecond, 1)
-		limits.m[id] = l
+		limits.m[endpoint] = l
 	}
 
 	return l
@@ -158,11 +155,32 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 	return dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{Name: name}, Nameservers: append([]string(nil), Nameservers...)}, nil
 }
 
-// unconfirmed marks an error after a write was sent whose outcome is not
-// known: a lost, failed-server or malformed answer.
-func unconfirmed(operation string, err error) error {
-	if err == nil {
-		return nil
+// gate is the endpoint's limiter for one write. It notes whether it let
+// the request go: a write it never let go was never sent.
+type gate struct {
+	rest.Limiter
+
+	passed bool
+}
+
+func (g *gate) Wait(ctx context.Context) error {
+	err := g.Limiter.Wait(ctx)
+	g.passed = g.passed || err == nil
+
+	return err
+}
+
+// write sends a write that is never retried, POST or PATCH. An error
+// before the request was sent, or a 4xx answer, is returned as it is: the
+// write did not happen. Any other error is unconfirmed.
+func (p *Provider) write(ctx context.Context, operation, method, path string, body, out any) error {
+	g := &gate{Limiter: p.limit}
+	c := p.api()
+	c.Limit = g
+
+	err := c.Do(ctx, method, path, nil, body, out)
+	if err == nil || !g.passed {
+		return err
 	}
 
 	var apiErr *dnsprovider.APIError
@@ -170,5 +188,22 @@ func unconfirmed(operation string, err error) error {
 		return err
 	}
 
-	return fmt.Errorf("vultr: Record %s outcome is unconfirmed; re-read Records before retrying: %w", operation, err)
+	return &uncertainError{fmt.Sprintf("vultr: Record %s outcome is unconfirmed; re-read Records before retrying", operation), err}
+}
+
+// uncertainError is a write that may have completed: one whose answer was
+// lost, failed on the server, or could not be read back.
+type uncertainError struct {
+	msg string
+	err error
+}
+
+func (e *uncertainError) Error() string { return e.msg + ": " + e.err.Error() }
+func (e *uncertainError) Unwrap() error { return e.err }
+
+// uncertain reports whether err leaves open that a write completed.
+func uncertain(err error) bool {
+	var u *uncertainError
+
+	return errors.As(err, &u)
 }

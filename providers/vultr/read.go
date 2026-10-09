@@ -41,18 +41,12 @@ type listMeta struct {
 // meta.total is an error, never a shorter result.
 func list[T any](ctx context.Context, p *Provider, path, key string) ([]T, error) {
 	var (
-		done   bool
+		out    []T
 		cursor string
-		total  int
-		count  int
 		seen   = map[string]bool{}
 	)
 
-	pages, err := rest.Pages(1, nil, func(rest.Page) ([][]T, error) {
-		if done {
-			return nil, nil
-		}
-
+	for {
 		query := url.Values{"per_page": {strconv.Itoa(perPage)}}
 		if cursor != "" {
 			query.Set("cursor", cursor)
@@ -76,8 +70,7 @@ func list[T any](ctx context.Context, p *Provider, path, key string) ([]T, error
 			return nil, fmt.Errorf("vultr: malformed %s in the answer for %s", key, path)
 		}
 
-		total = *m.Meta.Total
-		count += len(items)
+		out = append(out, items...)
 
 		next := ""
 		if m.Meta.Links != nil {
@@ -86,32 +79,23 @@ func list[T any](ctx context.Context, p *Provider, path, key string) ([]T, error
 
 		switch {
 		case next == "":
-			done = true
-		case seen[next] || next == cursor:
+		case seen[next]:
 			return nil, fmt.Errorf("vultr: %s: %w", path, rest.ErrSamePage)
 		case len(items) == 0:
 			return nil, errNextPage
 		}
 
-		seen[next] = true
-		cursor = next
-
-		if count > total || (done && count != total) {
-			return nil, fmt.Errorf("vultr: %s answered %d items of a total of %d", path, count, total)
+		if total := *m.Meta.Total; len(out) > total || (next == "" && len(out) != total) {
+			return nil, fmt.Errorf("vultr: %s answered %d items of a total of %d", path, len(out), total)
 		}
 
-		return [][]T{items}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
+		if next == "" {
+			return out, nil
+		}
 
-	var out []T
-	for _, page := range pages {
-		out = append(out, page...)
+		seen[next] = true
+		cursor = next
 	}
-
-	return out, nil
 }
 
 type wireDomain struct {
@@ -210,7 +194,9 @@ func host(data string) string {
 // toRecord is a DNS Record as a Record, its Value in presentation form.
 // MX and SRV take their priority from the priority field, and SRV its
 // weight, port and target from data, "weight port target"; TXT data is
-// enclosed in quotes; CAA data is "flags tag value".
+// enclosed in quotes; CAA data is "flags tag value". Data that does not
+// parse for its type is kept as the Value, as it is, so that no Record is
+// lost; a Record missing its ID, type, name, data or TTL is malformed.
 func toRecord(zone string, w wireRecord) (dnsprovider.Record, error) {
 	if w.ID == "" || w.Type == "" || w.Name == nil || w.Data == nil || w.TTL == nil || *w.TTL < 0 || *w.TTL > math.MaxUint32 {
 		return dnsprovider.Record{}, errors.New("vultr: malformed DNS Record")
@@ -220,57 +206,77 @@ func toRecord(zone string, w wireRecord) (dnsprovider.Record, error) {
 		ID: w.ID, Type: strings.ToUpper(w.Type), Name: names.AbsoluteName(zone, *w.Name), Value: *w.Data, TTL: uint32(*w.TTL),
 	}
 
-	data := *w.Data
-	malformed := fmt.Errorf("vultr: malformed %s DNS Record %s", r.Type, w.ID)
-	priority := func() (int64, bool) {
-		return deref(w.Priority), w.Priority != nil && *w.Priority >= 0 && *w.Priority <= math.MaxUint16
-	}
-
-	switch r.Type {
-	case "CNAME", "NS":
-		if strings.TrimSpace(data) == "" {
-			return dnsprovider.Record{}, malformed
-		}
-
-		r.Value = host(data)
-	case "MX":
-		n, ok := priority()
-		if !ok || strings.TrimSpace(data) == "" {
-			return dnsprovider.Record{}, malformed
-		}
-
-		r.Value = fmt.Sprintf("%d %s", n, host(data))
-	case "SRV":
-		n, ok := priority()
-		f := strings.Fields(data)
-
-		if !ok || len(f) != 3 || !isUint16(f[0]) || !isUint16(f[1]) {
-			return dnsprovider.Record{}, malformed
-		}
-
-		r.Value = fmt.Sprintf("%d %s %s %s", n, f[0], f[1], host(f[2]))
-	case "TXT":
-		if len(data) >= 2 && strings.HasPrefix(data, `"`) && strings.HasSuffix(data, `"`) {
-			r.Value = data[1 : len(data)-1]
-		}
-	case "CAA":
-		flags, tag, value, err := caaFields(data)
-		if err != nil {
-			return dnsprovider.Record{}, malformed
-		}
-
-		r.Value = fmt.Sprintf("%s %s %s", flags, tag, quote(value))
+	if v, ok := value(r.Type, *w.Data, w.Priority); ok {
+		r.Value = v
 	}
 
 	return r, nil
 }
 
-func deref(n *int64) int64 {
-	if n == nil {
-		return 0
+// value is the presentation Value of a Record's data and priority; ok is
+// false when they do not parse for its type.
+func value(typ, data string, priority *int64) (string, bool) {
+	prio := priority != nil && *priority >= 0 && *priority <= math.MaxUint16
+
+	switch typ {
+	case "CNAME", "NS":
+		return host(data), strings.TrimSpace(data) != ""
+	case "MX":
+		if !prio || strings.TrimSpace(data) == "" {
+			return "", false
+		}
+
+		return fmt.Sprintf("%d %s", *priority, host(data)), true
+	case "SRV":
+		f := strings.Fields(data)
+		if !prio || len(f) != 3 || !isUint16(f[0]) || !isUint16(f[1]) {
+			return "", false
+		}
+
+		return fmt.Sprintf("%d %s %s %s", *priority, f[0], f[1], host(f[2])), true
+	case "TXT":
+		return txtText(data)
+	case "CAA":
+		flags, tag, v, err := caaFields(data)
+		if err != nil {
+			return "", false
+		}
+
+		return fmt.Sprintf("%s %s %s", flags, tag, quote(v)), true
 	}
 
-	return *n
+	return data, true
+}
+
+// txtText is TXT data as its text: one or more strings, each enclosed in
+// quotes with none inside and split by white space, concatenated as DNS
+// joins the strings of one TXT Record. Vultr reads a backslash literally.
+// ok is false for data of any other form.
+func txtText(data string) (text string, ok bool) {
+	var b strings.Builder
+
+	rest := strings.TrimSpace(data)
+	for rest != "" {
+		if rest[0] != '"' {
+			return "", false
+		}
+
+		end := strings.IndexByte(rest[1:], '"')
+		if end < 0 {
+			return "", false
+		}
+
+		b.WriteString(rest[1 : end+1])
+
+		after := rest[end+2:]
+		rest = strings.TrimLeftFunc(after, unicode.IsSpace)
+
+		if rest != "" && len(rest) == len(after) {
+			return "", false
+		}
+	}
+
+	return b.String(), strings.TrimSpace(data) != ""
 }
 
 func isUint16(s string) bool {

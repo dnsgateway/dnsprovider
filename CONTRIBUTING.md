@@ -131,6 +131,13 @@ To run Internet.bs read-only checks explicitly, configure
 `DNSPROVIDER_INTERNETBS_BASE_URL` selects another endpoint. Public sandbox
 credentials must never be enabled implicitly.
 
+Hetzner read-only checks use a Cloud API project token in
+`DNSPROVIDER_HETZNER_TOKEN`, with Zone and RRset read access. Run
+`go test ./providers/hetzner -run '^TestLive$' -v`;
+`DNSPROVIDER_HETZNER_BASE_URL` optionally overrides the Cloud API prefix.
+Fixtures must model RRset metadata, inherited/shared TTLs, and action completion;
+a write acknowledgement alone is insufficient evidence of a stored Record.
+
 ### Adding or changing a provider
 
 Start from the associated GitHub issue and verify the protocol against official

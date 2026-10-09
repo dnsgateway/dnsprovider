@@ -11,7 +11,7 @@ import (
 func TestRegistryHasOneFactoryPerProvider(t *testing.T) {
 	r := providers.Registry()
 
-	if got, want := r.Types(), []string{"cloudflare", "cloudns", "digitalocean", "dnsimple", "gandi", "godaddy", "internetbs", "namecheap", "porkbun", "scaleway", "vultr"}; !slices.Equal(got, want) {
+	if got, want := r.Types(), []string{"cloudflare", "cloudns", "digitalocean", "dnsimple", "gandi", "godaddy", "hetzner", "internetbs", "namecheap", "porkbun", "scaleway", "vultr"}; !slices.Equal(got, want) {
 		t.Fatalf("Types() = %v, want %v", got, want)
 	}
 
@@ -53,6 +53,7 @@ var validFields = map[string]map[string]string{
 	"godaddy":      {"key": "k", "secret": "s"},
 	"internetbs":   {"key": "k", "password": "s"},
 	"gandi":        {"token": "t"},
+	"hetzner":      {"token": "t"},
 	"porkbun":      {"key": "k", "secret": "s"},
 	"cloudns":      {"password": "s", "auth_id": "123"},
 	"namecheap":    {"user": "u", "key": "k", "client_ip": "192.0.2.1"},
@@ -99,5 +100,23 @@ func TestRegistryReturnsIndependentFactories(t *testing.T) {
 	}
 	if got := second["internetbs"].Fields[0].Label; got == "changed" {
 		t.Error("changing one Factory mutated another Registry's fields")
+	}
+}
+
+func TestHetznerRegistryFactoriesAreIndependent(t *testing.T) {
+	first := providers.Registry()
+	f, ok := first["hetzner"]
+	if !ok {
+		t.Fatal("Hetzner is absent from Registry")
+	}
+	if len(f.Fields) != 1 || f.Fields[0].Name != "token" || !f.Fields[0].Secret {
+		t.Fatalf("Hetzner credential fields = %+v", f.Fields)
+	}
+	f.Fields[0].Label = "changed"
+	first["hetzner"] = f
+	delete(first, "hetzner")
+	second := providers.Registry()
+	if got, ok := second["hetzner"]; !ok || got.Fields[0].Label == "changed" {
+		t.Fatal("changing one Registry mutated another Hetzner Factory")
 	}
 }

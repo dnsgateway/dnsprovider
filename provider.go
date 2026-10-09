@@ -113,6 +113,27 @@ func CanUpdateZone(p Provider) bool {
 	return ok
 }
 
+// ZoneDeleter is implemented by a Provider that can Offboard a Zone, such
+// as Cloudflare: stop hosting it and drop its Records there. It never
+// touches the domain's registration. It is a Zone write that cannot be
+// undone: a consumer asks the user first, and never Offboards the Live
+// Zone, which would stop the domain resolving.
+type ZoneDeleter interface {
+	// DeleteZone Offboards the Zone by its ID, as Zones or Zone read it.
+	// A retried delete that finds the Zone gone succeeds: an earlier
+	// try, whose answer was lost, Offboarded it. A first try that finds
+	// no such Zone is ErrNotFound, as the Provider does not say whether
+	// it ever held it.
+	DeleteZone(ctx context.Context, zone Zone) error
+}
+
+// CanDeleteZone reports whether a Provider implements ZoneDeleter.
+func CanDeleteZone(p Provider) bool {
+	_, ok := p.(ZoneDeleter)
+
+	return ok
+}
+
 // TenantLister is implemented by a Provider whose credentials can reach
 // several Tenants, such as Cloudflare. It works before a Tenant is set.
 type TenantLister interface {

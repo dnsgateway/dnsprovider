@@ -107,6 +107,23 @@ func TestCanCreateZoneOnlyForAZoneCreator(t *testing.T) {
 	}
 }
 
+// zoneDeleter is a Provider that Offboards Zones.
+type zoneDeleter struct{ oneTenant }
+
+func (zoneDeleter) DeleteZone(context.Context, dnsprovider.Zone) error {
+	return nil
+}
+
+func TestCanDeleteZoneOnlyForAZoneDeleter(t *testing.T) {
+	if dnsprovider.CanDeleteZone(oneTenant{}) {
+		t.Error("a Provider without a ZoneDeleter deletes Zones")
+	}
+
+	if !dnsprovider.CanDeleteZone(zoneDeleter{}) {
+		t.Error("a ZoneDeleter does not delete Zones")
+	}
+}
+
 func TestAFactoryCanWhatItDeclares(t *testing.T) {
 	f := dnsprovider.Factory{Capabilities: []dnsprovider.Capability{dnsprovider.CapZoneCreator}}
 

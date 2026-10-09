@@ -86,7 +86,7 @@ type Factory struct {
 	// Capabilities are the optional Zone writes every Provider New builds
 	// implements, which a consumer can offer before it has the
 	// credentials to build one. A hint only: the built Provider still
-	// says, through CanCreateZone and CanUpdateZone.
+	// says, through CanCreateZone, CanUpdateZone and CanDeleteZone.
 	Capabilities []Capability
 }
 
@@ -100,6 +100,8 @@ const (
 	CapZoneCreator Capability = "ZoneCreator"
 	// CapZoneUpdater is ZoneUpdater: the Provider changes Zone settings.
 	CapZoneUpdater Capability = "ZoneUpdater"
+	// CapZoneDeleter is ZoneDeleter: the Provider Offboards Zones.
+	CapZoneDeleter Capability = "ZoneDeleter"
 )
 
 // Can reports whether f declares its Providers implement c.

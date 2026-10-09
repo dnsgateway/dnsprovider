@@ -68,5 +68,9 @@ func TestEachFactoryDeclaresTheZoneWritesItsProvidersImplement(t *testing.T) {
 		if f.Can(dnsprovider.CapZoneUpdater) != dnsprovider.CanUpdateZone(p) {
 			t.Errorf("%s: Factory declares ZoneUpdater %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneUpdater), dnsprovider.CanUpdateZone(p))
 		}
+
+		if f.Can(dnsprovider.CapZoneDeleter) != dnsprovider.CanDeleteZone(p) {
+			t.Errorf("%s: Factory declares ZoneDeleter %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneDeleter), dnsprovider.CanDeleteZone(p))
+		}
 	}
 }

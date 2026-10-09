@@ -483,8 +483,8 @@ func TestBatcherFailsAChangeOfNoKnownKindAlone(t *testing.T) {
 }
 
 func TestZoneWritersAreImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.T) {
-	for set := range 32 {
-		tenants, status, batcher, updater, creator := set&1 != 0, set&2 != 0, set&4 != 0, set&8 != 0, set&16 != 0
+	for set := range 64 {
+		tenants, status, batcher, updater, creator, deleter := set&1 != 0, set&2 != 0, set&4 != 0, set&8 != 0, set&16 != 0, set&32 != 0
 
 		fake := providertest.New()
 		if tenants {
@@ -498,15 +498,16 @@ func TestZoneWritersAreImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.
 		fake.SetBatcher(batcher)
 		fake.SetZoneUpdater(updater)
 		fake.SetZoneCreator(creator)
+		fake.SetZoneDeleter(deleter)
 
 		p := newFake(t, fake)
 
 		_, isBatcher := p.(dnsprovider.Batcher)
 		_, readsStatus := p.(dnsprovider.ZoneStatusReader)
 
-		if dnsprovider.CanUpdateZone(p) != updater || dnsprovider.CanCreateZone(p) != creator || isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
-			t.Errorf("tenants %v, status %v, batcher %v, updater %v, creator %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v, updating Zones %v, creating Zones %v",
-				tenants, status, batcher, updater, creator, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.CanUpdateZone(p), dnsprovider.CanCreateZone(p))
+		if dnsprovider.CanUpdateZone(p) != updater || dnsprovider.CanCreateZone(p) != creator || dnsprovider.CanDeleteZone(p) != deleter || isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
+			t.Errorf("tenants %v, status %v, batcher %v, updater %v, creator %v, deleter %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v, updating Zones %v, creating Zones %v, deleting Zones %v",
+				tenants, status, batcher, updater, creator, deleter, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.CanUpdateZone(p), dnsprovider.CanCreateZone(p), dnsprovider.CanDeleteZone(p))
 		}
 	}
 }
@@ -713,16 +714,17 @@ func TestAFakeWithoutTenantsTakesNoTenantField(t *testing.T) {
 }
 
 func TestTheFakesFactoryDeclaresTheZoneWritesScripted(t *testing.T) {
-	for set := range 4 {
-		updater, creator := set&1 != 0, set&2 != 0
+	for set := range 8 {
+		updater, creator, deleter := set&1 != 0, set&2 != 0, set&4 != 0
 
 		fake := providertest.New()
 		fake.SetZoneUpdater(updater)
 		fake.SetZoneCreator(creator)
+		fake.SetZoneDeleter(deleter)
 
 		f := fake.Factory()
-		if f.Can(dnsprovider.CapZoneUpdater) != updater || f.Can(dnsprovider.CapZoneCreator) != creator {
-			t.Errorf("updater %v, creator %v: Factory declares %v", updater, creator, f.Capabilities)
+		if f.Can(dnsprovider.CapZoneUpdater) != updater || f.Can(dnsprovider.CapZoneCreator) != creator || f.Can(dnsprovider.CapZoneDeleter) != deleter {
+			t.Errorf("updater %v, creator %v, deleter %v: Factory declares %v", updater, creator, deleter, f.Capabilities)
 		}
 	}
 }
@@ -742,5 +744,63 @@ func TestZoneOfANameOnboardedAgainIsTheNewZoneNotTheMovedOne(t *testing.T) {
 
 	if got, err := p.Zone(ctx, "example.org"); err != nil || got.ID != created.ID {
 		t.Errorf("Zone = %+v, %v; want the Onboarded %s, as Cloudflare prefers an Active, then a Pending Zone", got, err, created.ID)
+	}
+}
+
+func TestDeleteZoneRemovesTheZoneAndItsRecordsAndRecordsTheZone(t *testing.T) {
+	ctx := context.Background()
+	gone := dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingPending}
+	kept := dnsprovider.Zone{ID: "z2", Name: "example.org", State: dnsprovider.HostingActive}
+
+	fake := providertest.New().
+		AddZone(gone, dnsprovider.Record{ID: "r1", Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300}).
+		AddZone(kept)
+	fake.SetZoneDeleter(true)
+
+	p := newFake(t, fake)
+
+	if err := p.(dnsprovider.ZoneDeleter).DeleteZone(ctx, gone); err != nil {
+		t.Fatalf("DeleteZone: %v", err)
+	}
+
+	zones, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	if err != nil || len(zones) != 1 || zones[0].ID != "z2" {
+		t.Errorf("Zones after DeleteZone = %+v, %v; want example.org alone", zones, err)
+	}
+
+	if _, err := p.Records(ctx, gone, dnsprovider.RecordFilter{}); err == nil {
+		t.Error("Records of the Offboarded Zone succeeded, want its Records gone with it")
+	}
+
+	i := slices.IndexFunc(fake.Calls(), func(c providertest.Call) bool { return c.Op == providertest.OpDeleteZone })
+	if i < 0 || fake.Calls()[i].Zone.ID != gone.ID {
+		t.Errorf("calls = %+v, want OpDeleteZone of z1 recorded", fake.Calls())
+	}
+}
+
+func TestDeleteZoneFailsAsScriptedAndForAZoneNotScripted(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+
+	fake := providertest.New().AddZone(z)
+	fake.SetZoneDeleter(true)
+
+	d := newFake(t, fake).(dnsprovider.ZoneDeleter)
+
+	if err := d.DeleteZone(ctx, dnsprovider.Zone{ID: "z2", Name: "example.org"}); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("DeleteZone of a Zone not scripted: error = %v, want ErrNotFound", err)
+	}
+
+	fake.Fail(providertest.OpDeleteZone, dnsprovider.ErrUnauthorized)
+
+	if err := d.DeleteZone(ctx, z); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		t.Errorf("DeleteZone error = %v, want the scripted ErrUnauthorized", err)
+	}
+
+	fake.Fail(providertest.OpDeleteZone, nil)
+
+	zones, err := newFake(t, fake).Zones(ctx, dnsprovider.ZoneFilter{})
+	if err != nil || len(zones) != 1 {
+		t.Errorf("Zones after a failed DeleteZone = %+v, %v; want the Zone kept", zones, err)
 	}
 }

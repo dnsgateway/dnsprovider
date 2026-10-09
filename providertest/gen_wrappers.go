@@ -52,6 +52,11 @@ var options = []option{
 		Iface:  "ZoneCreator",
 		Method: "CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) { return p.createZone(ctx, p.unscoped, name) }",
 	},
+	{
+		Name:   "ZoneDeleter",
+		Iface:  "ZoneDeleter",
+		Method: "DeleteZone(ctx context.Context, z dnsprovider.Zone) error { return p.deleteZone(ctx, z) }",
+	},
 }
 
 func main() {

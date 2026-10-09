@@ -43,6 +43,8 @@ const (
 	OpUpdateZone Op = "UpdateZone"
 	// OpCreateZone is the ZoneCreator's CreateZone; see SetZoneCreator.
 	OpCreateZone Op = "CreateZone"
+	// OpDeleteZone is the ZoneDeleter's DeleteZone; see SetZoneDeleter.
+	OpDeleteZone Op = "DeleteZone"
 )
 
 // Call is one recorded call.
@@ -86,6 +88,7 @@ type Provider struct {
 	batcher    bool
 	updater    bool
 	creator    bool
+	deleter    bool
 	calls      []Call
 	nextID     int
 }
@@ -200,8 +203,8 @@ func (p *Provider) SetAutoTTL(on bool) {
 // consumer may branch on, and Batcher, which changes how
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted: one type per combination, generated (see
-// gen_wrappers.go) and picked by build. So are ZoneUpdater and
-// ZoneCreator, which a consumer offers its Zone writes by.
+// gen_wrappers.go) and picked by build. So are ZoneUpdater, ZoneCreator
+// and ZoneDeleter, which a consumer offers its Zone writes by.
 var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
@@ -335,6 +338,18 @@ func (p *Provider) SetZoneCreator(on bool) {
 	p.creator = on
 }
 
+// SetZoneDeleter makes the Providers New builds implement
+// dnsprovider.ZoneDeleter, recorded as OpDeleteZone with the Zone: DeleteZone
+// removes the Zone of that ID with its Records, as RemoveZone does, as
+// Cloudflare Offboards a Zone; dnsprovider.ErrNotFound for an ID the fake
+// does not hold. Unscripted, they do not implement it.
+func (p *Provider) SetZoneDeleter(on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.deleter = on
+}
+
 // FailChanges makes each write fail a change for which fn returns an
 // error, while the Batcher applies the rest: a partial failure. The CRUD
 // methods are handed their call as a Change.
@@ -389,7 +404,8 @@ const FieldTenant = "tenant"
 // are scripted (SetTenants), an optional FieldTenant marked Tenant, as
 // Cloudflare takes one. As the Factory contract wants, a missing token or
 // a field it does not take is an error. It declares the Zone writes
-// scripted by then (SetZoneUpdater, SetZoneCreator) as its Capabilities.
+// scripted by then (SetZoneUpdater, SetZoneCreator, SetZoneDeleter) as
+// its Capabilities.
 // Every Provider it builds shares this fake's script; it records each
 // build of valid fields as OpNew with its fields.
 func (p *Provider) Factory() dnsprovider.Factory {
@@ -409,6 +425,10 @@ func (p *Provider) Factory() dnsprovider.Factory {
 
 	if p.creator {
 		f.Capabilities = append(f.Capabilities, dnsprovider.CapZoneCreator)
+	}
+
+	if p.deleter {
+		f.Capabilities = append(f.Capabilities, dnsprovider.CapZoneDeleter)
 	}
 
 	return f
@@ -453,6 +473,10 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 
 	if p.creator {
 		set |= optZoneCreator
+	}
+
+	if p.deleter {
+		set |= optZoneDeleter
 	}
 
 	return wrap(p, set, scope{unscoped: p.tenants != nil && m[FieldTenant] == ""}), nil
@@ -781,6 +805,25 @@ func (p *Provider) createZone(_ context.Context, unscoped bool, name string) (dn
 	p.records[z.ID] = []dnsprovider.Record{}
 
 	return p.scripted(z), nil
+}
+
+// deleteZone is the fake's dnsprovider.ZoneDeleter; see SetZoneDeleter.
+func (p *Provider) deleteZone(_ context.Context, z dnsprovider.Zone) error {
+	if err := p.record(Call{Op: OpDeleteZone, Zone: z}); err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	held := slices.ContainsFunc(p.zones, func(s dnsprovider.Zone) bool { return s.ID == z.ID })
+	p.mu.Unlock()
+
+	if !held {
+		return fmt.Errorf("providertest: zone %s (%s): %w", z.Name, z.ID, dnsprovider.ErrNotFound)
+	}
+
+	p.RemoveZone(z.ID)
+
+	return nil
 }
 
 // setting is On or Off.

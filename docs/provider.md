@@ -35,13 +35,14 @@ dnsprovider/
 ├── providertest/    scriptable in-memory Provider for consumers' tests
 ├── internal/        adapter helpers and test support
 └── providers/
-    ├── registry.go  Registry() collecting all ten adapters
+    ├── registry.go  Registry() collecting all adapters
     ├── cloudflare/
     ├── cloudns/
     ├── digitalocean/
     ├── dnsimple/
     ├── gandi/
     ├── godaddy/
+    ├── hetzner/
     ├── internetbs/
     ├── namecheap/
     ├── porkbun/
@@ -76,7 +77,7 @@ type Record struct {
 }
 ```
 
-Cloudflare assigns record IDs. GoDaddy, Namecheap, Gandi, and Internet.bs use content-derived
+Cloudflare assigns record IDs. GoDaddy, Namecheap, Gandi, Hetzner, and Internet.bs use content-derived
 keys, which change when the Record changes. Keep the whole Record as read
 for updates and deletions.
 
@@ -108,6 +109,7 @@ Cloudflare can proxy A, AAAA, and CNAME Records.
 | Namecheap | 60 | 60000 | No; its 1799-second automatic value is an ordinary TTL here |
 | DNSimple | 0 | 4294967295 | No; API schema bounds, with plan restrictions enforced by the service |
 | Gandi | 300 | 2592000 | No; siblings in an RRset share their TTL |
+| Hetzner | 60 | 2147483647 | No; inherited TTLs become effective numeric TTLs, and siblings share their TTL |
 | DigitalOcean | 30 | 86400 | No; the default range, as DigitalOcean documents no bounds |
 | Scaleway | 60 | 2592000 | No; explicit TTL, as validated by the official Terraform provider |
 | Vultr | 30 | 86400 | No; the default range, as Vultr documents no bounds |
@@ -126,6 +128,7 @@ validates configuration without making a network call.
 | GoDaddy | `Key`, `Secret` | `key`, `secret` |
 | Namecheap | `User`, `Key`, `ClientIP` | `user`, `key`, `client_ip` |
 | Gandi | `Token` | `token` |
+| Hetzner | `Token` | `token` (secret, project scoped) |
 | DigitalOcean | `Token` | `token` |
 | Scaleway | `SecretKey`, `ProjectID` | `secret_key` (secret), `project_id` |
 | Vultr | `APIKey` | `api_key` |
@@ -442,6 +445,7 @@ Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:
 | Cloudflare | `DNSPROVIDER_CLOUDFLARE_TOKEN`, optional `DNSPROVIDER_CLOUDFLARE_TENANT_ID` |
 | DigitalOcean | `DNSPROVIDER_DIGITALOCEAN_TOKEN` |
 | GoDaddy | `DNSPROVIDER_GODADDY_KEY`, `DNSPROVIDER_GODADDY_SECRET` |
+| Hetzner | `DNSPROVIDER_HETZNER_TOKEN` |
 | Internet.bs | `DNSPROVIDER_INTERNETBS_KEY`, `DNSPROVIDER_INTERNETBS_PASSWORD` |
 | Namecheap | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |
 | Scaleway | `DNSPROVIDER_SCALEWAY_SECRET_KEY`, `DNSPROVIDER_SCALEWAY_PROJECT_ID` |
@@ -489,3 +493,13 @@ are never retried. The adapter uses the common Apply CRUD fallback.
 secret key authentication, DNS permissions, targeted batched operations,
 metadata retention, TTL bounds and uncertain completion. The adapter never
 creates Zones implicitly.
+
+## Hetzner
+
+[Hetzner setup and limitations](provider/hetzner.md) cover Cloud API project
+tokens, DNS permissions, inherited/shared TTLs, RRset metadata and protection,
+and asynchronous action completion. Account verification uses an authenticated
+Zone list and works with an empty project. Records have content-derived keys;
+retain the complete Before Record. The Batcher plans affected RRsets, preserves
+siblings, waits for each write action, and reads back authoritative results.
+Uncertain completion and partial moves remain visible as errors.

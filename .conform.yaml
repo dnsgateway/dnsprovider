@@ -28,6 +28,7 @@ policies:
           - dnsimple
           - gandi
           - godaddy
+          - hetzner
           - internetbs
           - namecheap
           - porkbun

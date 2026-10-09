@@ -30,4 +30,5 @@ policies:
           - internetbs
           - namecheap
           - porkbun
+          - vultr
         descriptionLength: 80

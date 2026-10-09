@@ -14,6 +14,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/providers/internetbs"
 	"github.com/dnsgateway/dnsprovider/providers/namecheap"
 	"github.com/dnsgateway/dnsprovider/providers/porkbun"
+	"github.com/dnsgateway/dnsprovider/providers/vultr"
 )
 
 // Registry returns a new Registry with one Factory per adapter, by
@@ -29,5 +30,6 @@ func Registry() dnsprovider.Registry {
 		"internetbs":   internetbs.Factory(),
 		"namecheap":    namecheap.Factory(),
 		"porkbun":      porkbun.Factory(),
+		"vultr":        vultr.Factory(),
 	}
 }

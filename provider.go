@@ -120,10 +120,12 @@ func CanUpdateZone(p Provider) bool {
 // Zone, which would stop the domain resolving.
 type ZoneDeleter interface {
 	// DeleteZone Offboards the Zone by its ID, as Zones or Zone read it.
-	// A retried delete that finds the Zone gone succeeds: an earlier
-	// try, whose answer was lost, Offboarded it. A first try that finds
-	// no such Zone is ErrNotFound, as the Provider does not say whether
-	// it ever held it.
+	// A retried delete that finds the Zone gone succeeds when an earlier
+	// try may have Offboarded it: it was sent, and its answer was lost or
+	// a server error. Otherwise finding no such Zone is ErrNotFound, as
+	// the Provider does not say whether it ever held it. A Provider
+	// scoped to a Tenant refuses a Zone of another; an unscoped one
+	// leaves that check to the caller.
 	DeleteZone(ctx context.Context, zone Zone) error
 }
 

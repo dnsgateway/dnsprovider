@@ -96,9 +96,12 @@ hosting of the Zone, by its ID, and drops its Records there; it never
 touches the registration (GoDaddy's `DELETE /v1/domains`, which cancels it,
 is never called). It cannot be undone, so a consumer asks first and never
 Offboards the Live Zone. The delete is retried like a read: a retry that
-finds the Zone gone succeeds, as an earlier try whose answer was lost
-Offboarded it, while a first try that finds no such Zone is
-`dnsprovider.ErrNotFound`. A Zone without an ID fails without a request.
+finds the Zone gone succeeds when an earlier try was sent and got no
+answer or a server error, as that try may have Offboarded it; otherwise
+finding no such Zone is `dnsprovider.ErrNotFound`. With a Tenant set, the
+Zone is first read by its ID, one more request, and a Zone of another
+account is refused without the delete; without a Tenant, the caller owns
+that check. A Zone without an ID fails without a request.
 
 Zone Status (DNSSEC, HSTS) is the optional `ZoneStatusReader`, which only
 Cloudflare implements. `dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and

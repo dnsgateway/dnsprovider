@@ -76,17 +76,23 @@ presentation form, built from Vultr's fields:
 | CNAME, NS | `host.example.net.` | `data` |
 | MX | `10 mail.example.net.` (`0 .` is a null MX) | `priority`, `data` |
 | SRV | `0 5 5060 sip.example.net.` | `priority`, `data` as `weight port target` |
-| TXT | literal text | `data` enclosed in double quotes |
+| TXT | literal text | `data` as one or more strings in double quotes |
 | CAA | `0 issue "letsencrypt.org"` | `data` as `flags tag "value"` |
 
 Vultr stores host names without their trailing dot; the adapter returns them
 absolute, with the dot, and sends them without it (the root stays `.`).
 The priority is sent for MX and SRV alone, where Vultr requires it, and a
 zero priority is sent explicitly. TXT data is sent and answered in quotes,
-which the adapter adds and removes; backslashes are literal. CAA values
+which the adapter adds and removes; backslashes are literal. TXT data of
+several quoted strings (`"part1" "part2"`) reads as their concatenation
+(`part1part2`), which writes back as one string. CAA values
 decode `\DDD` escapes, and control characters come back as `\DDD`; a CAA
 value Vultr answers without quotes is read as it is. SSHFP and other types
 the module does not edit stay visible with their native IDs and data.
+A Record whose data does not parse for its type (an MX without a priority,
+say) is listed with that data, as it is, as its Value rather than failing
+the listing; only a Record missing its ID, type, name, data or TTL makes the
+list a malformed answer.
 
 ## Writes
 
@@ -106,7 +112,9 @@ Records, or by keeping the TTLs equal.
 when one has the same type, name (ignoring case) and Value, whatever its
 TTL. It then POSTs once: creates are never retried automatically. A lost or
 failed-server answer is reported as an unconfirmed outcome; re-read the
-Records before retrying.
+Records before retrying. A write refused before it was sent, such as one
+whose rate-limit wait would pass the context's deadline, and a 4xx answer
+are plain failures: nothing was written.
 
 `UpdateRecord` finds `before` by its native ID in one list of the Zone
 (`ErrNotFound` when absent), checks that no other Record is identical to
@@ -117,11 +125,17 @@ that read fails, the error says the update was acknowledged and may have
 completed. PATCH is not retried automatically. A type change creates the
 new Record, then deletes the original, and returns the new ID; the old
 type's priority is not carried over. A CNAME cannot share its owner name, so
-a type change to or from CNAME at one owner deletes first. When that
-replacement fails, the original is re-created as a best effort under a new
-ID. A failure between the writes says which Records may remain: the
-replacement and the original, the original restored under its new ID, or
-that the original was deleted and could not be restored. `DeleteRecord`
+a type change to or from CNAME at one owner deletes first. Such a move is
+refused before any write when the original could not be written back (a
+type the module does not write, or a TTL outside the writable range). When
+the replacement definitely failed (a 4xx answer, or never sent), the
+original is re-created as a best effort under a new ID, even if the
+context has ended; when the replacement may have completed (a lost,
+server-failed or unreadable answer), the original is not re-created, and
+the error says so. A failure between the writes says which Records may
+remain: the replacement and the original, the original restored under its
+new ID, the original deleted with its replacement unconfirmed, or the
+original deleted and not restored. `DeleteRecord`
 deletes only the Record of the given ID; siblings of the same name and type
 remain. An ID that is not a UUID names no Record (`ErrNotFound`) and is
 never sent.

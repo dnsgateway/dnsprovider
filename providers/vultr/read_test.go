@@ -248,7 +248,7 @@ func TestRecordsOfAZoneNamedOnlyByID(t *testing.T) {
 	}
 }
 
-func TestRecordsOfMissingZoneAndMalformedRecordsFail(t *testing.T) {
+func TestRecordsOfMissingZoneAndRecordsMissingFieldsFail(t *testing.T) {
 	s := newRecords(t)
 	p := provider(t, s.handler)
 	if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "missing.com"}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
@@ -260,11 +260,7 @@ func TestRecordsOfMissingZoneAndMalformedRecordsFail(t *testing.T) {
 		`{"id":"x","type":"A","name":"www","priority":0,"ttl":60}`,
 		`{"id":"x","type":"A","name":"www","data":"192.0.2.1","priority":0}`,
 		`{"id":"x","type":"A","name":"www","data":"192.0.2.1","priority":0,"ttl":-1}`,
-		`{"id":"x","type":"MX","name":"","data":"mail.example.net","ttl":60}`,
-		`{"id":"x","type":"MX","name":"","data":"mail.example.net","priority":70000,"ttl":60}`,
-		`{"id":"x","type":"SRV","name":"_sip._tcp","data":"5 sip.example.net","priority":1,"ttl":60}`,
-		`{"id":"x","type":"CAA","name":"","data":"0 issue","priority":0,"ttl":60}`,
-		`{"id":"x","type":"CNAME","name":"www","data":"","priority":0,"ttl":60}`,
+		`{"id":"x","name":"www","data":"192.0.2.1","priority":0,"ttl":60}`,
 	} {
 		t.Run(row, func(t *testing.T) {
 			p := provider(t, func(w http.ResponseWriter, _ *http.Request) {

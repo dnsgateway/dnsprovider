@@ -178,15 +178,30 @@ func TestDeleteZoneWhoseRetryFindsTheZoneGoneSucceeds(t *testing.T) {
 func TestDeleteZoneOfAZoneCloudflareDoesNotKnowOnTheFirstTryIsNotFound(t *testing.T) {
 	// Nothing this call sent before could have Offboarded it, so it is
 	// not taken as done.
-	o := &offboard{}
+	for name, unknown := range map[string]func(http.ResponseWriter){
+		"unroutable": func(w http.ResponseWriter) {
+			writeErrors(w, http.StatusNotFound, 7003, "Could not route to /zones/gone, perhaps your object identifier is invalid?")
+		},
+		"invalid zone identifier": func(w http.ResponseWriter) {
+			writeErrors(w, http.StatusBadRequest, 1001, "Invalid zone identifier")
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			o := &offboard{answer: func(w http.ResponseWriter, _ *http.Request, _ int) bool {
+				unknown(w)
 
-	err := newOffboarding(t, o).DeleteZone(context.Background(), dnsprovider.Zone{ID: "gone", Name: "example.net"})
-	if !errors.Is(err, dnsprovider.ErrNotFound) {
-		t.Errorf("err = %v, want ErrNotFound", err)
-	}
+				return true
+			}}
 
-	if o.tries != 1 {
-		t.Errorf("got %d DELETEs, want 1: a not-found is not retried", o.tries)
+			err := newOffboarding(t, o).DeleteZone(context.Background(), dnsprovider.Zone{ID: "gone", Name: "example.net"})
+			if !errors.Is(err, dnsprovider.ErrNotFound) {
+				t.Errorf("err = %v, want ErrNotFound", err)
+			}
+
+			if o.tries != 1 {
+				t.Errorf("got %d DELETEs, want 1: a not-found is not retried", o.tries)
+			}
+		})
 	}
 }
 

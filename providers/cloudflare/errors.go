@@ -27,8 +27,10 @@ func reportRateLimits(req *http.Request, next option.MiddlewareNext) (*http.Resp
 
 // apiError turns a failed cloudflare-go call into a *dnsprovider.APIError
 // when the API answered with an error status, given that call's last
-// response. Other errors, such as a lost connection, are wrapped as is.
-func apiError(err error, res *http.Response) error {
+// response; codes, when set, classify error codes for this call alone,
+// ahead of errorCodes. Other errors, such as a lost connection, are
+// wrapped as is.
+func apiError(err error, res *http.Response, codes map[int]error) error {
 	if res == nil || res.StatusCode < http.StatusBadRequest {
 		return fmt.Errorf("cloudflare: %w", err)
 	}
@@ -45,7 +47,7 @@ func apiError(err error, res *http.Response) error {
 	}
 
 	if data, rerr := io.ReadAll(res.Body); rerr == nil && json.Unmarshal(data, &body) == nil {
-		addErrors(e, body.Errors)
+		addErrors(e, body.Errors, codes)
 	}
 
 	return e
@@ -58,12 +60,18 @@ type wireError struct {
 }
 
 // addErrors adds a response's errors to e, and classifies e by the first
-// error code that says what went wrong.
-func addErrors(e *dnsprovider.APIError, errs []wireError) {
+// error code that says what went wrong, in codes, the call's own, or
+// else in errorCodes.
+func addErrors(e *dnsprovider.APIError, errs []wireError, codes map[int]error) {
 	for _, m := range errs {
 		e.Messages = append(e.Messages, fmt.Sprintf("%s (code %d)", m.Message, m.Code))
 
-		if kind, ok := errorCodes[m.Code]; ok && e.Kind == nil {
+		kind, ok := codes[m.Code]
+		if !ok {
+			kind, ok = errorCodes[m.Code]
+		}
+
+		if ok && e.Kind == nil {
 			e.Kind = kind
 		}
 
@@ -97,18 +105,21 @@ var errorCodes = map[int]error{
 	// answers (https://github.com/midl-dev/tezos-on-gke/issues/3) and
 	// mapped by libcloud as ZoneAlreadyExistsError
 	// (https://libcloud.readthedocs.io/en/v3.3.0/_modules/libcloud/dns/drivers/cloudflare.html).
-	1061: dnsprovider.ErrConflict,
-	7003: dnsprovider.ErrNotFound, // Could not route to …, perhaps your object identifier is invalid?
-	// 1001, "Invalid zone identifier", answers a zone ID Cloudflare does
-	// not know, as for a zone deleted since. Cloudflare's docs leave it
-	// out; it is seen in real answers to calls on a zone that is gone.
-	1001:  dnsprovider.ErrNotFound,
+	1061:  dnsprovider.ErrConflict,
+	7003:  dnsprovider.ErrNotFound, // Could not route to …, perhaps your object identifier is invalid?
 	81044: errRecordMissing,        // Record does not exist.
 	81053: dnsprovider.ErrConflict, // An A, AAAA, or CNAME record with that host already exists.
 	81054: dnsprovider.ErrConflict, // A CNAME record with that host already exists.
 	81057: dnsprovider.ErrConflict, // Record already exists.
 	81058: dnsprovider.ErrConflict, // An identical record already exists.
 }
+
+// deleteZoneCodes classify the error codes of a DELETE /zones/{id} alone.
+// 1001, "Invalid zone identifier", answers a zone ID Cloudflare does not
+// know, as for a zone deleted since. Cloudflare's docs leave it out; it is
+// seen in real answers to calls on a zone that is gone. To other calls it
+// stays classified by status: what they make of an unknown code is theirs.
+var deleteZoneCodes = map[int]error{1001: dnsprovider.ErrNotFound}
 
 // errRecordMissing is the kind of error Cloudflare's code 81044, "Record
 // does not exist", gives: dnsprovider.ErrNotFound, told apart from a Zone

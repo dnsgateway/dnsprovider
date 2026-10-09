@@ -345,7 +345,7 @@ func (p *Provider) DeleteZone(ctx context.Context, zone dnsprovider.Zone) error 
 		return next(req)
 	})
 
-	_, err := p.do(ctx, nil, func(opts ...option.RequestOption) error {
+	_, err := p.doCoded(ctx, nil, deleteZoneCodes, func(opts ...option.RequestOption) error {
 		_, err := p.zones.Delete(ctx, params, append(opts, count)...)
 
 		return err
@@ -436,7 +436,7 @@ func listAll[T any](ctx context.Context, perPage int, list func(...option.Reques
 			option.WithResponseInto(&raw),
 		)
 		if err != nil {
-			return nil, apiError(err, raw)
+			return nil, apiError(err, raw, nil)
 		}
 
 		out = append(out, res.Result...)
@@ -748,6 +748,12 @@ func noID(r dnsprovider.Record) error {
 // as Cloudflare holds it, for a read or a write, which storedRecord
 // decodes after a record write.
 func (p *Provider) do(ctx context.Context, body []byte, call func(...option.RequestOption) error) (json.RawMessage, error) {
+	return p.doCoded(ctx, body, nil, call)
+}
+
+// doCoded is do, with codes classifying the answer's error codes for this
+// call alone, ahead of errorCodes.
+func (p *Provider) doCoded(ctx context.Context, body []byte, codes map[int]error, call func(...option.RequestOption) error) (json.RawMessage, error) {
 	var (
 		env  envelope
 		raw  *http.Response
@@ -759,14 +765,14 @@ func (p *Provider) do(ctx context.Context, body []byte, call func(...option.Requ
 	}
 
 	if err := call(opts...); err != nil {
-		return nil, apiError(err, raw)
+		return nil, apiError(err, raw, codes)
 	}
 
 	// Any 2xx is an answer; Cloudflare says in the body when it did not
 	// take the write. A body without "success" took it.
 	if env.Success != nil && !*env.Success {
 		e := &dnsprovider.APIError{Provider: "cloudflare", StatusCode: raw.StatusCode}
-		addErrors(e, env.Errors)
+		addErrors(e, env.Errors, codes)
 
 		return nil, e
 	}
@@ -1182,7 +1188,7 @@ func settingError(err error, res *http.Response) (dnsprovider.Setting, error) {
 		return dnsprovider.Unknown, nil
 	}
 
-	return dnsprovider.Unknown, apiError(err, res)
+	return dnsprovider.Unknown, apiError(err, res, nil)
 }
 
 // Account implements dnsprovider.Provider. It verifies the API token
@@ -1246,14 +1252,14 @@ func (p *Provider) verifyToken(ctx context.Context) (owned bool, err error) {
 		}
 
 		// A user's token is not the Tenant's: it is verified below.
-		if err = apiError(err, raw); !errors.Is(err, dnsprovider.ErrUnauthorized) && !errors.Is(err, dnsprovider.ErrNotFound) {
+		if err = apiError(err, raw, nil); !errors.Is(err, dnsprovider.ErrUnauthorized) && !errors.Is(err, dnsprovider.ErrNotFound) {
 			return false, err
 		}
 	}
 
 	tok, err := p.tokens.Verify(ctx, option.WithResponseInto(&raw))
 	if err != nil {
-		return false, apiError(err, raw)
+		return false, apiError(err, raw, nil)
 	}
 
 	return false, tokenActive(string(tok.Status))

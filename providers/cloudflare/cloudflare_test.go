@@ -1373,6 +1373,9 @@ func TestErrorResponsesAreTypedErrors(t *testing.T) {
 		{"authentication error", http.StatusBadRequest, 10000, "Authentication error", dnsprovider.ErrUnauthorized},
 		{"unroutable zone ID", http.StatusBadRequest, 7003, "Could not route to /zones/nope/dns_records, perhaps your object identifier is invalid?", dnsprovider.ErrNotFound},
 		{"record does not exist", http.StatusBadRequest, 81044, "Record does not exist.", dnsprovider.ErrNotFound},
+		// 1001 is not-found to DeleteZone alone; to any other call it is
+		// classified by status, as Cloudflare's docs leave it out.
+		{"invalid zone identifier", http.StatusBadRequest, 1001, "Invalid zone identifier", nil},
 	}
 
 	for _, tt := range tests {

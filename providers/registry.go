@@ -8,6 +8,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/providers/cloudflare"
 	"github.com/dnsgateway/dnsprovider/providers/cloudns"
 	"github.com/dnsgateway/dnsprovider/providers/dnsimple"
+	"github.com/dnsgateway/dnsprovider/providers/gandi"
 	"github.com/dnsgateway/dnsprovider/providers/godaddy"
 	"github.com/dnsgateway/dnsprovider/providers/namecheap"
 	"github.com/dnsgateway/dnsprovider/providers/porkbun"
@@ -21,6 +22,7 @@ func Registry() dnsprovider.Registry {
 		"cloudns":    cloudns.Factory(),
 		"dnsimple":   dnsimple.Factory(),
 		"godaddy":    godaddy.Factory(),
+		"gandi":      gandi.Factory(),
 		"namecheap":  namecheap.Factory(),
 		"porkbun":    porkbun.Factory(),
 	}

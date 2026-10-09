@@ -35,10 +35,11 @@ dnsprovider/
 ├── providertest/    scriptable in-memory Provider for consumers' tests
 ├── internal/        adapter helpers and test support
 └── providers/
-    ├── registry.go  Registry() collecting all six adapters
+    ├── registry.go  Registry() collecting all seven adapters
     ├── cloudflare/
     ├── cloudns/
     ├── dnsimple/
+    ├── gandi/
     ├── godaddy/
     ├── namecheap/
     └── porkbun/
@@ -71,7 +72,7 @@ type Record struct {
 }
 ```
 
-Cloudflare assigns record IDs. GoDaddy and Namecheap use content-derived
+Cloudflare assigns record IDs. GoDaddy, Namecheap, and Gandi use content-derived
 keys, which change when the Record changes. Keep the whole Record as read
 for updates and deletions.
 
@@ -102,6 +103,7 @@ Cloudflare can proxy A, AAAA, and CNAME Records.
 | GoDaddy | 600 | 86400 | No |
 | Namecheap | 60 | 60000 | No; its 1799-second automatic value is an ordinary TTL here |
 | DNSimple | 0 | 4294967295 | No; API schema bounds, with plan restrictions enforced by the service |
+| Gandi | 300 | 2592000 | No; siblings in an RRset share their TTL |
 
 `TTLRange.Check` validates a TTL. Shared validation helpers are available
 to consumers; `Apply` does not run them automatically.
@@ -116,6 +118,7 @@ validates configuration without making a network call.
 | Cloudflare | `Token`, optional `TenantID` | `token`, `tenant_id` |
 | GoDaddy | `Key`, `Secret` | `key`, `secret` |
 | Namecheap | `User`, `Key`, `ClientIP` | `user`, `key`, `client_ip` |
+| Gandi | `Token` | `token` |
 
 Cloudflare's Tenant ID must be 32 lower-case hex digits. Its constructor
 uses Config credentials rather than the SDK's environment credentials.

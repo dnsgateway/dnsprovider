@@ -482,11 +482,18 @@ func TestBatcherFailsAChangeOfNoKnownKindAlone(t *testing.T) {
 	}
 }
 
-func TestZoneWritersAreImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.T) {
+func TestZoneWritersAreDeclaredAsScriptedAndImplementedOnceAnyIsWithAnyOtherOption(t *testing.T) {
+	// The Zone writes are implemented together, once any is scripted; the
+	// Factory declares each as scripted, and one not scripted refuses
+	// with dnsprovider.ErrNotImplemented, recording nothing.
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+
 	for set := range 64 {
 		tenants, status, batcher, updater, creator, deleter := set&1 != 0, set&2 != 0, set&4 != 0, set&8 != 0, set&16 != 0, set&32 != 0
+		writes := updater || creator || deleter
 
-		fake := providertest.New()
+		fake := providertest.New().AddZone(z)
 		if tenants {
 			fake.SetTenants(dnsprovider.Tenant{ID: "t1"})
 		}
@@ -500,14 +507,58 @@ func TestZoneWritersAreImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.
 		fake.SetZoneCreator(creator)
 		fake.SetZoneDeleter(deleter)
 
-		p := newFake(t, fake)
+		f := fake.Factory()
+
+		fields := map[string]string{"token": "t"}
+		if tenants {
+			fields[providertest.FieldTenant] = "t1"
+		}
+
+		p, err := f.New(fields)
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		_, isBatcher := p.(dnsprovider.Batcher)
 		_, readsStatus := p.(dnsprovider.ZoneStatusReader)
 
-		if dnsprovider.CanUpdateZone(p) != updater || dnsprovider.CanCreateZone(p) != creator || dnsprovider.CanDeleteZone(p) != deleter || isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
+		if dnsprovider.CanUpdateZone(p) != writes || dnsprovider.CanCreateZone(p) != writes || dnsprovider.CanDeleteZone(p) != writes ||
+			isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
 			t.Errorf("tenants %v, status %v, batcher %v, updater %v, creator %v, deleter %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v, updating Zones %v, creating Zones %v, deleting Zones %v",
 				tenants, status, batcher, updater, creator, deleter, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.CanUpdateZone(p), dnsprovider.CanCreateZone(p), dnsprovider.CanDeleteZone(p))
+		}
+
+		if f.Can(dnsprovider.CapZoneUpdater) != updater || f.Can(dnsprovider.CapZoneCreator) != creator || f.Can(dnsprovider.CapZoneDeleter) != deleter {
+			t.Errorf("updater %v, creator %v, deleter %v: Factory declares %v", updater, creator, deleter, f.Capabilities)
+		}
+
+		if !writes {
+			continue
+		}
+
+		calls := len(fake.Calls())
+
+		if _, err := p.(dnsprovider.ZoneUpdater).UpdateZone(ctx, z, dnsprovider.ZoneUpdate{}); !updater && !errors.Is(err, dnsprovider.ErrNotImplemented) {
+			t.Errorf("UpdateZone not scripted: %v, want ErrNotImplemented", err)
+		}
+
+		if _, err := p.(dnsprovider.ZoneCreator).CreateZone(ctx, "example.org"); !creator && !errors.Is(err, dnsprovider.ErrNotImplemented) {
+			t.Errorf("CreateZone not scripted: %v, want ErrNotImplemented", err)
+		}
+
+		if err := p.(dnsprovider.ZoneDeleter).DeleteZone(ctx, z); !deleter && !errors.Is(err, dnsprovider.ErrNotImplemented) {
+			t.Errorf("DeleteZone not scripted: %v, want ErrNotImplemented", err)
+		}
+
+		var want int
+		for _, on := range []bool{updater, creator, deleter} {
+			if on {
+				want++
+			}
+		}
+
+		if got := len(fake.Calls()) - calls; got != want {
+			t.Errorf("updater %v, creator %v, deleter %v: recorded %d Zone writes, want %d: one not scripted records nothing", updater, creator, deleter, got, want)
 		}
 	}
 }

@@ -14,12 +14,10 @@ type opts uint
 
 // The optional interfaces.
 const (
-	optTenants     opts = 1 << 0
-	optZoneStatus  opts = 1 << 1
-	optBatcher     opts = 1 << 2
-	optZoneUpdater opts = 1 << 3
-	optZoneCreator opts = 1 << 4
-	optZoneDeleter opts = 1 << 5
+	optTenants    opts = 1 << 0
+	optZoneStatus opts = 1 << 1
+	optBatcher    opts = 1 << 2
+	optZoneWrites opts = 1 << 3
 )
 
 // withTenants is the fake as a dnsprovider.TenantLister.
@@ -124,1239 +122,327 @@ func (p withTenantsZoneStatusBatcher) ApplyChangeset(ctx context.Context, cs dns
 	return p.applyChangeset(ctx, cs)
 }
 
-// withZoneUpdater is the fake as a dnsprovider.ZoneUpdater.
-type withZoneUpdater struct {
+// withZoneWrites is the fake as a dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
+type withZoneWrites struct {
 	*Provider
 	scope
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+func (p withZoneWrites) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
+
 	return p.updateZone(ctx, z, u)
 }
 
-// withTenantsZoneUpdater is the fake as a dnsprovider.TenantLister and dnsprovider.ZoneUpdater.
-type withTenantsZoneUpdater struct {
+// CreateZone implements dnsprovider.ZoneCreator.
+func (p withZoneWrites) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	return p.createZone(ctx, p.unscoped, name)
+}
+
+// DeleteZone implements dnsprovider.ZoneDeleter.
+func (p withZoneWrites) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+	if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
+		return err
+	}
+
+	return p.deleteZone(ctx, z)
+}
+
+// withTenantsZoneWrites is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
+type withTenantsZoneWrites struct {
 	*Provider
 	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneUpdater) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
+func (p withTenantsZoneWrites) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 	return p.tenantList(ctx)
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+func (p withTenantsZoneWrites) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
+
 	return p.updateZone(ctx, z, u)
 }
 
-// withZoneStatusZoneUpdater is the fake as a dnsprovider.ZoneStatusReader and dnsprovider.ZoneUpdater.
-type withZoneStatusZoneUpdater struct {
+// CreateZone implements dnsprovider.ZoneCreator.
+func (p withTenantsZoneWrites) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	return p.createZone(ctx, p.unscoped, name)
+}
+
+// DeleteZone implements dnsprovider.ZoneDeleter.
+func (p withTenantsZoneWrites) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+	if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
+		return err
+	}
+
+	return p.deleteZone(ctx, z)
+}
+
+// withZoneStatusZoneWrites is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
+type withZoneStatusZoneWrites struct {
 	*Provider
 	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusZoneUpdater) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
+func (p withZoneStatusZoneWrites) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
 	return p.zoneStatus(ctx, z)
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneStatusZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+func (p withZoneStatusZoneWrites) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
+
 	return p.updateZone(ctx, z, u)
 }
 
-// withTenantsZoneStatusZoneUpdater is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader and dnsprovider.ZoneUpdater.
-type withTenantsZoneStatusZoneUpdater struct {
+// CreateZone implements dnsprovider.ZoneCreator.
+func (p withZoneStatusZoneWrites) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	return p.createZone(ctx, p.unscoped, name)
+}
+
+// DeleteZone implements dnsprovider.ZoneDeleter.
+func (p withZoneStatusZoneWrites) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+	if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
+		return err
+	}
+
+	return p.deleteZone(ctx, z)
+}
+
+// withTenantsZoneStatusZoneWrites is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
+type withTenantsZoneStatusZoneWrites struct {
 	*Provider
 	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusZoneUpdater) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
+func (p withTenantsZoneStatusZoneWrites) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 	return p.tenantList(ctx)
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusZoneUpdater) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
+func (p withTenantsZoneStatusZoneWrites) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
 	return p.zoneStatus(ctx, z)
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneStatusZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+func (p withTenantsZoneStatusZoneWrites) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
+
 	return p.updateZone(ctx, z, u)
 }
 
-// withBatcherZoneUpdater is the fake as a dnsprovider.Batcher and dnsprovider.ZoneUpdater.
-type withBatcherZoneUpdater struct {
+// CreateZone implements dnsprovider.ZoneCreator.
+func (p withTenantsZoneStatusZoneWrites) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	return p.createZone(ctx, p.unscoped, name)
+}
+
+// DeleteZone implements dnsprovider.ZoneDeleter.
+func (p withTenantsZoneStatusZoneWrites) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+	if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
+		return err
+	}
+
+	return p.deleteZone(ctx, z)
+}
+
+// withBatcherZoneWrites is the fake as a dnsprovider.Batcher, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
+type withBatcherZoneWrites struct {
 	*Provider
 	scope
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
-func (p withBatcherZoneUpdater) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+func (p withBatcherZoneWrites) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	return p.applyChangeset(ctx, cs)
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withBatcherZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+func (p withBatcherZoneWrites) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
+
 	return p.updateZone(ctx, z, u)
 }
 
-// withTenantsBatcherZoneUpdater is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher and dnsprovider.ZoneUpdater.
-type withTenantsBatcherZoneUpdater struct {
+// CreateZone implements dnsprovider.ZoneCreator.
+func (p withBatcherZoneWrites) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	return p.createZone(ctx, p.unscoped, name)
+}
+
+// DeleteZone implements dnsprovider.ZoneDeleter.
+func (p withBatcherZoneWrites) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+	if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
+		return err
+	}
+
+	return p.deleteZone(ctx, z)
+}
+
+// withTenantsBatcherZoneWrites is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
+type withTenantsBatcherZoneWrites struct {
 	*Provider
 	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
-func (p withTenantsBatcherZoneUpdater) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
+func (p withTenantsBatcherZoneWrites) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 	return p.tenantList(ctx)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsBatcherZoneUpdater) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+func (p withTenantsBatcherZoneWrites) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	return p.applyChangeset(ctx, cs)
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsBatcherZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+func (p withTenantsBatcherZoneWrites) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
+
 	return p.updateZone(ctx, z, u)
 }
 
-// withZoneStatusBatcherZoneUpdater is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneUpdater.
-type withZoneStatusBatcherZoneUpdater struct {
+// CreateZone implements dnsprovider.ZoneCreator.
+func (p withTenantsBatcherZoneWrites) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	return p.createZone(ctx, p.unscoped, name)
+}
+
+// DeleteZone implements dnsprovider.ZoneDeleter.
+func (p withTenantsBatcherZoneWrites) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+	if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
+		return err
+	}
+
+	return p.deleteZone(ctx, z)
+}
+
+// withZoneStatusBatcherZoneWrites is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
+type withZoneStatusBatcherZoneWrites struct {
 	*Provider
 	scope
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusBatcherZoneUpdater) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
+func (p withZoneStatusBatcherZoneWrites) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
 	return p.zoneStatus(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
-func (p withZoneStatusBatcherZoneUpdater) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+func (p withZoneStatusBatcherZoneWrites) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	return p.applyChangeset(ctx, cs)
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneStatusBatcherZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+func (p withZoneStatusBatcherZoneWrites) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
+
 	return p.updateZone(ctx, z, u)
 }
 
-// withTenantsZoneStatusBatcherZoneUpdater is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneUpdater.
-type withTenantsZoneStatusBatcherZoneUpdater struct {
+// CreateZone implements dnsprovider.ZoneCreator.
+func (p withZoneStatusBatcherZoneWrites) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
+		return dnsprovider.Zone{}, err
+	}
+
+	return p.createZone(ctx, p.unscoped, name)
+}
+
+// DeleteZone implements dnsprovider.ZoneDeleter.
+func (p withZoneStatusBatcherZoneWrites) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+	if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
+		return err
+	}
+
+	return p.deleteZone(ctx, z)
+}
+
+// withTenantsZoneStatusBatcherZoneWrites is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
+type withTenantsZoneStatusBatcherZoneWrites struct {
 	*Provider
 	scope
 }
 
 // Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusBatcherZoneUpdater) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
+func (p withTenantsZoneStatusBatcherZoneWrites) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 	return p.tenantList(ctx)
 }
 
 // ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusBatcherZoneUpdater) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
+func (p withTenantsZoneStatusBatcherZoneWrites) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
 	return p.zoneStatus(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsZoneStatusBatcherZoneUpdater) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+func (p withTenantsZoneStatusBatcherZoneWrites) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	return p.applyChangeset(ctx, cs)
 }
 
 // UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneStatusBatcherZoneUpdater) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
+func (p withTenantsZoneStatusBatcherZoneWrites) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+	if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
+		return dnsprovider.ZoneStatus{}, err
+	}
 
-// withZoneCreator is the fake as a dnsprovider.ZoneCreator.
-type withZoneCreator struct {
-	*Provider
-	scope
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withTenantsZoneCreator is the fake as a dnsprovider.TenantLister and dnsprovider.ZoneCreator.
-type withTenantsZoneCreator struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneCreator) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withZoneStatusZoneCreator is the fake as a dnsprovider.ZoneStatusReader and dnsprovider.ZoneCreator.
-type withZoneStatusZoneCreator struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusZoneCreator) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneStatusZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withTenantsZoneStatusZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader and dnsprovider.ZoneCreator.
-type withTenantsZoneStatusZoneCreator struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusZoneCreator) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusZoneCreator) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneStatusZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withBatcherZoneCreator is the fake as a dnsprovider.Batcher and dnsprovider.ZoneCreator.
-type withBatcherZoneCreator struct {
-	*Provider
-	scope
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withBatcherZoneCreator) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withBatcherZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withTenantsBatcherZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher and dnsprovider.ZoneCreator.
-type withTenantsBatcherZoneCreator struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsBatcherZoneCreator) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsBatcherZoneCreator) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsBatcherZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withZoneStatusBatcherZoneCreator is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneCreator.
-type withZoneStatusBatcherZoneCreator struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusBatcherZoneCreator) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withZoneStatusBatcherZoneCreator) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneStatusBatcherZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withTenantsZoneStatusBatcherZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneCreator.
-type withTenantsZoneStatusBatcherZoneCreator struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusBatcherZoneCreator) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusBatcherZoneCreator) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsZoneStatusBatcherZoneCreator) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneStatusBatcherZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withZoneUpdaterZoneCreator is the fake as a dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
-type withZoneUpdaterZoneCreator struct {
-	*Provider
-	scope
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
 	return p.updateZone(ctx, z, u)
 }
 
 // CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
+func (p withTenantsZoneStatusBatcherZoneWrites) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
+		return dnsprovider.Zone{}, err
+	}
 
-// withTenantsZoneUpdaterZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
-type withTenantsZoneUpdaterZoneCreator struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneUpdaterZoneCreator) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withZoneStatusZoneUpdaterZoneCreator is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
-type withZoneStatusZoneUpdaterZoneCreator struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusZoneUpdaterZoneCreator) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneStatusZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneStatusZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withTenantsZoneStatusZoneUpdaterZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
-type withTenantsZoneStatusZoneUpdaterZoneCreator struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusZoneUpdaterZoneCreator) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusZoneUpdaterZoneCreator) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneStatusZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneStatusZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withBatcherZoneUpdaterZoneCreator is the fake as a dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
-type withBatcherZoneUpdaterZoneCreator struct {
-	*Provider
-	scope
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withBatcherZoneUpdaterZoneCreator) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withBatcherZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withBatcherZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withTenantsBatcherZoneUpdaterZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
-type withTenantsBatcherZoneUpdaterZoneCreator struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsBatcherZoneUpdaterZoneCreator) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsBatcherZoneUpdaterZoneCreator) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsBatcherZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsBatcherZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withZoneStatusBatcherZoneUpdaterZoneCreator is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
-type withZoneStatusBatcherZoneUpdaterZoneCreator struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusBatcherZoneUpdaterZoneCreator) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withZoneStatusBatcherZoneUpdaterZoneCreator) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneStatusBatcherZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneStatusBatcherZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withTenantsZoneStatusBatcherZoneUpdaterZoneCreator is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneCreator.
-type withTenantsZoneStatusBatcherZoneUpdaterZoneCreator struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreator) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreator) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreator) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreator) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreator) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// withZoneDeleter is the fake as a dnsprovider.ZoneDeleter.
-type withZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneDeleter is the fake as a dnsprovider.TenantLister and dnsprovider.ZoneDeleter.
-type withTenantsZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneStatusZoneDeleter is the fake as a dnsprovider.ZoneStatusReader and dnsprovider.ZoneDeleter.
-type withZoneStatusZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneStatusZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneStatusZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader and dnsprovider.ZoneDeleter.
-type withTenantsZoneStatusZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneStatusZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withBatcherZoneDeleter is the fake as a dnsprovider.Batcher and dnsprovider.ZoneDeleter.
-type withBatcherZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withBatcherZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withBatcherZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsBatcherZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher and dnsprovider.ZoneDeleter.
-type withTenantsBatcherZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsBatcherZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsBatcherZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsBatcherZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneStatusBatcherZoneDeleter is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneDeleter.
-type withZoneStatusBatcherZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusBatcherZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withZoneStatusBatcherZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneStatusBatcherZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneStatusBatcherZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher and dnsprovider.ZoneDeleter.
-type withTenantsZoneStatusBatcherZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusBatcherZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusBatcherZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsZoneStatusBatcherZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneStatusBatcherZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneUpdaterZoneDeleter is the fake as a dnsprovider.ZoneUpdater and dnsprovider.ZoneDeleter.
-type withZoneUpdaterZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneUpdaterZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneUpdaterZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneUpdaterZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneUpdater and dnsprovider.ZoneDeleter.
-type withTenantsZoneUpdaterZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneUpdaterZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneUpdaterZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneUpdaterZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneStatusZoneUpdaterZoneDeleter is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater and dnsprovider.ZoneDeleter.
-type withZoneStatusZoneUpdaterZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusZoneUpdaterZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneStatusZoneUpdaterZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneStatusZoneUpdaterZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneStatusZoneUpdaterZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater and dnsprovider.ZoneDeleter.
-type withTenantsZoneStatusZoneUpdaterZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusZoneUpdaterZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusZoneUpdaterZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneStatusZoneUpdaterZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneStatusZoneUpdaterZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withBatcherZoneUpdaterZoneDeleter is the fake as a dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneDeleter.
-type withBatcherZoneUpdaterZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withBatcherZoneUpdaterZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withBatcherZoneUpdaterZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withBatcherZoneUpdaterZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsBatcherZoneUpdaterZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneDeleter.
-type withTenantsBatcherZoneUpdaterZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsBatcherZoneUpdaterZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsBatcherZoneUpdaterZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsBatcherZoneUpdaterZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsBatcherZoneUpdaterZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneStatusBatcherZoneUpdaterZoneDeleter is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneDeleter.
-type withZoneStatusBatcherZoneUpdaterZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusBatcherZoneUpdaterZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withZoneStatusBatcherZoneUpdaterZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneStatusBatcherZoneUpdaterZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneStatusBatcherZoneUpdaterZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater and dnsprovider.ZoneDeleter.
-type withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneCreatorZoneDeleter is the fake as a dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	return p.createZone(ctx, p.unscoped, name)
 }
 
 // DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
+func (p withTenantsZoneStatusBatcherZoneWrites) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+	if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
+		return err
+	}
 
-// withTenantsZoneCreatorZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withTenantsZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneCreatorZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneStatusZoneCreatorZoneDeleter is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withZoneStatusZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusZoneCreatorZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneStatusZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneStatusZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneStatusZoneCreatorZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withTenantsZoneStatusZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusZoneCreatorZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusZoneCreatorZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneStatusZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneStatusZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withBatcherZoneCreatorZoneDeleter is the fake as a dnsprovider.Batcher, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withBatcherZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withBatcherZoneCreatorZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withBatcherZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withBatcherZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsBatcherZoneCreatorZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withTenantsBatcherZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsBatcherZoneCreatorZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsBatcherZoneCreatorZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsBatcherZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsBatcherZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneStatusBatcherZoneCreatorZoneDeleter is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withZoneStatusBatcherZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusBatcherZoneCreatorZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withZoneStatusBatcherZoneCreatorZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneStatusBatcherZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneStatusBatcherZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneStatusBatcherZoneCreatorZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withTenantsZoneStatusBatcherZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusBatcherZoneCreatorZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusBatcherZoneCreatorZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsZoneStatusBatcherZoneCreatorZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneStatusBatcherZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneStatusBatcherZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneUpdaterZoneCreatorZoneDeleter is the fake as a dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withZoneUpdaterZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneUpdaterZoneCreatorZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneUpdaterZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneUpdaterZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneUpdaterZoneCreatorZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withTenantsZoneUpdaterZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneUpdaterZoneCreatorZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneUpdaterZoneCreatorZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneUpdaterZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneUpdaterZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneStatusZoneUpdaterZoneCreatorZoneDeleter is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withZoneStatusZoneUpdaterZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusZoneUpdaterZoneCreatorZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneStatusZoneUpdaterZoneCreatorZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneStatusZoneUpdaterZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneStatusZoneUpdaterZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withBatcherZoneUpdaterZoneCreatorZoneDeleter is the fake as a dnsprovider.Batcher, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withBatcherZoneUpdaterZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withBatcherZoneUpdaterZoneCreatorZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withBatcherZoneUpdaterZoneCreatorZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withBatcherZoneUpdaterZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withBatcherZoneUpdaterZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.Batcher, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	return p.deleteZone(ctx, z)
-}
-
-// withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.Batcher, dnsprovider.ZoneUpdater, dnsprovider.ZoneCreator and dnsprovider.ZoneDeleter.
-type withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter struct {
-	*Provider
-	scope
-}
-
-// Tenants implements dnsprovider.TenantLister.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
-	return p.tenantList(ctx)
-}
-
-// ZoneStatus implements dnsprovider.ZoneStatusReader.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return p.zoneStatus(ctx, z)
-}
-
-// ApplyChangeset implements dnsprovider.Batcher.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	return p.applyChangeset(ctx, cs)
-}
-
-// UpdateZone implements dnsprovider.ZoneUpdater.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	return p.updateZone(ctx, z, u)
-}
-
-// CreateZone implements dnsprovider.ZoneCreator.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	return p.createZone(ctx, p.unscoped, name)
-}
-
-// DeleteZone implements dnsprovider.ZoneDeleter.
-func (p withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
 	return p.deleteZone(ctx, z)
 }
 
@@ -1373,186 +459,42 @@ var (
 	_ dnsprovider.TenantLister     = withTenantsZoneStatusBatcher{}
 	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusBatcher{}
 	_ dnsprovider.Batcher          = withTenantsZoneStatusBatcher{}
-	_ dnsprovider.ZoneUpdater      = withZoneUpdater{}
-	_ dnsprovider.TenantLister     = withTenantsZoneUpdater{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneUpdater{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusZoneUpdater{}
-	_ dnsprovider.ZoneUpdater      = withZoneStatusZoneUpdater{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusZoneUpdater{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusZoneUpdater{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusZoneUpdater{}
-	_ dnsprovider.Batcher          = withBatcherZoneUpdater{}
-	_ dnsprovider.ZoneUpdater      = withBatcherZoneUpdater{}
-	_ dnsprovider.TenantLister     = withTenantsBatcherZoneUpdater{}
-	_ dnsprovider.Batcher          = withTenantsBatcherZoneUpdater{}
-	_ dnsprovider.ZoneUpdater      = withTenantsBatcherZoneUpdater{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusBatcherZoneUpdater{}
-	_ dnsprovider.Batcher          = withZoneStatusBatcherZoneUpdater{}
-	_ dnsprovider.ZoneUpdater      = withZoneStatusBatcherZoneUpdater{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusBatcherZoneUpdater{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusBatcherZoneUpdater{}
-	_ dnsprovider.Batcher          = withTenantsZoneStatusBatcherZoneUpdater{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusBatcherZoneUpdater{}
-	_ dnsprovider.ZoneCreator      = withZoneCreator{}
-	_ dnsprovider.TenantLister     = withTenantsZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneCreator{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withZoneStatusZoneCreator{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusZoneCreator{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusZoneCreator{}
-	_ dnsprovider.Batcher          = withBatcherZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withBatcherZoneCreator{}
-	_ dnsprovider.TenantLister     = withTenantsBatcherZoneCreator{}
-	_ dnsprovider.Batcher          = withTenantsBatcherZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withTenantsBatcherZoneCreator{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusBatcherZoneCreator{}
-	_ dnsprovider.Batcher          = withZoneStatusBatcherZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withZoneStatusBatcherZoneCreator{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusBatcherZoneCreator{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusBatcherZoneCreator{}
-	_ dnsprovider.Batcher          = withTenantsZoneStatusBatcherZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusBatcherZoneCreator{}
-	_ dnsprovider.ZoneUpdater      = withZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withZoneUpdaterZoneCreator{}
-	_ dnsprovider.TenantLister     = withTenantsZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneUpdater      = withZoneStatusZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withZoneStatusZoneUpdaterZoneCreator{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusZoneUpdaterZoneCreator{}
-	_ dnsprovider.Batcher          = withBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneUpdater      = withBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.TenantLister     = withTenantsBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.Batcher          = withTenantsBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneUpdater      = withTenantsBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withTenantsBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.Batcher          = withZoneStatusBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneUpdater      = withZoneStatusBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withZoneStatusBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.Batcher          = withTenantsZoneStatusBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusBatcherZoneUpdaterZoneCreator{}
-	_ dnsprovider.ZoneDeleter      = withZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneStatusZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusZoneDeleter{}
-	_ dnsprovider.Batcher          = withBatcherZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withBatcherZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsBatcherZoneDeleter{}
-	_ dnsprovider.Batcher          = withTenantsBatcherZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsBatcherZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusBatcherZoneDeleter{}
-	_ dnsprovider.Batcher          = withZoneStatusBatcherZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneStatusBatcherZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusBatcherZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusBatcherZoneDeleter{}
-	_ dnsprovider.Batcher          = withTenantsZoneStatusBatcherZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusBatcherZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneUpdaterZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withZoneStatusZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneStatusZoneUpdaterZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusZoneUpdaterZoneDeleter{}
-	_ dnsprovider.Batcher          = withBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.Batcher          = withTenantsBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withTenantsBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.Batcher          = withZoneStatusBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withZoneStatusBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneStatusBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.Batcher          = withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneCreatorZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withZoneStatusZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneStatusZoneCreatorZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusZoneCreatorZoneDeleter{}
-	_ dnsprovider.Batcher          = withBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.Batcher          = withTenantsBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withTenantsBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.Batcher          = withZoneStatusBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withZoneStatusBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneStatusBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.Batcher          = withTenantsZoneStatusBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusBatcherZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withZoneStatusZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withZoneStatusZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneStatusZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.Batcher          = withBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.Batcher          = withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.Batcher          = withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.TenantLister     = withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.Batcher          = withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
-	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{}
+	_ dnsprovider.ZoneUpdater      = withZoneWrites{}
+	_ dnsprovider.ZoneCreator      = withZoneWrites{}
+	_ dnsprovider.ZoneDeleter      = withZoneWrites{}
+	_ dnsprovider.TenantLister     = withTenantsZoneWrites{}
+	_ dnsprovider.ZoneUpdater      = withTenantsZoneWrites{}
+	_ dnsprovider.ZoneCreator      = withTenantsZoneWrites{}
+	_ dnsprovider.ZoneDeleter      = withTenantsZoneWrites{}
+	_ dnsprovider.ZoneStatusReader = withZoneStatusZoneWrites{}
+	_ dnsprovider.ZoneUpdater      = withZoneStatusZoneWrites{}
+	_ dnsprovider.ZoneCreator      = withZoneStatusZoneWrites{}
+	_ dnsprovider.ZoneDeleter      = withZoneStatusZoneWrites{}
+	_ dnsprovider.TenantLister     = withTenantsZoneStatusZoneWrites{}
+	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusZoneWrites{}
+	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusZoneWrites{}
+	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusZoneWrites{}
+	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusZoneWrites{}
+	_ dnsprovider.Batcher          = withBatcherZoneWrites{}
+	_ dnsprovider.ZoneUpdater      = withBatcherZoneWrites{}
+	_ dnsprovider.ZoneCreator      = withBatcherZoneWrites{}
+	_ dnsprovider.ZoneDeleter      = withBatcherZoneWrites{}
+	_ dnsprovider.TenantLister     = withTenantsBatcherZoneWrites{}
+	_ dnsprovider.Batcher          = withTenantsBatcherZoneWrites{}
+	_ dnsprovider.ZoneUpdater      = withTenantsBatcherZoneWrites{}
+	_ dnsprovider.ZoneCreator      = withTenantsBatcherZoneWrites{}
+	_ dnsprovider.ZoneDeleter      = withTenantsBatcherZoneWrites{}
+	_ dnsprovider.ZoneStatusReader = withZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.Batcher          = withZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.ZoneUpdater      = withZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.ZoneCreator      = withZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.ZoneDeleter      = withZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.TenantLister     = withTenantsZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.ZoneStatusReader = withTenantsZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.Batcher          = withTenantsZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.ZoneUpdater      = withTenantsZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.ZoneCreator      = withTenantsZoneStatusBatcherZoneWrites{}
+	_ dnsprovider.ZoneDeleter      = withTenantsZoneStatusBatcherZoneWrites{}
 )
 
 // wrap is the fake implementing the optional interfaces in set, built
@@ -1573,118 +515,22 @@ func wrap(p *Provider, set opts, sc scope) dnsprovider.Provider {
 		return withZoneStatusBatcher{p, sc}
 	case optTenants | optZoneStatus | optBatcher:
 		return withTenantsZoneStatusBatcher{p, sc}
-	case optZoneUpdater:
-		return withZoneUpdater{p, sc}
-	case optTenants | optZoneUpdater:
-		return withTenantsZoneUpdater{p, sc}
-	case optZoneStatus | optZoneUpdater:
-		return withZoneStatusZoneUpdater{p, sc}
-	case optTenants | optZoneStatus | optZoneUpdater:
-		return withTenantsZoneStatusZoneUpdater{p, sc}
-	case optBatcher | optZoneUpdater:
-		return withBatcherZoneUpdater{p, sc}
-	case optTenants | optBatcher | optZoneUpdater:
-		return withTenantsBatcherZoneUpdater{p, sc}
-	case optZoneStatus | optBatcher | optZoneUpdater:
-		return withZoneStatusBatcherZoneUpdater{p, sc}
-	case optTenants | optZoneStatus | optBatcher | optZoneUpdater:
-		return withTenantsZoneStatusBatcherZoneUpdater{p, sc}
-	case optZoneCreator:
-		return withZoneCreator{p, sc}
-	case optTenants | optZoneCreator:
-		return withTenantsZoneCreator{p, sc}
-	case optZoneStatus | optZoneCreator:
-		return withZoneStatusZoneCreator{p, sc}
-	case optTenants | optZoneStatus | optZoneCreator:
-		return withTenantsZoneStatusZoneCreator{p, sc}
-	case optBatcher | optZoneCreator:
-		return withBatcherZoneCreator{p, sc}
-	case optTenants | optBatcher | optZoneCreator:
-		return withTenantsBatcherZoneCreator{p, sc}
-	case optZoneStatus | optBatcher | optZoneCreator:
-		return withZoneStatusBatcherZoneCreator{p, sc}
-	case optTenants | optZoneStatus | optBatcher | optZoneCreator:
-		return withTenantsZoneStatusBatcherZoneCreator{p, sc}
-	case optZoneUpdater | optZoneCreator:
-		return withZoneUpdaterZoneCreator{p, sc}
-	case optTenants | optZoneUpdater | optZoneCreator:
-		return withTenantsZoneUpdaterZoneCreator{p, sc}
-	case optZoneStatus | optZoneUpdater | optZoneCreator:
-		return withZoneStatusZoneUpdaterZoneCreator{p, sc}
-	case optTenants | optZoneStatus | optZoneUpdater | optZoneCreator:
-		return withTenantsZoneStatusZoneUpdaterZoneCreator{p, sc}
-	case optBatcher | optZoneUpdater | optZoneCreator:
-		return withBatcherZoneUpdaterZoneCreator{p, sc}
-	case optTenants | optBatcher | optZoneUpdater | optZoneCreator:
-		return withTenantsBatcherZoneUpdaterZoneCreator{p, sc}
-	case optZoneStatus | optBatcher | optZoneUpdater | optZoneCreator:
-		return withZoneStatusBatcherZoneUpdaterZoneCreator{p, sc}
-	case optTenants | optZoneStatus | optBatcher | optZoneUpdater | optZoneCreator:
-		return withTenantsZoneStatusBatcherZoneUpdaterZoneCreator{p, sc}
-	case optZoneDeleter:
-		return withZoneDeleter{p, sc}
-	case optTenants | optZoneDeleter:
-		return withTenantsZoneDeleter{p, sc}
-	case optZoneStatus | optZoneDeleter:
-		return withZoneStatusZoneDeleter{p, sc}
-	case optTenants | optZoneStatus | optZoneDeleter:
-		return withTenantsZoneStatusZoneDeleter{p, sc}
-	case optBatcher | optZoneDeleter:
-		return withBatcherZoneDeleter{p, sc}
-	case optTenants | optBatcher | optZoneDeleter:
-		return withTenantsBatcherZoneDeleter{p, sc}
-	case optZoneStatus | optBatcher | optZoneDeleter:
-		return withZoneStatusBatcherZoneDeleter{p, sc}
-	case optTenants | optZoneStatus | optBatcher | optZoneDeleter:
-		return withTenantsZoneStatusBatcherZoneDeleter{p, sc}
-	case optZoneUpdater | optZoneDeleter:
-		return withZoneUpdaterZoneDeleter{p, sc}
-	case optTenants | optZoneUpdater | optZoneDeleter:
-		return withTenantsZoneUpdaterZoneDeleter{p, sc}
-	case optZoneStatus | optZoneUpdater | optZoneDeleter:
-		return withZoneStatusZoneUpdaterZoneDeleter{p, sc}
-	case optTenants | optZoneStatus | optZoneUpdater | optZoneDeleter:
-		return withTenantsZoneStatusZoneUpdaterZoneDeleter{p, sc}
-	case optBatcher | optZoneUpdater | optZoneDeleter:
-		return withBatcherZoneUpdaterZoneDeleter{p, sc}
-	case optTenants | optBatcher | optZoneUpdater | optZoneDeleter:
-		return withTenantsBatcherZoneUpdaterZoneDeleter{p, sc}
-	case optZoneStatus | optBatcher | optZoneUpdater | optZoneDeleter:
-		return withZoneStatusBatcherZoneUpdaterZoneDeleter{p, sc}
-	case optTenants | optZoneStatus | optBatcher | optZoneUpdater | optZoneDeleter:
-		return withTenantsZoneStatusBatcherZoneUpdaterZoneDeleter{p, sc}
-	case optZoneCreator | optZoneDeleter:
-		return withZoneCreatorZoneDeleter{p, sc}
-	case optTenants | optZoneCreator | optZoneDeleter:
-		return withTenantsZoneCreatorZoneDeleter{p, sc}
-	case optZoneStatus | optZoneCreator | optZoneDeleter:
-		return withZoneStatusZoneCreatorZoneDeleter{p, sc}
-	case optTenants | optZoneStatus | optZoneCreator | optZoneDeleter:
-		return withTenantsZoneStatusZoneCreatorZoneDeleter{p, sc}
-	case optBatcher | optZoneCreator | optZoneDeleter:
-		return withBatcherZoneCreatorZoneDeleter{p, sc}
-	case optTenants | optBatcher | optZoneCreator | optZoneDeleter:
-		return withTenantsBatcherZoneCreatorZoneDeleter{p, sc}
-	case optZoneStatus | optBatcher | optZoneCreator | optZoneDeleter:
-		return withZoneStatusBatcherZoneCreatorZoneDeleter{p, sc}
-	case optTenants | optZoneStatus | optBatcher | optZoneCreator | optZoneDeleter:
-		return withTenantsZoneStatusBatcherZoneCreatorZoneDeleter{p, sc}
-	case optZoneUpdater | optZoneCreator | optZoneDeleter:
-		return withZoneUpdaterZoneCreatorZoneDeleter{p, sc}
-	case optTenants | optZoneUpdater | optZoneCreator | optZoneDeleter:
-		return withTenantsZoneUpdaterZoneCreatorZoneDeleter{p, sc}
-	case optZoneStatus | optZoneUpdater | optZoneCreator | optZoneDeleter:
-		return withZoneStatusZoneUpdaterZoneCreatorZoneDeleter{p, sc}
-	case optTenants | optZoneStatus | optZoneUpdater | optZoneCreator | optZoneDeleter:
-		return withTenantsZoneStatusZoneUpdaterZoneCreatorZoneDeleter{p, sc}
-	case optBatcher | optZoneUpdater | optZoneCreator | optZoneDeleter:
-		return withBatcherZoneUpdaterZoneCreatorZoneDeleter{p, sc}
-	case optTenants | optBatcher | optZoneUpdater | optZoneCreator | optZoneDeleter:
-		return withTenantsBatcherZoneUpdaterZoneCreatorZoneDeleter{p, sc}
-	case optZoneStatus | optBatcher | optZoneUpdater | optZoneCreator | optZoneDeleter:
-		return withZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{p, sc}
-	case optTenants | optZoneStatus | optBatcher | optZoneUpdater | optZoneCreator | optZoneDeleter:
-		return withTenantsZoneStatusBatcherZoneUpdaterZoneCreatorZoneDeleter{p, sc}
+	case optZoneWrites:
+		return withZoneWrites{p, sc}
+	case optTenants | optZoneWrites:
+		return withTenantsZoneWrites{p, sc}
+	case optZoneStatus | optZoneWrites:
+		return withZoneStatusZoneWrites{p, sc}
+	case optTenants | optZoneStatus | optZoneWrites:
+		return withTenantsZoneStatusZoneWrites{p, sc}
+	case optBatcher | optZoneWrites:
+		return withBatcherZoneWrites{p, sc}
+	case optTenants | optBatcher | optZoneWrites:
+		return withTenantsBatcherZoneWrites{p, sc}
+	case optZoneStatus | optBatcher | optZoneWrites:
+		return withZoneStatusBatcherZoneWrites{p, sc}
+	case optTenants | optZoneStatus | optBatcher | optZoneWrites:
+		return withTenantsZoneStatusBatcherZoneWrites{p, sc}
 	}
 
 	return p

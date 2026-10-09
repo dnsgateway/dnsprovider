@@ -204,7 +204,10 @@ func (p *Provider) SetAutoTTL(on bool) {
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted: one type per combination, generated (see
 // gen_wrappers.go) and picked by build. So are ZoneUpdater, ZoneCreator
-// and ZoneDeleter, which a consumer offers its Zone writes by.
+// and ZoneDeleter, together: a consumer offers its Zone writes by the
+// Factory's Capabilities, which declare each as scripted, and a Zone
+// write not scripted refuses with dnsprovider.ErrNotImplemented,
+// recording nothing.
 var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
@@ -313,7 +316,8 @@ func (p *Provider) SetBatcher(on bool) {
 // Cloudflare signs and unsigns a Zone over time, in the scripted Zone
 // Status, which a fake that reads Zone Status (see SetZoneStatus) then
 // reports, and returns that Zone Status; SetZoneStatus settles DNSSEC.
-// Unscripted, they do not implement it.
+// Unscripted, they do not implement it, unless another Zone write is
+// scripted, when it refuses with dnsprovider.ErrNotImplemented.
 func (p *Provider) SetZoneUpdater(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -330,7 +334,8 @@ func (p *Provider) SetZoneUpdater(on bool) {
 // is dnsprovider.ErrConflict; a Moved Zone's name is Onboarded again
 // beside it. A Provider of a fake scripted with Tenants built without
 // one (see Factory) has nowhere to Onboard it: dnsprovider.ErrNoTenant,
-// recorded. Unscripted, they do not implement it.
+// recorded. Unscripted, they do not implement it, unless another Zone
+// write is scripted, when it refuses with dnsprovider.ErrNotImplemented.
 func (p *Provider) SetZoneCreator(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -342,7 +347,9 @@ func (p *Provider) SetZoneCreator(on bool) {
 // dnsprovider.ZoneDeleter, recorded as OpDeleteZone with the Zone: DeleteZone
 // removes the Zone of that ID with its Records, as RemoveZone does, as
 // Cloudflare Offboards a Zone; dnsprovider.ErrNotFound for an ID the fake
-// does not hold. Unscripted, they do not implement it.
+// does not hold. Unscripted, they do not implement it, unless another
+// Zone write is scripted, when it refuses with
+// dnsprovider.ErrNotImplemented.
 func (p *Provider) SetZoneDeleter(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -418,27 +425,50 @@ func (p *Provider) Factory() dnsprovider.Factory {
 	}
 
 	f := fields.Factory("providertest", fs, p.build)
-
-	if p.updater {
-		f.Capabilities = append(f.Capabilities, dnsprovider.CapZoneUpdater)
-	}
-
-	if p.creator {
-		f.Capabilities = append(f.Capabilities, dnsprovider.CapZoneCreator)
-	}
-
-	if p.deleter {
-		f.Capabilities = append(f.Capabilities, dnsprovider.CapZoneDeleter)
-	}
+	f.Capabilities = p.zoneWrites()
 
 	return f
 }
 
-// scope is the Tenant a Provider the fake built acts within.
+// zoneWrites are the Zone writes scripted; nil when none is. The caller
+// holds p.mu.
+func (p *Provider) zoneWrites() []dnsprovider.Capability {
+	var out []dnsprovider.Capability
+
+	if p.updater {
+		out = append(out, dnsprovider.CapZoneUpdater)
+	}
+
+	if p.creator {
+		out = append(out, dnsprovider.CapZoneCreator)
+	}
+
+	if p.deleter {
+		out = append(out, dnsprovider.CapZoneDeleter)
+	}
+
+	return out
+}
+
+// scope is what a Provider the fake built acts within: its Tenant, and
+// the Zone writes scripted when it was built.
 type scope struct {
 	// unscoped is set for a Provider of a fake scripted with Tenants,
 	// built without one: like Cloudflare's, it acts within no Tenant.
 	unscoped bool
+	// writes are the Zone writes scripted, as the Factory declares them.
+	writes []dnsprovider.Capability
+}
+
+// unscripted refuses a Zone write that was not scripted when the Provider
+// was built: it implements the Zone writes together, once any is
+// scripted. It records nothing.
+func (sc scope) unscripted(c dnsprovider.Capability) error {
+	if slices.Contains(sc.writes, c) {
+		return nil
+	}
+
+	return fmt.Errorf("providertest: %s not scripted: %w", c, dnsprovider.ErrNotImplemented)
 }
 
 func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovider.Provider, error) {
@@ -467,19 +497,12 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 		set |= optBatcher
 	}
 
-	if p.updater {
-		set |= optZoneUpdater
+	writes := p.zoneWrites()
+	if len(writes) > 0 {
+		set |= optZoneWrites
 	}
 
-	if p.creator {
-		set |= optZoneCreator
-	}
-
-	if p.deleter {
-		set |= optZoneDeleter
-	}
-
-	return wrap(p, set, scope{unscoped: p.tenants != nil && m[FieldTenant] == ""}), nil
+	return wrap(p, set, scope{unscoped: p.tenants != nil && m[FieldTenant] == "", writes: writes}), nil
 }
 
 // record logs a call and returns its scripted failure, if any.

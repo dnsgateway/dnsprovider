@@ -1,10 +1,11 @@
 //go:build ignore
 
 // gen_wrappers writes wrappers_gen.go: one type for each combination of
-// the optional interfaces the fake implements only once scripted, so a
-// consumer's type assertions see exactly what was scripted. Each
-// interface is one entry of options below; run go generate after adding
-// one.
+// the options, sets of optional interfaces the fake implements only once
+// scripted, so a consumer's type assertions see what was scripted. Each
+// option is one entry of options below; run go generate after adding one.
+// Each option doubles the types: an interface that a consumer does not
+// branch on by type alone joins an option rather than adding one.
 package main
 
 import (
@@ -16,46 +17,84 @@ import (
 	"strings"
 )
 
-// option is an optional interface the fake implements once scripted.
+// option is a set of optional interfaces the fake implements once
+// scripted, together.
 type option struct {
 	// Name names the option in the wrapper types and the opt constant.
 	Name string
+	// Methods are the option's interfaces' methods.
+	Methods []method
+}
+
+// method is one dnsprovider interface's method, delegating to the fake.
+type method struct {
 	// Iface is the dnsprovider interface.
 	Iface string
-	// Method is the interface's method, delegating to the fake.
+	// Method is the method, delegating to the fake.
 	Method string
 }
 
+// options are each an option: the types are one per combination, so each
+// option doubles them. The Zone writes are one option, as a consumer
+// offers each by its Factory's Capabilities: the fake implements all
+// three once any is scripted, and one not scripted refuses (see
+// scope.unscripted).
 var options = []option{
 	{
-		Name:   "Tenants",
-		Iface:  "TenantLister",
-		Method: "Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) { return p.tenantList(ctx) }",
+		Name: "Tenants",
+		Methods: []method{{
+			Iface:  "TenantLister",
+			Method: "Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) { return p.tenantList(ctx) }",
+		}},
 	},
 	{
-		Name:   "ZoneStatus",
-		Iface:  "ZoneStatusReader",
-		Method: "ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) { return p.zoneStatus(ctx, z) }",
+		Name: "ZoneStatus",
+		Methods: []method{{
+			Iface:  "ZoneStatusReader",
+			Method: "ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) { return p.zoneStatus(ctx, z) }",
+		}},
 	},
 	{
-		Name:   "Batcher",
-		Iface:  "Batcher",
-		Method: "ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) { return p.applyChangeset(ctx, cs) }",
+		Name: "Batcher",
+		Methods: []method{{
+			Iface:  "Batcher",
+			Method: "ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) { return p.applyChangeset(ctx, cs) }",
+		}},
 	},
 	{
-		Name:   "ZoneUpdater",
-		Iface:  "ZoneUpdater",
-		Method: "UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) { return p.updateZone(ctx, z, u) }",
-	},
-	{
-		Name:   "ZoneCreator",
-		Iface:  "ZoneCreator",
-		Method: "CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) { return p.createZone(ctx, p.unscoped, name) }",
-	},
-	{
-		Name:   "ZoneDeleter",
-		Iface:  "ZoneDeleter",
-		Method: "DeleteZone(ctx context.Context, z dnsprovider.Zone) error { return p.deleteZone(ctx, z) }",
+		Name: "ZoneWrites",
+		Methods: []method{
+			{
+				Iface: "ZoneUpdater",
+				Method: `UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+					if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
+						return dnsprovider.ZoneStatus{}, err
+					}
+
+					return p.updateZone(ctx, z, u)
+				}`,
+			},
+			{
+				Iface: "ZoneCreator",
+				Method: `CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+					if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
+						return dnsprovider.Zone{}, err
+					}
+
+					return p.createZone(ctx, p.unscoped, name)
+				}`,
+			},
+			{
+				Iface: "ZoneDeleter",
+				Method: `DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+					if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
+						return err
+					}
+
+					return p.deleteZone(ctx, z)
+				}`,
+			},
+		},
 	},
 }
 
@@ -109,9 +148,11 @@ const (
 		fmt.Fprintf(&b, "type %s struct {\n\t*Provider\n\tscope\n}\n\n", typ)
 
 		for _, o := range in {
-			fmt.Fprintf(&b, "// %s implements dnsprovider.%s.\n", strings.SplitN(o.Method, "(", 2)[0], o.Iface)
-			fmt.Fprintf(&b, "func (p %s) %s\n\n", typ, o.Method)
-			fmt.Fprintf(&asserts, "\t_ dnsprovider.%s = %s{}\n", o.Iface, typ)
+			for _, m := range o.Methods {
+				fmt.Fprintf(&b, "// %s implements dnsprovider.%s.\n", strings.SplitN(m.Method, "(", 2)[0], m.Iface)
+				fmt.Fprintf(&b, "func (p %s) %s\n\n", typ, m.Method)
+				fmt.Fprintf(&asserts, "\t_ dnsprovider.%s = %s{}\n", m.Iface, typ)
+			}
 		}
 
 		fmt.Fprintf(&cases, "\tcase %s:\n\t\treturn %s{p, sc}\n", strings.Join(names, " | "), typ)
@@ -142,7 +183,9 @@ func wrap(p *Provider, set opts, sc scope) dnsprovider.Provider {
 func joinIfaces(in []option) string {
 	var names []string
 	for _, o := range in {
-		names = append(names, "dnsprovider."+o.Iface)
+		for _, m := range o.Methods {
+			names = append(names, "dnsprovider."+m.Iface)
+		}
 	}
 
 	if len(names) == 1 {

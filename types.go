@@ -96,6 +96,21 @@ type ZoneStatus struct {
 	MinTLS TLSVersion
 }
 
+// SigningKey is a key-signing key of a Zone: its DNSKEY, and the
+// Delegation Signer (DS) records that fix it at the parent zone, each in
+// presentation form after the type. It is one type for the key a
+// Provider signs with and the key a registrar holds, as a DS can be
+// computed from a DNSKEY but not the other way round.
+type SigningKey struct {
+	// DNSKEY is the key, e.g. "257 3 13 <base64>".
+	DNSKEY string
+	// KeyTag is the key tag that names the key, as its DS records do.
+	KeyTag uint16
+	// DS are its DS records, SHA-256 first, e.g. "2371 13 2 1F98…", the
+	// digest in upper case.
+	DS []string
+}
+
 // TLSVersion is a TLS protocol version, such as "1.2". The zero value is
 // TLSUnknown. Consumers may store the values.
 type TLSVersion string

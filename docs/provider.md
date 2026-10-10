@@ -9,8 +9,8 @@ credential storage, caches, UI, and Delegation checks.
 
 - One vocabulary across adapters for Accounts, Zones, Records, and Changesets.
 - A required core for account verification, Zone reads, and Record CRUD.
-- Optional interfaces for Tenant listing, Zone writes and settings, batch
-  writes, TTL limits, automatic TTLs, and proxy flags.
+- Optional interfaces for Tenant listing, Zone writes and settings, signing
+  key reads, batch writes, TTL limits, automatic TTLs, and proxy flags.
 - Exactly filtered lists for consumers without a cache.
 - Shared HTTP plumbing for GoDaddy and Namecheap; Cloudflare uses
   `cloudflare-go/v7`.
@@ -24,7 +24,8 @@ or manage a consumer's locally stored Accounts.
 ```text
 dnsprovider/
 ├── provider.go      Provider, optional interfaces, capability helpers, results
-├── types.go         AccountInfo, Tenant, Zone, Record, Changeset, ZoneStatus
+├── types.go         AccountInfo, Tenant, Zone, Record, Changeset, ZoneStatus,
+│                    SigningKey
 ├── config.go        Options, Field, Factory, Registry
 ├── record.go        record validation, names, TTL ranges, SameRecord
 ├── filter.go        filters and matching helpers
@@ -287,8 +288,8 @@ then Pending, then the first listed Zone.
 
 ## Optional Zone operations and settings
 
-Cloudflare implements `ZoneCreator`, `ZoneDeleter`, `ZoneStatusReader`, and
-`ZoneUpdater`. GoDaddy and Namecheap implement none of these.
+Cloudflare implements `ZoneCreator`, `ZoneDeleter`, `ZoneStatusReader`,
+`ZoneUpdater` and `KeyReader`. GoDaddy and Namecheap implement none of these.
 
 `CreateZone(ctx, name)` Onboards a name with `type: full` in the configured
 Tenant. It returns `ErrNoTenant` without a request when unscoped and
@@ -333,6 +334,26 @@ settings as known and the failed and subsequent settings Unknown; earlier
 writes remain applied. An empty update delegates to `ZoneStatus`.
 HSTS writes preserve existing security-header fields, supplying a six-month
 max-age when enabling it without one. MinTLS accepts only `TLSVersions`.
+
+```go
+type SigningKey struct {
+    DNSKEY string   // "257 3 13 <base64>"
+    KeyTag uint16
+    DS     []string // "2371 13 2 1F98…", SHA-256 first
+}
+
+type KeyReader interface {
+    SigningKeys(ctx context.Context, zone Zone) ([]SigningKey, error)
+}
+```
+
+A Provider whose API returns the keys it signs a Zone with implements
+`KeyReader`; `CanReadKeys(p)` detects it. `SigningKeys` returns the Zone's
+key-signing keys, none when it is unsigned. `SigningKeysOf(ctx, p, zone)`
+returns none without a call when there is no reader. A consumer that gets
+none reads the DNSKEY RRset from the Zone's nameservers. DS digests are in
+upper case. Cloudflare returns the key of its DNSSEC status while the Zone
+is signed, pending or pending-disabled.
 
 ## Applying a Changeset
 
@@ -480,7 +501,7 @@ suite and `go vet ./...` for static checks.
 Records, account data, failures, withheld results or serials, and Partial
 Views (`SetPartialZones`, `SetPartialRecords`). Its
 `Factory` builds Providers sharing the script. Configure optional interfaces
-before building: `SetTenants`, `SetZoneStatus`, `SetBatcher`,
+before building: `SetTenants`, `SetZoneStatus`, `SetSigningKeys`, `SetBatcher`,
 `SetZoneCreator`, `SetZoneUpdater`, and `SetZoneDeleter`. Unscripted Providers
 omit those optional interfaces. When any Zone write is scripted, built
 Providers expose all three Zone-write interfaces, but unscripted writes

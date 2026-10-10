@@ -18,7 +18,7 @@ set; a token that may not read accounts, such as a DNS-only one, gets an
 ## Zones
 
 Cloudflare is the only adapter that implements `ZoneCreator`, `ZoneDeleter`,
-`ZoneStatusReader`, and `ZoneUpdater`.
+`ZoneStatusReader`, `ZoneUpdater` and `KeyReader`.
 
 Cloudflare reports Hosting State Active, Pending (also for a Zone still
 initializing) and Moved (also for a deactivated Zone). Zone filtering uses
@@ -59,6 +59,13 @@ fails comes with the Zone Status as far as it is known, the settings written
 before it as answered. Cloudflare signs and unsigns a Zone over time, so
 DNSSEC comes back Pending; HSTS keeps its max-age and other fields, and is
 turned on for six months when the Zone has no max-age.
+
+The optional `KeyReader`, found with `dnsprovider.CanReadKeys(p)`, returns
+the Zone's key-signing keys: `SigningKeys(ctx, zone)` reads the key from the
+same `GET /zones/{id}/dnssec` as Zone Status, as a `SigningKey` with its
+DNSKEY, key tag and SHA-256 DS. A Zone signed, pending or pending-disabled
+has one key; a disabled Zone has none. A token that may not read DNSSEC is
+`ErrUnauthorized`.
 
 ## Live tests
 

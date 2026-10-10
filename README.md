@@ -107,6 +107,10 @@ setting it was not given as read, Unknown when it could not be. A write that
 fails comes with the Zone Status as far as it is known, the settings written
 before it as answered.
 
+The optional `KeyReader`, found with `dnsprovider.CanReadKeys(p)`, returns a
+Zone's key-signing keys through the Provider's API: `SigningKeys(ctx, zone)`
+gives each as a `SigningKey`, its DNSKEY, key tag and DS records.
+
 ## Providers
 
 Provider setup, behavior, limitations, and live-test credentials:

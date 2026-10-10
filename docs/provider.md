@@ -45,6 +45,7 @@ dnsprovider/
     ├── hetzner/
     ├── internetbs/
     ├── namecheap/
+    ├── ovhcloud/
     ├── porkbun/
     ├── scaleway/
     └── vultr/
@@ -77,7 +78,7 @@ type Record struct {
 }
 ```
 
-Cloudflare assigns record IDs. GoDaddy, Namecheap, Gandi, Hetzner, and Internet.bs use content-derived
+Cloudflare and OVHcloud assign record IDs. GoDaddy, Namecheap, Gandi, Hetzner, and Internet.bs use content-derived
 keys, which change when the Record changes. Keep the whole Record as read
 for updates and deletions.
 
@@ -113,6 +114,7 @@ Cloudflare can proxy A, AAAA, and CNAME Records.
 | DigitalOcean | 30 | 86400 | No; the default range, as DigitalOcean documents no bounds |
 | Scaleway | 60 | 2592000 | No; explicit TTL, as validated by the official Terraform provider |
 | Vultr | 30 | 86400 | No; the default range, as Vultr documents no bounds |
+| OVHcloud | 30 | 86400 | No; the default range, as OVHcloud documents no bounds; a native zero TTL inherits the Zone default and reads as that effective TTL |
 
 `TTLRange.Check` validates a TTL. Shared validation helpers are available
 to consumers; `Apply` does not run them automatically.
@@ -133,6 +135,7 @@ validates configuration without making a network call.
 | Scaleway | `SecretKey`, `ProjectID` | `secret_key` (secret), `project_id` |
 | Vultr | `APIKey` | `api_key` |
 | Internet.bs | `Key`, `Password` | `key`, `password` |
+| OVHcloud | `ApplicationKey`, `ApplicationSecret`, `ConsumerKey`, `Endpoint` | `application_key`, `application_secret`, `consumer_key` (all secret), `endpoint` (`ovh-eu` default, `ovh-ca`, `ovh-us`) |
 
 Cloudflare's Tenant ID must be 32 lower-case hex digits. Its constructor
 uses Config credentials rather than the SDK's environment credentials.
@@ -448,6 +451,7 @@ Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:
 | Hetzner | `DNSPROVIDER_HETZNER_TOKEN` |
 | Internet.bs | `DNSPROVIDER_INTERNETBS_KEY`, `DNSPROVIDER_INTERNETBS_PASSWORD` |
 | Namecheap | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |
+| OVHcloud | `DNSPROVIDER_OVHCLOUD_APPLICATION_KEY`, `DNSPROVIDER_OVHCLOUD_APPLICATION_SECRET`, `DNSPROVIDER_OVHCLOUD_CONSUMER_KEY`, optional `DNSPROVIDER_OVHCLOUD_ENDPOINT` |
 | Scaleway | `DNSPROVIDER_SCALEWAY_SECRET_KEY`, `DNSPROVIDER_SCALEWAY_PROJECT_ID` |
 | Vultr | `DNSPROVIDER_VULTR_API_KEY` |
 
@@ -503,3 +507,15 @@ Zone list and works with an empty project. Records have content-derived keys;
 retain the complete Before Record. The Batcher plans affected RRsets, preserves
 siblings, waits for each write action, and reads back authoritative results.
 Uncertain completion and partial moves remain visible as errors.
+
+## OVHcloud
+
+[OVHcloud setup and limitations](provider/ovhcloud.md) cover application and
+consumer credentials, regional endpoints, signed requests with server-adjusted
+timestamps, and the Account and DNS access rules. Account verification calls
+the authenticated `GET /me`, not the public time API, and works without Zones.
+Discovery lists DNS Zone services, not registrar domains. Records keep their
+native IDs. Every edit is staged and then published by a Zone refresh: CRUD
+refreshes after each edit, and the Batcher refreshes once after a Changeset's
+staged edits. A failed refresh marks staged changes `ErrUnpublished`; type
+changes replace the Record and return its new ID.

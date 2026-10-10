@@ -1,7 +1,7 @@
 # dnsprovider
 
 `github.com/dnsgateway/dnsprovider` manages DNS hosting at DNS Providers
-(Cloudflare, ClouDNS, DigitalOcean, DNSimple, Gandi, GoDaddy, Hetzner, Internet.bs, Namecheap, Porkbun, Scaleway, Vultr) through one
+(Cloudflare, ClouDNS, DigitalOcean, DNSimple, Gandi, GoDaddy, Hetzner, Internet.bs, Namecheap, OVHcloud, Porkbun, Scaleway, Vultr) through one
 Go interface: lean, provider-neutral Zone and Record types, the record rules every consumer needs
 to build valid Records, and Changesets applied to a Zone. It never registers,
 renews or cancels a domain.
@@ -20,6 +20,7 @@ providers/godaddy
 providers/hetzner
 providers/internetbs
 providers/namecheap
+providers/ovhcloud
 providers/porkbun
 providers/scaleway
 providers/vultr
@@ -110,6 +111,7 @@ Provider setup, behavior, limitations, and live-test credentials:
 - [Hetzner](docs/provider/hetzner.md)
 - [Internet.bs](docs/provider/internetbs.md)
 - [Namecheap](docs/provider/namecheap.md)
+- [OVHcloud](docs/provider/ovhcloud.md)
 - [Porkbun](docs/provider/porkbun.md)
 - [Scaleway](docs/provider/scaleway.md)
 - [Vultr](docs/provider/vultr.md)

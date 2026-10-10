@@ -155,6 +155,34 @@ func CanListTenants(p Provider) bool {
 	return ok
 }
 
+// KeyReader is implemented by a Provider whose API returns the keys it
+// signs a Zone with, such as Cloudflare. A consumer of a Provider without
+// it reads the DNSKEY RRset from the Zone's nameservers.
+type KeyReader interface {
+	// SigningKeys returns the Zone's key-signing keys, each with its DS
+	// records; none when the Zone is not signed.
+	SigningKeys(ctx context.Context, zone Zone) ([]SigningKey, error)
+}
+
+// CanReadKeys reports whether a Provider implements KeyReader.
+func CanReadKeys(p Provider) bool {
+	_, ok := p.(KeyReader)
+
+	return ok
+}
+
+// SigningKeysOf reads a Zone's key-signing keys through the Provider's
+// KeyReader, without a call when it has none: then there are none, as
+// when the Zone is not signed, and a consumer reads the DNSKEY RRset from
+// the Zone's nameservers instead.
+func SigningKeysOf(ctx context.Context, p Provider, zone Zone) ([]SigningKey, error) {
+	if r, ok := p.(KeyReader); ok {
+		return r.SigningKeys(ctx, zone)
+	}
+
+	return nil, nil
+}
+
 // TTLLimits is implemented by a Provider whose Record TTLs have other
 // limits than DefaultTTLRange. TTL TTLAuto is allowed only where
 // the Provider implements AutoTTL. Its Factory declares the same range

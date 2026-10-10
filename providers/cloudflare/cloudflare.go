@@ -200,6 +200,7 @@ var (
 
 	_ dnsprovider.TenantLister     = (*Provider)(nil)
 	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
+	_ dnsprovider.KeyReader        = (*Provider)(nil)
 	_ dnsprovider.ZoneUpdater      = (*Provider)(nil)
 	_ dnsprovider.ZoneCreator      = (*Provider)(nil)
 	_ dnsprovider.ZoneDeleter      = (*Provider)(nil)
@@ -1092,6 +1093,38 @@ func (p *Provider) dnssecStatus(ctx context.Context, zone dnsprovider.Zone) (dns
 	}
 
 	return dnssecSetting(res.Status), nil
+}
+
+// SigningKeys implements dnsprovider.KeyReader. The key is the one the
+// Zone's DNSSEC status names, with the DS Cloudflare computed for it: one
+// while the Zone is signed or being signed or being unsigned, none while
+// it is unsigned. Unlike ZoneStatus, a token that may not read it is
+// ErrUnauthorized, not an unknown.
+func (p *Provider) SigningKeys(ctx context.Context, zone dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	var params cfdns.DNSSECGetParams
+	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
+
+	var raw *http.Response
+
+	res, err := p.dnssec.Get(ctx, params, option.WithResponseInto(&raw))
+	if err != nil {
+		return nil, apiError(err, raw, nil)
+	}
+
+	if res.PublicKey == "" {
+		return nil, nil
+	}
+
+	key := dnsprovider.SigningKey{
+		DNSKEY: fmt.Sprintf("%d 3 %s %s", int(res.Flags), res.Algorithm, res.PublicKey),
+		KeyTag: uint16(res.KeyTag),
+	}
+
+	if res.Digest != "" {
+		key.DS = []string{fmt.Sprintf("%d %s %s %s", key.KeyTag, res.Algorithm, res.DigestType, strings.ToUpper(res.Digest))}
+	}
+
+	return []dnsprovider.SigningKey{key}, nil
 }
 
 // dnssecSetting is a DNSSEC status as a Setting. Pending and

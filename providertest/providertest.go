@@ -37,8 +37,10 @@ const (
 	OpUpdateRecord Op = "UpdateRecord"
 	OpDeleteRecord Op = "DeleteRecord"
 	OpZoneStatus   Op = "ZoneStatus"
-	OpAccount      Op = "Account"
-	OpTenants      Op = "Tenants"
+	// OpSigningKeys is the KeyReader's SigningKeys; see SetSigningKeys.
+	OpSigningKeys Op = "SigningKeys"
+	OpAccount     Op = "Account"
+	OpTenants     Op = "Tenants"
 	// OpUpdateZone is the ZoneUpdater's UpdateZone; see SetZoneUpdater.
 	OpUpdateZone Op = "UpdateZone"
 	// OpCreateZone is the ZoneCreator's CreateZone; see SetZoneCreator.
@@ -75,7 +77,9 @@ type Provider struct {
 	serials        map[string]uint32
 	hosting        map[string]dnsprovider.HostingState // by Zone ID, over the State added
 	status         map[string]dnsprovider.ZoneStatus
-	readStatus     bool // whether Zone Status is scripted
+	readStatus     bool                                // whether Zone Status is scripted
+	keys           map[string][]dnsprovider.SigningKey // by Zone ID
+	readKeys       bool                                // whether signing keys are scripted
 	account        dnsprovider.AccountInfo
 	tenants        []dnsprovider.Tenant // nil when not scripted
 	fail           map[Op]error
@@ -102,6 +106,7 @@ func New() *Provider {
 		serials:        map[string]uint32{},
 		hosting:        map[string]dnsprovider.HostingState{},
 		status:         map[string]dnsprovider.ZoneStatus{},
+		keys:           map[string][]dnsprovider.SigningKey{},
 		fail:           map[Op]error{},
 		partialRecords: map[string]bool{},
 	}
@@ -147,8 +152,8 @@ func (p *Provider) SetSerial(zoneID string, serial uint32) *Provider {
 }
 
 // RemoveZone drops a scripted Zone, as if it was deleted outside the
-// consumer, with its Records, serial, Hosting State, Zone Status and
-// Partial View: a Zone added again with the same ID starts clean.
+// consumer, with its Records, serial, Hosting State, Zone Status, signing
+// keys and Partial View: a Zone added again with the same ID starts clean.
 func (p *Provider) RemoveZone(zoneID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -158,6 +163,7 @@ func (p *Provider) RemoveZone(zoneID string) {
 	delete(p.serials, zoneID)
 	delete(p.hosting, zoneID)
 	delete(p.status, zoneID)
+	delete(p.keys, zoneID)
 	delete(p.partialRecords, zoneID)
 }
 
@@ -203,8 +209,8 @@ func (p *Provider) SetAutoTTL(on bool) {
 
 // The fake implements the optional interfaces whose absence the
 // dnsprovider helpers read as their unscripted answer, such as
-// TTLRangeOf's DefaultTTLRange. TenantLister and ZoneStatusReader, which a
-// consumer may branch on, and Batcher, which changes how
+// TTLRangeOf's DefaultTTLRange. TenantLister, ZoneStatusReader and
+// KeyReader, which a consumer may branch on, and Batcher, which changes how
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted: one type per combination, generated (see
 // gen_wrappers.go) and picked by build. So are ZoneUpdater, ZoneCreator
@@ -268,6 +274,29 @@ func (p *Provider) SetZoneStatus(zoneID string, s dnsprovider.ZoneStatus) {
 
 	p.status[zoneID] = s
 	p.readStatus = true
+}
+
+// SetSigningKeys scripts a Zone's signing keys, and makes the Providers
+// New builds read them through dnsprovider.KeyReader, recorded as
+// OpSigningKeys; another Zone has none, as an unsigned Zone. Unscripted,
+// they do not implement it, as a Provider whose API returns no keys.
+func (p *Provider) SetSigningKeys(zoneID string, keys ...dnsprovider.SigningKey) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.keys[zoneID] = cloneKeys(keys)
+	p.readKeys = true
+}
+
+// cloneKeys is a deep copy of keys.
+func cloneKeys(keys []dnsprovider.SigningKey) []dnsprovider.SigningKey {
+	out := make([]dnsprovider.SigningKey, len(keys))
+	for i, k := range keys {
+		k.DS = slices.Clone(k.DS)
+		out[i] = k
+	}
+
+	return out
 }
 
 // SetAccount scripts what Account reports.
@@ -514,6 +543,10 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 
 	if p.readStatus {
 		set |= optZoneStatus
+	}
+
+	if p.readKeys {
+		set |= optKeyReader
 	}
 
 	if p.batcher {
@@ -808,6 +841,19 @@ func (p *Provider) zoneStatus(_ context.Context, z dnsprovider.Zone) (dnsprovide
 	defer p.mu.Unlock()
 
 	return p.status[z.ID], nil
+}
+
+// signingKeys is the scripted signing keys, for dnsprovider.KeyReader;
+// none for a Zone without them.
+func (p *Provider) signingKeys(_ context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	if err := p.record(Call{Op: OpSigningKeys, Zone: z}); err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	return cloneKeys(p.keys[z.ID]), nil
 }
 
 // updateZone is the fake's dnsprovider.ZoneUpdater: it turns HSTS On or

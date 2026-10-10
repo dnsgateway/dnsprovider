@@ -55,6 +55,13 @@ var options = []option{
 		}},
 	},
 	{
+		Name: "KeyReader",
+		Methods: []method{{
+			Iface:  "KeyReader",
+			Method: "SigningKeys(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) { return p.signingKeys(ctx, z) }",
+		}},
+	},
+	{
 		Name: "Batcher",
 		Methods: []method{{
 			Iface:  "Batcher",

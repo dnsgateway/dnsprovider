@@ -356,16 +356,46 @@ func (api *cfAPI) handler(t *testing.T) http.Handler {
 
 // dnssecResult is a DNSSEC answer with the status.
 func dnssecResult(status string) map[string]any {
+	if status == "disabled" || status == "" {
+		// Cloudflare holds no key for an unsigned zone.
+		return map[string]any{
+			"status":              status,
+			"algorithm":           nil,
+			"digest":              nil,
+			"digest_algorithm":    nil,
+			"digest_type":         nil,
+			"ds":                  nil,
+			"flags":               nil,
+			"key_tag":             nil,
+			"key_type":            nil,
+			"public_key":          nil,
+			"modified_on":         nil,
+			"dnssec_multi_signer": false,
+		}
+	}
+
 	return map[string]any{
 		"status":              status,
 		"algorithm":           "13",
+		"digest":              testDigest,
+		"digest_algorithm":    "SHA256",
 		"digest_type":         "2",
+		"ds":                  "example.com. 3600 IN DS 16953 13 2 " + testDigest,
 		"flags":               257,
-		"key_tag":             42,
+		"key_tag":             16953,
+		"key_type":            "ECDSAP256SHA256",
+		"public_key":          testPublicKey,
 		"modified_on":         "2024-01-02T03:04:05.000000Z",
 		"dnssec_multi_signer": false,
 	}
 }
+
+// The key-signing key Cloudflare signs example.com with in the tests, and
+// the SHA-256 digest of it that its DS holds, computed with miekg/dns.
+const (
+	testPublicKey = "oXiGYrSTO+LSCJ3mohc8EP+CzF9KxBj8/ydXJ22pKuZP3VAC3/Md/k7xZfz470CoRyZJ6gV6vml07IC3d8xqhA=="
+	testDigest    = "AFF7958770DB6792BD5D485239C72C95F296762586C647BC95CA71E138E69230"
+)
 
 // hstsOf is a zone's strict_transport_security value: as last written,
 // else as scripted in hsts.
@@ -1364,6 +1394,106 @@ func TestAZoneStatusSettingThatFailsToReadIsUnknownOnItsOwn(t *testing.T) {
 				t.Errorf("ZoneStatus = %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSigningKeysAreTheKeyCloudflareSignsTheZoneWith(t *testing.T) {
+	key := dnsprovider.SigningKey{
+		DNSKEY: "257 3 13 " + testPublicKey,
+		KeyTag: 16953,
+		DS:     []string{"16953 13 2 " + testDigest},
+	}
+
+	tests := []struct {
+		dnssec string
+		want   []dnsprovider.SigningKey
+	}{
+		{"active", []dnsprovider.SigningKey{key}},
+		// Being signed: the key is made, waiting for its DS at the registrar.
+		{"pending", []dnsprovider.SigningKey{key}},
+		// Being unsigned: the zone is signed until the DS is gone.
+		{"pending-disabled", []dnsprovider.SigningKey{key}},
+		{"disabled", nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.dnssec, func(t *testing.T) {
+			api := &cfAPI{dnssec: map[string]string{"z1": tt.dnssec}}
+			p := newProvider(t, api)
+
+			r, ok := p.(dnsprovider.KeyReader)
+			if !ok {
+				t.Fatal("the Cloudflare Provider is no KeyReader")
+			}
+
+			got, err := r.SigningKeys(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			if err != nil {
+				t.Fatalf("SigningKeys: %v", err)
+			}
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("SigningKeys = %+v, want %+v", got, tt.want)
+			}
+
+			if reqs := api.Requests(); !slices.Equal(reqs, []string{"/client/v4/zones/z1/dnssec?page="}) {
+				t.Errorf("requests = %q, want the DNSSEC read alone", reqs)
+			}
+		})
+	}
+}
+
+func TestSigningKeysCarryTheDSDigestInUpperCase(t *testing.T) {
+	tests := []struct {
+		name   string
+		digest any
+		wantDS []string
+	}{
+		{"lower-case digest", strings.ToLower(testDigest), []string{"16953 13 2 " + testDigest}},
+		// No digest: no DS to fix the key with, but still the key.
+		{"empty digest", "", nil},
+		{"no digest", nil, nil},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			api := &cfAPI{intercept: func(w http.ResponseWriter, r *http.Request) bool {
+				if r.Method != http.MethodGet || r.URL.Path != "/client/v4/zones/z1/dnssec" {
+					return false
+				}
+
+				res := dnssecResult("active")
+				res["digest"] = tt.digest
+				writeResult(w, res)
+
+				return true
+			}}
+			p := newProvider(t, api)
+
+			got, err := p.(dnsprovider.KeyReader).SigningKeys(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			if err != nil {
+				t.Fatalf("SigningKeys: %v", err)
+			}
+
+			want := []dnsprovider.SigningKey{{DNSKEY: "257 3 13 " + testPublicKey, KeyTag: 16953, DS: tt.wantDS}}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("SigningKeys = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestSigningKeysTheTokenMayNotReadAreATypedError(t *testing.T) {
+	api := &cfAPI{dnssec: map[string]string{"z1": "active"}, forbidden: []string{"/client/v4/zones/z1/dnssec"}}
+	p := newProvider(t, api)
+
+	r, ok := p.(dnsprovider.KeyReader)
+	if !ok {
+		t.Fatal("the Cloudflare Provider is no KeyReader")
+	}
+
+	_, err := r.SigningKeys(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	if !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		t.Fatalf("err = %v, want dnsprovider.ErrUnauthorized", err)
 	}
 }
 

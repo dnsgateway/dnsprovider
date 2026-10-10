@@ -321,6 +321,88 @@ func TestZoneStatusIsReadOnlyOnceScripted(t *testing.T) {
 	}
 }
 
+func TestSigningKeysAreReadOnlyOnceScripted(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	other := dnsprovider.Zone{ID: "z2", Name: "example.org"}
+	fake := providertest.New().AddZone(z).AddZone(other)
+
+	if dnsprovider.CanReadKeys(newFake(t, fake)) {
+		t.Error("an unscripted fake reads signing keys")
+	}
+
+	want := []dnsprovider.SigningKey{{
+		DNSKEY: "257 3 13 mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAeF+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
+		KeyTag: 2371,
+		DS:     []string{"2371 13 2 1F987CC6583E92DF0890718C42A2BC8C04E5A60A1D3E1FC1D0C7826A4F47B4C1"},
+	}}
+	fake.SetSigningKeys("z1", want...)
+
+	r, ok := newFake(t, fake).(dnsprovider.KeyReader)
+	if !ok {
+		t.Fatal("a fake with scripted signing keys is no KeyReader")
+	}
+
+	got, err := r.SigningKeys(ctx, z)
+	if err != nil || !reflect.DeepEqual(got, want) {
+		t.Errorf("SigningKeys = %+v, %v; want %+v", got, err, want)
+	}
+
+	if got, err := r.SigningKeys(ctx, other); err != nil || len(got) != 0 {
+		t.Errorf("SigningKeys of a Zone without keys = %+v, %v; want none", got, err)
+	}
+
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpSigningKeys || calls[len(calls)-1].Zone.ID != other.ID {
+		t.Errorf("last call = %+v, want SigningKeys of %v", calls[len(calls)-1], other)
+	}
+
+	fake.Fail(providertest.OpSigningKeys, dnsprovider.ErrUnauthorized)
+
+	if _, err := r.SigningKeys(ctx, z); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+		t.Errorf("failed SigningKeys error = %v, want ErrUnauthorized", err)
+	}
+
+	fake.SetZoneStatus("z1", dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On})
+	fake.SetZoneUpdater(true)
+	p := newFake(t, fake)
+
+	if !dnsprovider.CanReadKeys(p) || !dnsprovider.CanUpdateZone(p) {
+		t.Error("a fake with scripted signing keys and Zone writes does not do both")
+	}
+
+	if _, ok := p.(dnsprovider.ZoneStatusReader); !ok {
+		t.Error("a fake with scripted signing keys and Zone Status does not read Zone Status")
+	}
+}
+
+func TestSigningKeysAreCopiesAndGoWithTheZone(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	key := dnsprovider.SigningKey{DNSKEY: "257 3 13 AAAA", KeyTag: 1, DS: []string{"1 13 2 AA"}}
+	fake := providertest.New().AddZone(z)
+	fake.SetSigningKeys("z1", key)
+	key.DS[0] = "changed"
+
+	r, _ := newFake(t, fake).(dnsprovider.KeyReader)
+
+	got, _ := r.SigningKeys(ctx, z)
+	if got[0].DS[0] != "1 13 2 AA" {
+		t.Errorf("scripted DS = %q, changed by the caller", got[0].DS[0])
+	}
+
+	got[0].DS[0] = "changed"
+	if again, _ := r.SigningKeys(ctx, z); again[0].DS[0] != "1 13 2 AA" {
+		t.Errorf("read DS = %q, changed by an earlier reader", again[0].DS[0])
+	}
+
+	fake.RemoveZone("z1")
+	fake.AddZone(z)
+
+	if got, _ := r.SigningKeys(ctx, z); len(got) != 0 {
+		t.Errorf("a re-added Zone's keys = %+v, want none", got)
+	}
+}
+
 func TestSetHostingStateHoldsForAZoneAddedLaterUntilItIsRemoved(t *testing.T) {
 	ctx := context.Background()
 	z := dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingPending}

@@ -3,7 +3,6 @@ package dnsprovider
 import (
 	"context"
 	"fmt"
-	"maps"
 	"slices"
 	"strings"
 )
@@ -203,20 +202,7 @@ func current(before Record, live []Record, claimed map[int]bool) Record {
 }
 
 // unchanged reports whether a Record is as it was read: the same
-// resource record (SameRecord), TTL and Extras, a proxy flag that is off
-// counting as none.
+// resource record (SameRecord), TTL and Extras (SameExtras).
 func unchanged(a, b Record) bool {
-	return SameRecord(a, b) && a.TTL == b.TTL && maps.Equal(proxyOffDropped(a.Extras), proxyOffDropped(b.Extras))
-}
-
-// proxyOffDropped returns extras without a proxy flag that is off.
-func proxyOffDropped(extras map[string]string) map[string]string {
-	if extras[ExtraProxied] != "false" {
-		return extras
-	}
-
-	out := maps.Clone(extras)
-	delete(out, ExtraProxied)
-
-	return out
+	return SameRecord(a, b) && a.TTL == b.TTL && SameExtras(a.Extras, b.Extras)
 }

@@ -153,6 +153,10 @@ func TestFactoryChecksARecordCarriesOnlyTheExtrasItDeclares(t *testing.T) {
 		{dnsprovider.Record{Type: "a", Extras: map[string]string{"proxied": "true", "comment": "x"}}, true},
 		{dnsprovider.Record{Type: "TXT", Extras: map[string]string{"proxied": "true"}}, false},
 		{dnsprovider.Record{Type: "A", Extras: map[string]string{"labels": "{}"}}, false},
+		{dnsprovider.Record{Type: "A", Extras: map[string]string{"proxied": "false"}}, true},
+		{dnsprovider.Record{Type: "A", Extras: map[string]string{"proxied": "yes"}}, false},
+		{dnsprovider.Record{Type: "A", Extras: map[string]string{"proxied": ""}}, false},
+		{dnsprovider.Record{Type: "A", Extras: map[string]string{"comment": "yes"}}, true},
 	} {
 		if err := f.CheckExtras(tc.r); (err == nil) != tc.ok {
 			t.Errorf("CheckExtras(%+v) = %v, want ok %v", tc.r, err, tc.ok)

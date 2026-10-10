@@ -16,8 +16,9 @@ credential storage, caches, UI, and Delegation checks.
   `cloudflare-go/v7`.
 
 Onboarding and Offboarding start and stop DNS hosting. They never register,
-renew, transfer, or cancel a domain. The module does not change Delegation
-or manage a consumer's locally stored Accounts.
+renew, transfer, or cancel a domain. The module never changes the
+Delegation's NS records; only a registrar adapter changes the Delegation's DS
+records. It does not manage a consumer's locally stored Accounts.
 
 ## Module layout
 
@@ -479,9 +480,9 @@ and fails with `rest.ErrSamePage` on repeated pages or markers.
 
 Consumers decide how to store credentials, select Tenants, cache Records,
 confirm writes, and refresh incomplete successful responses. The module
-contains no TUI, vault, cache migrations, or registrar adapter.
+contains no TUI, vault, or cache migrations.
 
-Zone writes require consumer confirmation. Consumers must never Offboard
+Zone writes and DS writes require consumer confirmation. Consumers must never Offboard
 the Live Zone: resolve Delegation and verify that another Zone serves the
 domain before deleting the old one. `DeleteZone` does not check Delegation.
 Consumers also explain the registrar DS-record dependency when disabling

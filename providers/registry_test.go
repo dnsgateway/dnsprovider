@@ -11,7 +11,7 @@ import (
 func TestRegistryHasOneFactoryPerProvider(t *testing.T) {
 	r := providers.Registry()
 
-	if got, want := r.Types(), []string{"cloudflare", "cloudns", "digitalocean", "dnsimple", "gandi", "godaddy", "hetzner", "internetbs", "namecheap", "porkbun", "scaleway", "vultr"}; !slices.Equal(got, want) {
+	if got, want := r.Types(), []string{"cloudflare", "cloudns", "digitalocean", "dnsimple", "gandi", "godaddy", "hetzner", "internetbs", "namecheap", "ovhcloud", "porkbun", "scaleway", "vultr"}; !slices.Equal(got, want) {
 		t.Fatalf("Types() = %v, want %v", got, want)
 	}
 
@@ -54,6 +54,7 @@ var validFields = map[string]map[string]string{
 	"internetbs":   {"key": "k", "password": "s"},
 	"gandi":        {"token": "t"},
 	"hetzner":      {"token": "t"},
+	"ovhcloud":     {"application_key": "a", "application_secret": "s", "consumer_key": "c"},
 	"porkbun":      {"key": "k", "secret": "s"},
 	"cloudns":      {"password": "s", "auth_id": "123"},
 	"namecheap":    {"user": "u", "key": "k", "client_ip": "192.0.2.1"},
@@ -118,5 +119,25 @@ func TestHetznerRegistryFactoriesAreIndependent(t *testing.T) {
 	second := providers.Registry()
 	if got, ok := second["hetzner"]; !ok || got.Fields[0].Label == "changed" {
 		t.Fatal("changing one Registry mutated another Hetzner Factory")
+	}
+}
+
+func TestOVHcloudRegistryFactoriesAreIndependent(t *testing.T) {
+	first := providers.Registry()
+	f, ok := first["ovhcloud"]
+	if !ok {
+		t.Fatal("OVHcloud is absent from Registry")
+	}
+	if len(f.Fields) != 4 || !f.Fields[0].Secret || !f.Fields[1].Secret || !f.Fields[2].Secret || f.Fields[3].Name != "endpoint" || f.Fields[3].Secret {
+		t.Fatalf("OVHcloud fields = %+v", f.Fields)
+	}
+	f.Fields[0].Label = "changed"
+	delete(first, "ovhcloud")
+	second := providers.Registry()
+	if got, ok := second["ovhcloud"]; !ok || got.Fields[0].Label == "changed" {
+		t.Fatal("changing one Registry mutated another OVHcloud Factory")
+	}
+	if _, err := second.New("ovhcloud", map[string]string{"application_key": "a", "application_secret": "s", "consumer_key": "c", "endpoint": "ovh-ca"}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -138,6 +138,16 @@ Hetzner read-only checks use a Cloud API project token in
 Fixtures must model RRset metadata, inherited/shared TTLs, and action completion;
 a write acknowledgement alone is insufficient evidence of a stored Record.
 
+OVHcloud read-only checks use `DNSPROVIDER_OVHCLOUD_APPLICATION_KEY`,
+`DNSPROVIDER_OVHCLOUD_APPLICATION_SECRET` and
+`DNSPROVIDER_OVHCLOUD_CONSUMER_KEY`, with a consumer key granted `GET /me` and
+`GET /domain/zone*`; optional `DNSPROVIDER_OVHCLOUD_ENDPOINT` selects `ovh-eu`,
+`ovh-ca` or `ovh-us`. Run `go test ./providers/ovhcloud -run '^TestLive$' -v`;
+`DNSPROVIDER_OVHCLOUD_BASE_URL` optionally overrides the regional API prefix.
+Fixtures must verify signatures against the received URL and body, and keep
+staged and published Records apart: a staged edit is not published until a
+Zone refresh succeeds.
+
 ### Adding or changing a provider
 
 Start from the associated GitHub issue and verify the protocol against official

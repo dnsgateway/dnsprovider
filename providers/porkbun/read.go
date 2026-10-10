@@ -42,19 +42,13 @@ func domainZone(d domain) dnsprovider.Zone {
 	return dnsprovider.Zone{ID: n, Name: n, State: dnsprovider.HostingUnknown}
 }
 
-// Zones discovers matching API-enabled Zones and checks per-domain access.
-// The ZoneSet is a full view.
+// Zones implements dnsprovider.Provider: the API-enabled Zones that match
+// the filter, each checked for per-domain access.
+// The ZoneSet is a Full View.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
-	zs, err := p.zoneList(ctx, f)
-
-	return dnsprovider.ZoneSet{Zones: zs}, err
-}
-
-// zoneList lists the Zones that Zones returns.
-func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	ds, err := p.domains(ctx)
 	if err != nil {
-		return nil, err
+		return dnsprovider.ZoneSet{}, err
 	}
 	var zs []dnsprovider.Zone
 	for _, d := range ds {
@@ -67,11 +61,11 @@ func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dn
 			if errors.As(err, &ae) && (ae.code == "DOMAIN_NOT_ALLOWED" || ae.code == "API_ACCESS_DISABLED") {
 				continue
 			}
-			return nil, err
+			return dnsprovider.ZoneSet{}, err
 		}
 		zs = append(zs, z)
 	}
-	return zs, nil
+	return dnsprovider.ZoneSet{Zones: zs}, nil
 }
 
 // Zone reads one accessible Zone by its exact name.

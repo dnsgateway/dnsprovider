@@ -46,7 +46,7 @@ func TestZoneDiscoveryAndExactLookupAgree(t *testing.T) {
 	}
 
 	if allSet.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	filteredSet, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
@@ -111,7 +111,7 @@ func TestRecordsExpandIDsIntoRecords(t *testing.T) {
 	}
 
 	if rs.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	if rs.Serial != 2026101001 || len(rs.Records) != 9 {

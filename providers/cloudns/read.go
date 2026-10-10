@@ -11,16 +11,18 @@ import (
 	"github.com/dnsgateway/dnsprovider/rest"
 )
 
-// Zones discovers every accessible DNS Zone, including secondary Zones.
+// Zones implements dnsprovider.Provider: every accessible DNS Zone that
+// matches the filter, including secondary Zones.
 // The listing does not establish whether a Zone is being served.
-// The ZoneSet is a full view.
+// The ZoneSet is a Full View.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	zs, err := p.zoneList(ctx, f)
 
 	return dnsprovider.ZoneSet{Zones: zs}, err
 }
 
-// zoneList lists the Zones that Zones returns.
+// zoneList lists the Zones that Zones returns, as a bare slice: Zones
+// wraps it in a ZoneSet, while Zone searches the slice itself.
 func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	zs, err := rest.Pages(100, nil, func(page rest.Page) ([]struct {
 		Name string `json:"name"`

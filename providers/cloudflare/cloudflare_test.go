@@ -1635,7 +1635,7 @@ func TestRecordsListsEveryPageWithTheProxyFlag(t *testing.T) {
 	}
 
 	if rs.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	want := []dnsprovider.Record{

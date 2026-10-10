@@ -246,7 +246,7 @@ and returns `ErrNotFound` when absent.
 `ZoneSet` contains Zones. Both `ZoneSet` and `RecordSet` carry `Partial`,
 which marks a Partial View: the caller's access does not cover every Zone, or
 every name and type in the Zone. It does not mean anything was left out;
-false is a full view. Every adapter in this module returns a full view; only an
+false is a Full View. Every adapter in this module returns a Full View; only an
 adapter in front of a service with its own access rules, such as a Gateway,
 reports a Partial View.
 

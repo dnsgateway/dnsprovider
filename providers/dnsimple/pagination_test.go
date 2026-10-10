@@ -39,7 +39,7 @@ func TestDiscoveryExhaustsShortPagesAndAppliesExactFilters(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	z, err := p.Zone(context.Background(), "EXAMPLE.COM.")

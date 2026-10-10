@@ -106,24 +106,18 @@ func (p *Provider) zone(ctx context.Context, name string) (dnsprovider.Zone, err
 	return z, nil
 }
 
-// Zones lists the DNS Zone services (not registrar domains), reading the
-// details of each one the filter matches. The listing is unpaged.
-// The ZoneSet is a full view.
+// Zones implements dnsprovider.Provider: the DNS Zone services (not
+// registrar domains) that match the filter, reading the details of each.
+// The listing is unpaged.
+// The ZoneSet is a Full View.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
-	zs, err := p.zoneList(ctx, f)
-
-	return dnsprovider.ZoneSet{Zones: zs}, err
-}
-
-// zoneList lists the Zones that Zones returns.
-func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	var list *[]string
 	if err := p.do(ctx, http.MethodGet, "/domain/zone", nil, nil, &list); err != nil {
-		return nil, err
+		return dnsprovider.ZoneSet{}, err
 	}
 
 	if list == nil {
-		return nil, errors.New("ovhcloud: malformed Zone listing")
+		return dnsprovider.ZoneSet{}, errors.New("ovhcloud: malformed Zone listing")
 	}
 
 	seen := map[string]bool{}
@@ -132,11 +126,11 @@ func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dn
 	for _, raw := range *list {
 		name := names.ZoneName(raw)
 		if name == "" {
-			return nil, errors.New("ovhcloud: malformed Zone listing")
+			return dnsprovider.ZoneSet{}, errors.New("ovhcloud: malformed Zone listing")
 		}
 
 		if seen[name] {
-			return nil, fmt.Errorf("ovhcloud: Zone listing repeats %s: %w", name, rest.ErrSamePage)
+			return dnsprovider.ZoneSet{}, fmt.Errorf("ovhcloud: Zone listing repeats %s: %w", name, rest.ErrSamePage)
 		}
 
 		seen[name] = true
@@ -147,13 +141,13 @@ func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dn
 
 		z, err := p.zone(ctx, name)
 		if err != nil {
-			return nil, err
+			return dnsprovider.ZoneSet{}, err
 		}
 
 		out = append(out, z)
 	}
 
-	return out, nil
+	return dnsprovider.ZoneSet{Zones: out}, nil
 }
 
 // Zone reads the exact Zone service, ErrNotFound when there is none.

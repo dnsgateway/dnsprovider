@@ -57,7 +57,7 @@ func TestZonesRespectAPIAccessAndNameBoundaries(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	z, err := p.Zone(context.Background(), "EXAMPLE.COM.")
@@ -83,7 +83,7 @@ func TestRecordsRetainNativeIDsAndPresentation(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	if set.Records[0].ID != "101" || set.Records[0].Name != "Example.COM" || set.Records[0].Value != "10 mail.example.net." || set.Records[0].Extras[porkbun.ExtraNotes] != "keep" {

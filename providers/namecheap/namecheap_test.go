@@ -402,7 +402,7 @@ func TestZonesAreTheDomainsOnNamecheapDNSOnEveryPage(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	zones := set.Zones
@@ -666,7 +666,7 @@ func TestRecordsHaveAbsoluteNamesThePriorityFirstAndTheirContentAsID(t *testing.
 	}
 
 	if set.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	want := []dnsprovider.Record{

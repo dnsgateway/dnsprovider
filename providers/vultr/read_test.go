@@ -54,7 +54,7 @@ func TestZonesFollowCursorsThroughConfiguredEndpointAndFilterExactly(t *testing.
 	}
 
 	if allSet.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	set, err := p.Zones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
@@ -222,7 +222,7 @@ func TestRecordsConvertStructuredFields(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 }
 

@@ -61,7 +61,7 @@ func TestZonesNormalizesCompleteInventoryAndExactLookup(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	zs := set.Zones
@@ -95,7 +95,7 @@ func TestRecordsPreserveValuesFiltersAndContentIdentity(t *testing.T) {
 	}
 
 	if all.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	if len(all.Records) != 5 || all.Serial != 0 || all.Records[0].Name != "example.com" || all.Records[0].Type != "MX" || all.Records[0].Value != "10 Mail.Example.Com" || all.Records[0].TTL != 300 || all.Records[0].ID == "" || all.Records[0].ID == all.Records[4].ID {

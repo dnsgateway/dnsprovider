@@ -23,16 +23,18 @@ type wireDomain struct {
 	NSList string `json:"nslist"`
 }
 
-// Zones reads the complete single-response domain inventory. Registration
+// Zones implements dnsprovider.Provider: the domains that match the
+// filter, read from the complete single-response inventory. Registration
 // and its NSList alone do not establish whether DNS hosting is active.
-// The ZoneSet is a full view.
+// The ZoneSet is a Full View.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	zs, err := p.zoneList(ctx, f)
 
 	return dnsprovider.ZoneSet{Zones: zs}, err
 }
 
-// zoneList lists the Zones that Zones returns.
+// zoneList lists the Zones that Zones returns, as a bare slice: Zones
+// wraps it in a ZoneSet, while Zone searches the slice itself.
 func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	body, err := p.call(ctx, "Domain/List", url.Values{"CompactList": {"no"}, "ReturnFields": {"NSList"}})
 	if err != nil {

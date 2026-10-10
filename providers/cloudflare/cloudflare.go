@@ -227,15 +227,8 @@ var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 86400, Auto: true}
 // answer is filtered again with dnsprovider.MatchZone. Each Zone carries
 // its Hosting State and the nameservers Cloudflare assigned to it, which
 // can differ between Zones of one Account.
-// The ZoneSet is a full view.
+// The ZoneSet is a Full View.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
-	zs, err := p.zoneList(ctx, f)
-
-	return dnsprovider.ZoneSet{Zones: zs}, err
-}
-
-// zoneList lists the Zones that Zones returns.
-func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	name := ""
 	if text := names.ZoneName(f.Contains); text != "" {
 		name = "contains:" + text
@@ -243,7 +236,7 @@ func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dn
 
 	all, err := p.listZones(ctx, name)
 	if err != nil {
-		return nil, err
+		return dnsprovider.ZoneSet{}, err
 	}
 
 	out := make([]dnsprovider.Zone, 0, len(all))
@@ -254,7 +247,7 @@ func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dn
 		}
 	}
 
-	return out, nil
+	return dnsprovider.ZoneSet{Zones: out}, nil
 }
 
 // Zone implements dnsprovider.Provider: the Zone of that exact name, read

@@ -69,41 +69,41 @@ type Call struct {
 
 // Provider is the fake. Its zero value is not usable; call New.
 type Provider struct {
-	mu         sync.Mutex
-	zones      []dnsprovider.Zone
-	records    map[string][]dnsprovider.Record // by Zone ID
-	serials    map[string]uint32
-	hosting    map[string]dnsprovider.HostingState // by Zone ID, over the State added
-	status     map[string]dnsprovider.ZoneStatus
-	readStatus bool // whether Zone Status is scripted
-	account    dnsprovider.AccountInfo
-	tenants    []dnsprovider.Tenant // nil when not scripted
-	fail       map[Op]error
-	failChange func(dnsprovider.Change) error
-	withhold   bool
-	noSerial   bool
-	partialZ   bool            // whether Zones is a Partial View
-	partialR   map[string]bool // by Zone ID: whether its Records are a Partial View
-	ttlRange   []uint32        // min, max; nil when not scripted
-	proxiable  []string        // nil when not scripted
-	autoTTL    bool
-	batcher    bool
-	updater    bool
-	creator    bool
-	deleter    bool
-	calls      []Call
-	nextID     int
+	mu             sync.Mutex
+	zones          []dnsprovider.Zone
+	records        map[string][]dnsprovider.Record // by Zone ID
+	serials        map[string]uint32
+	hosting        map[string]dnsprovider.HostingState // by Zone ID, over the State added
+	status         map[string]dnsprovider.ZoneStatus
+	readStatus     bool // whether Zone Status is scripted
+	account        dnsprovider.AccountInfo
+	tenants        []dnsprovider.Tenant // nil when not scripted
+	fail           map[Op]error
+	failChange     func(dnsprovider.Change) error
+	withhold       bool
+	noSerial       bool
+	partialZones   bool            // whether Zones is a Partial View
+	partialRecords map[string]bool // by Zone ID: whether its Records are a Partial View
+	ttlRange       []uint32        // min, max; nil when not scripted
+	proxiable      []string        // nil when not scripted
+	autoTTL        bool
+	batcher        bool
+	updater        bool
+	creator        bool
+	deleter        bool
+	calls          []Call
+	nextID         int
 }
 
 // New returns an empty fake Provider.
 func New() *Provider {
 	return &Provider{
-		records:  map[string][]dnsprovider.Record{},
-		serials:  map[string]uint32{},
-		hosting:  map[string]dnsprovider.HostingState{},
-		status:   map[string]dnsprovider.ZoneStatus{},
-		fail:     map[Op]error{},
-		partialR: map[string]bool{},
+		records:        map[string][]dnsprovider.Record{},
+		serials:        map[string]uint32{},
+		hosting:        map[string]dnsprovider.HostingState{},
+		status:         map[string]dnsprovider.ZoneStatus{},
+		fail:           map[Op]error{},
+		partialRecords: map[string]bool{},
 	}
 }
 
@@ -158,7 +158,7 @@ func (p *Provider) RemoveZone(zoneID string) {
 	delete(p.serials, zoneID)
 	delete(p.hosting, zoneID)
 	delete(p.status, zoneID)
-	delete(p.partialR, zoneID)
+	delete(p.partialRecords, zoneID)
 }
 
 // SetRecords replaces a scripted Zone's Records, as if they were changed
@@ -540,13 +540,13 @@ func (p *Provider) record(c Call) error {
 
 // SetPartialZones makes Zones report a Partial View, as an adapter in
 // front of a Gateway does when the caller's access does not cover every
-// Zone. The Zones listed stay as scripted. Unscripted, Zones is a full
-// view.
+// Zone. The Zones listed stay as scripted. Unscripted, Zones is a Full
+// View.
 func (p *Provider) SetPartialZones(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.partialZ = on
+	p.partialZones = on
 }
 
 // Zones implements dnsprovider.Provider: the scripted Zones the filter
@@ -568,7 +568,7 @@ func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) (dnsprovid
 		}
 	}
 
-	return dnsprovider.ZoneSet{Zones: out, Partial: p.partialZ}, nil
+	return dnsprovider.ZoneSet{Zones: out, Partial: p.partialZones}, nil
 }
 
 // Zone implements dnsprovider.Provider: the scripted Zone of that name,
@@ -620,13 +620,15 @@ func (p *Provider) scripted(z dnsprovider.Zone) dnsprovider.Zone {
 // SetPartialRecords makes Records of a Zone report a Partial View, as an
 // adapter in front of a Gateway does when the caller's access does not
 // cover every name and type in the Zone. The Records listed stay as
-// scripted. Like SetSerial, it holds for a Zone added later with that ID,
-// until RemoveZone. Unscripted, Records is a full view.
+// scripted. The script is kept by Zone ID, as SetSerial's is: it holds for
+// a Zone added later with that ID, until RemoveZone. Like SetPartialZones
+// and the other on/off toggles, it returns nothing. Unscripted, Records is
+// a Full View.
 func (p *Provider) SetPartialRecords(zoneID string, on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.partialR[zoneID] = on
+	p.partialRecords[zoneID] = on
 }
 
 // Records implements dnsprovider.Provider: the scripted Records that
@@ -653,7 +655,7 @@ func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, f dnsprovider.
 		}
 	}
 
-	return dnsprovider.RecordSet{Records: matched, Serial: p.serial(z.ID), Partial: p.partialR[z.ID]}, nil
+	return dnsprovider.RecordSet{Records: matched, Serial: p.serial(z.ID), Partial: p.partialRecords[z.ID]}, nil
 }
 
 // CreateRecord implements dnsprovider.Provider: it adds the Record with

@@ -85,7 +85,7 @@ func TestFrozenRecordsPreservePresentationUnknownTypesAndSOASerial(t *testing.T)
 	}
 
 	if set.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	expected := []string{"ns1.dnsimple.com admin.dnsimple.com 1458642070 86400 7200 604800 300", "10 mail.example.net.", "20 5 443 sip.example.net.", `hello "world"`, `0 issue "letsencrypt.org"`, "unknown.example.net"}

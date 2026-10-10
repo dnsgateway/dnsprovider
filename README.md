@@ -84,7 +84,7 @@ Provider.
 `Zones` returns a `ZoneSet`, and `Records` a `RecordSet`, each with a
 `Partial` flag. True marks a Partial View: the caller's access does not cover
 every Zone, or every name and type in the Zone. It does not mean anything was
-left out. Every Provider in this module returns a full view (`Partial` false);
+left out. Every Provider in this module returns a Full View (`Partial` false);
 only an adapter in front of a service with its own access rules, such as a
 Gateway, sets it.
 

@@ -47,7 +47,7 @@ func TestProjectDiscoveryAndOwnership(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	sub, err := p.Zone(ctx, "DEV.EXAMPLE.COM.")
@@ -160,7 +160,7 @@ func TestFiltersAndStructuredRecordRoundTrips(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	unsupported, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{Type: "unsupported"})

@@ -34,7 +34,7 @@ func TestRecordsExpandValuesWithStableContentKeys(t *testing.T) {
 	}
 
 	if rs.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	if len(rs.Records) != 2 || rs.Records[0].Name != "example.org" || rs.Records[0].ID == "" || rs.Records[0].ID == rs.Records[1].ID {

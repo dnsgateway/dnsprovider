@@ -229,7 +229,7 @@ func TestZonesAreFilteredAndRecordTheFilter(t *testing.T) {
 
 	want := dnsprovider.ZoneSet{Zones: []dnsprovider.Zone{{ID: "z1", Name: "example.com", State: dnsprovider.HostingActive}}}
 	if !reflect.DeepEqual(zs, want) {
-		t.Errorf("Zones = %+v, want %+v, a full view", zs, want)
+		t.Errorf("Zones = %+v, want %+v, a Full View", zs, want)
 	}
 
 	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZones || calls[len(calls)-1].ZoneFilter != f {
@@ -418,7 +418,7 @@ func TestRecordsAreAPartialViewOnlyForTheZoneScriptedUntilItIsRemoved(t *testing
 	}
 
 	if rs.Partial || !reflect.DeepEqual(rs.Records, []dnsprovider.Record{a}) {
-		t.Errorf("Records(%s) after re-adding the Zone = %+v, want its Record as a full view", z1.Name, rs)
+		t.Errorf("Records(%s) after re-adding the Zone = %+v, want its Record as a Full View", z1.Name, rs)
 	}
 }
 

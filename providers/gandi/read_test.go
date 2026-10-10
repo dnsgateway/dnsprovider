@@ -41,7 +41,7 @@ func TestZoneDiscoveryExhaustsShortPagesAndSharesLookupState(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	zones := set.Zones

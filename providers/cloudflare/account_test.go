@@ -307,7 +307,7 @@ func TestZonesWithoutATenantListEveryZoneTheTokenReaches(t *testing.T) {
 	}
 
 	if gotSet.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	got := gotSet.Zones

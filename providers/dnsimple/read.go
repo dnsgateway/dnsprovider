@@ -190,14 +190,15 @@ func (p *Provider) zone(w wireZone) (dnsprovider.Zone, error) {
 
 // Zones implements dnsprovider.Provider: the Account's Zones that match
 // the filter.
-// The ZoneSet is a full view.
+// The ZoneSet is a Full View.
 func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	zs, err := p.zoneList(ctx, f)
 
 	return dnsprovider.ZoneSet{Zones: zs}, err
 }
 
-// zoneList lists the Zones that Zones returns.
+// zoneList lists the Zones that Zones returns, as a bare slice: Zones
+// wraps it in a ZoneSet, while Account calls it to prove read access.
 func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	all, err := list[wireZone](ctx, p, "/"+p.accountID+"/zones", false)
 	if err != nil {

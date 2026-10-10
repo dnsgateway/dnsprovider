@@ -50,7 +50,7 @@ func TestZonesExhaustPagesAndApplyExactSharedFilters(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	z, err := p.Zone(ctx, "Example.Com.")
@@ -103,7 +103,7 @@ func TestRecordsConvertStructuredValuesAndNativeIDs(t *testing.T) {
 	}
 
 	if rs.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	wants := []string{"192.0.2.1", "10 mail.example.net", "5 20 5060 sip.example.net", `128 issue "letsencrypt.org"`, "v=spf1 include:example.net -all", "abcd"}

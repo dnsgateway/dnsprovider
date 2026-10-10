@@ -50,7 +50,7 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 	}
 
 	if set.Partial {
-		t.Error("Zones is a Partial View, want a full view")
+		t.Error("Zones is a Partial View, want a Full View")
 	}
 
 	z, err := p.Zone(context.Background(), "EXAMPLE.COM.")
@@ -66,7 +66,7 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 	}
 
 	if rs.Partial {
-		t.Error("Records is a Partial View, want a full view")
+		t.Error("Records is a Partial View, want a Full View")
 	}
 
 	if rs.Records[0].Name != "example.com" || rs.Records[0].TTL != 300 || rs.Records[0].ID == rs.Records[1].ID || rs.Records[0].Extras[hetzner.ExtraComment] != "first" || rs.Records[0].Extras[hetzner.ExtraLabels] != `{"team":"dns"}` {

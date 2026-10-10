@@ -66,9 +66,12 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldClientIP, Label: "Whitelisted client IPv4"},
 	}
 
-	return fields.Factory("namecheap", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	f := fields.Factory("namecheap", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{User: m[FieldUser], Key: m[FieldKey], ClientIP: m[FieldClientIP]}, opts...)
 	})
+	f.TTL = ttlRange
+
+	return f
 }
 
 // New builds the Namecheap Provider for an Account, without a network
@@ -138,8 +141,12 @@ var (
 // TTLRange implements dnsprovider.TTLLimits. Namecheap's "Automatic" TTL is
 // 1799 seconds, an ordinary TTL here.
 func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return 60, 60000
+	return ttlRange.Min, ttlRange.Max
 }
+
+// ttlRange is the TTLRange of every Provider, which TTLRange and
+// Factory report.
+var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 60000}
 
 // wireDomain is the part of a getList domain that the adapter reads.
 type wireDomain struct {

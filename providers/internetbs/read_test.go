@@ -92,6 +92,11 @@ func TestRecordsPreserveValuesFiltersAndContentIdentity(t *testing.T) {
 	if all.Records[3].Extras["priority"] != "17" || all.Records[3].Extras["comment"] != `"retained"` {
 		t.Fatalf("metadata lost: %+v", all.Records[3])
 	}
+	for _, r := range all.Records {
+		if err := internetbs.Factory().CheckExtras(r); err != nil {
+			t.Errorf("Factory does not declare the extras of %+v: %v", r, err)
+		}
+	}
 	if all.Records[1].Value != `a "quote" and \ escape` || all.Records[1].Name != "*.example.com" {
 		t.Fatalf("TXT changed: %+v", all.Records[1])
 	}

@@ -16,7 +16,13 @@ import (
 
 // TTLRange uses the usual account minimum. Porkbun documents no universal
 // maximum; the API remains authoritative for account-specific constraints.
-func (p *Provider) TTLRange() (uint32, uint32) { return 600, math.MaxUint32 }
+func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
+	return ttlRange.Min, ttlRange.Max
+}
+
+// ttlRange is the TTLRange of every Provider, which TTLRange and
+// Factory report.
+var ttlRange = dnsprovider.TTLRange{Min: 600, Max: math.MaxUint32}
 
 func (p *Provider) writeBody(z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, map[string]any, error) {
 	r.Type = strings.ToUpper(r.Type)
@@ -134,9 +140,13 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldKey, Label: "API key", Secret: true},
 		{Name: FieldSecret, Label: "Secret API key", Secret: true},
 	}
-	return fields.Factory("porkbun", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	f := fields.Factory("porkbun", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Key: m[FieldKey], Secret: m[FieldSecret]}, opts...)
 	})
+	f.TTL = ttlRange
+	f.Extras = []dnsprovider.ExtraSpec{{Key: ExtraNotes, Label: "Notes", Kind: dnsprovider.ExtraString, Writable: true}}
+
+	return f
 }
 
 var (

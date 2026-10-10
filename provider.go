@@ -154,7 +154,8 @@ func CanListTenants(p Provider) bool {
 
 // TTLLimits is implemented by a Provider whose Record TTLs have other
 // limits than DefaultTTLRange. TTL TTLAuto is allowed only where
-// the Provider implements AutoTTL.
+// the Provider implements AutoTTL. Its Factory declares the same range
+// as its TTL.
 type TTLLimits interface {
 	// TTLRange is the shortest and the longest TTL, in seconds.
 	TTLRange() (minTTL, maxTTL uint32)
@@ -175,6 +176,7 @@ func TTLRangeOf(p Provider) TTLRange {
 
 // AutoTTL is implemented by a Provider that reads TTL TTLAuto as
 // "automatic", such as Cloudflare. To any other Provider it is one second.
+// Its Factory declares it as TTL.Auto.
 type AutoTTL interface {
 	// AutoTTL reports whether TTL TTLAuto is automatic.
 	AutoTTL() bool
@@ -194,7 +196,8 @@ const ExtraProxied = "proxied"
 
 // ProxyFlag is implemented by a Provider that can proxy traffic to some
 // Record types, such as Cloudflare. Their Records carry the proxy flag in
-// the extra ExtraProxied.
+// the extra ExtraProxied. Its Factory declares that extra, writable, with
+// these types as its Types (ProxiedExtra, Factory.ProxiableTypes).
 type ProxyFlag interface {
 	// ProxiableTypes are the Record types the Provider can proxy.
 	ProxiableTypes() []string

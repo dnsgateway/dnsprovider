@@ -28,10 +28,18 @@ type Config struct{ Token, AccountID string }
 
 // Factory builds the adapter without contacting DNSimple.
 func Factory() dnsprovider.Factory {
-	return fields.Factory("dnsimple", []dnsprovider.Field{{Name: FieldToken, Label: "API token", Secret: true}, {Name: FieldAccountID, Label: "Account ID"}},
+	f := fields.Factory("dnsimple", []dnsprovider.Field{{Name: FieldToken, Label: "API token", Secret: true}, {Name: FieldAccountID, Label: "Account ID"}},
 		func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 			return New(Config{Token: m[FieldToken], AccountID: m[FieldAccountID]}, opts...)
 		})
+	f.TTL = ttlRange
+	f.Extras = []dnsprovider.ExtraSpec{
+		{Key: ExtraSystemRecord, Label: "System record", Kind: dnsprovider.ExtraBool},
+		{Key: ExtraRegions, Label: "Regions", Kind: dnsprovider.ExtraJSON},
+		{Key: ExtraParentID, Label: "Parent record ID", Kind: dnsprovider.ExtraString},
+	}
+
+	return f
 }
 
 // Provider holds one Account's credentials, endpoint and consumer options.

@@ -103,6 +103,11 @@ func TestRecordsConvertStructuredValuesAndNativeIDs(t *testing.T) {
 	if rs.Records[0].Name != "example.com" || rs.Records[3].Name != "*.example.com" || rs.Records[4].Extras["note"] != "keep" {
 		t.Fatal(rs)
 	}
+	for _, r := range rs.Records {
+		if err := cloudns.Factory().CheckExtras(r); err != nil {
+			t.Errorf("Factory does not declare the extras of %+v: %v", r, err)
+		}
+	}
 	for _, f := range []dnsprovider.RecordFilter{{Type: "NOSUCHTYPE"}, {Type: "mx"}, {Contains: "EXAMPLE.COM."}, {Type: "txt", Contains: "TXT"}} {
 		got, err := p.Records(context.Background(), zone, f)
 		if err != nil {

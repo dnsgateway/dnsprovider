@@ -6,6 +6,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 )
 
 // Options are what the consumer owns when it builds a Provider: the HTTP
@@ -74,20 +75,148 @@ type Field struct {
 	// acts within, one of those its TenantLister lists. A consumer that
 	// picks the Tenant sets it.
 	Tenant bool
+	// Default makes the field optional: New fills it in when the field
+	// is missing or empty. With Choices set, it is one of them.
+	Default string
+	// Choices, when set, are the only values the field takes, for a form
+	// to offer as a picker. New refuses any other non-empty value.
+	Choices []string
 }
 
 // Factory builds one Provider type from a plain field map.
 type Factory struct {
 	// Fields name every field the Provider takes, in form order.
 	Fields []Field
-	// New builds the Provider from the fields, without a network call. A
-	// missing required field and a field not in Fields are errors.
+	// New builds the Provider from the fields, without a network call. It
+	// fills in a missing field that has a Default. A missing required
+	// field, a field not in Fields and a value not among its field's
+	// Choices are errors.
 	New func(fields map[string]string, opts ...Option) (Provider, error)
 	// Capabilities are the optional Zone writes every Provider New builds
 	// implements, which a consumer can offer before it has the
 	// credentials to build one. A hint only: the built Provider still
 	// says, through CanCreateZone, CanUpdateZone and CanDeleteZone.
 	Capabilities []Capability
+	// TTL is the TTLRange of every Provider New builds, as TTLRangeOf
+	// reports it, for a consumer that knows only the Provider type. The
+	// zero TTLRange stands for DefaultTTLRange; read it through
+	// Factory.TTLRange.
+	TTL TTLRange
+	// Extras are the Record Extras every Provider New builds reads, and
+	// which of them it takes on write, for a consumer that checks or
+	// offers them knowing only the Provider type. A Provider that sets no
+	// extras declares none.
+	Extras []ExtraSpec
+}
+
+// ExtraSpec describes one Record extra a Provider reads.
+type ExtraSpec struct {
+	// Key is the key in Record.Extras, e.g. "proxied"; ExtraOther stands
+	// for every key no other entry names.
+	Key string
+	// Label is for people, e.g. "Proxied".
+	Label string
+	// Kind is how the value reads.
+	Kind ExtraKind
+	// Writable marks an extra the Provider writes as given. A write
+	// keeps any other extra as the Provider holds it: the Provider leaves
+	// it as it is, or refuses a write that changes it.
+	Writable bool
+	// Types are the Record types that carry the extra; none means every
+	// type.
+	Types []string
+}
+
+// ProxiedExtra returns the ExtraSpec a Factory declares for the
+// ExtraProxied extra of a Provider that proxies Records of types.
+func ProxiedExtra(types ...string) ExtraSpec {
+	return ExtraSpec{Key: ExtraProxied, Label: "Proxied", Kind: ExtraBool, Writable: true, Types: slices.Clone(types)}
+}
+
+// AppliesTo reports whether Records of type typ carry the extra.
+func (s ExtraSpec) AppliesTo(typ string) bool {
+	return len(s.Types) == 0 || slices.ContainsFunc(s.Types, func(t string) bool { return strings.EqualFold(t, typ) })
+}
+
+// ExtraKind is how a Record extra's value reads.
+type ExtraKind string
+
+// The kinds of Record extra.
+const (
+	// ExtraBool is "true" or "false".
+	ExtraBool ExtraKind = "bool"
+	// ExtraString is plain text.
+	ExtraString ExtraKind = "string"
+	// ExtraJSON is a JSON value, such as an array of tags.
+	ExtraJSON ExtraKind = "json"
+)
+
+// ExtraOther is the ExtraSpec key standing for every key no other entry
+// of a Factory names, for a Provider that passes through the fields of
+// its API's records that the adapter does not model.
+const ExtraOther = "*"
+
+// Extra returns the ExtraSpec f declares for the Record extra key: its
+// own entry, else the ExtraOther entry. It reports false when f declares
+// neither.
+func (f Factory) Extra(key string) (ExtraSpec, bool) {
+	var other *ExtraSpec
+
+	for i, s := range f.Extras {
+		switch s.Key {
+		case key:
+			return s, true
+		case ExtraOther:
+			other = &f.Extras[i]
+		}
+	}
+
+	if other != nil {
+		return *other, true
+	}
+
+	return ExtraSpec{}, false
+}
+
+// CheckExtras reports an error when r carries a Record extra f does not
+// declare for r's type. It does not check which extras a write may
+// change: that takes the Record as last read.
+func (f Factory) CheckExtras(r Record) error {
+	for _, key := range slices.Sorted(maps.Keys(r.Extras)) {
+		s, ok := f.Extra(key)
+		if !ok {
+			return fmt.Errorf("Record extra %q is not one the Provider reads", key)
+		}
+
+		if !s.AppliesTo(r.Type) {
+			return fmt.Errorf("Record extra %q is not one the Provider reads on %s Records", key, r.Type)
+		}
+	}
+
+	return nil
+}
+
+// ProxiableTypes returns the Record types f's Providers can proxy, as
+// ProxiableTypesOf reports them: the Types of its ExtraProxied entry,
+// none without one.
+func (f Factory) ProxiableTypes() []string {
+	for _, s := range f.Extras {
+		if s.Key == ExtraProxied {
+			return slices.Clone(s.Types)
+		}
+	}
+
+	return nil
+}
+
+// TTLRange returns the TTLs f's Providers take: f.TTL, or DefaultTTLRange
+// when f leaves it zero.
+func (f Factory) TTLRange() TTLRange {
+	if f.TTL == (TTLRange{}) {
+		return DefaultTTLRange
+	}
+
+	return f.TTL
 }
 
 // Capability names an optional interface a Factory declares its Providers

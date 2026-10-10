@@ -58,9 +58,12 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 
 // Factory declares the token field and constructs the same Provider as New.
 func Factory() dnsprovider.Factory {
-	return fields.Factory("gandi", []dnsprovider.Field{{Name: FieldToken, Label: "Personal access token", Secret: true}}, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	f := fields.Factory("gandi", []dnsprovider.Field{{Name: FieldToken, Label: "Personal access token", Secret: true}}, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Token: m[FieldToken]}, opts...)
 	})
+	f.TTL = ttlRange
+
+	return f
 }
 
 func (p *Provider) api() *rest.Client {
@@ -284,7 +287,13 @@ func (p *Provider) Records(ctx context.Context, z dnsprovider.Zone, f dnsprovide
 }
 
 // TTLRange is the documented LiveDNS cache interval; there is no auto sentinel.
-func (p *Provider) TTLRange() (uint32, uint32) { return 300, 2592000 }
+func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
+	return ttlRange.Min, ttlRange.Max
+}
+
+// ttlRange is the TTLRange of every Provider, which TTLRange and
+// Factory report.
+var ttlRange = dnsprovider.TTLRange{Min: 300, Max: 2592000}
 
 var _ dnsprovider.TTLLimits = (*Provider)(nil)
 

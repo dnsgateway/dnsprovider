@@ -200,9 +200,15 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldSubAuthID, Label: "Sub-user authentication ID", Secret: true},
 		{Name: FieldSubAuthUser, Label: "Sub-user username", Secret: true},
 	}
-	return fields.Factory("cloudns", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	f := fields.Factory("cloudns", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Password: m[FieldPassword], AuthID: m[FieldAuthID], SubAuthID: m[FieldSubAuthID], SubAuthUser: m[FieldSubAuthUser]}, opts...)
 	})
+	f.TTL = ttlRange
+	// Records carry the API's other record fields, such as status, as
+	// text; writes keep them as ClouDNS holds them.
+	f.Extras = []dnsprovider.ExtraSpec{{Key: dnsprovider.ExtraOther, Label: "Record metadata", Kind: dnsprovider.ExtraString}}
+
+	return f
 }
 
 var (

@@ -1,7 +1,9 @@
 package providers_test
 
 import (
+	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/dnsgateway/dnsprovider"
@@ -28,6 +30,10 @@ func TestRegistryHasOneFactoryPerProvider(t *testing.T) {
 
 				if slices.Contains(names, fd.Name) {
 					t.Errorf("field %q is named twice", fd.Name)
+				}
+
+				if fd.Default != "" && len(fd.Choices) > 0 && !slices.Contains(fd.Choices, fd.Default) {
+					t.Errorf("field %q defaults to a value not among its choices", fd.Name)
 				}
 
 				names = append(names, fd.Name)
@@ -139,5 +145,113 @@ func TestOVHcloudRegistryFactoriesAreIndependent(t *testing.T) {
 	}
 	if _, err := second.New("ovhcloud", map[string]string{"application_key": "a", "application_secret": "s", "consumer_key": "c", "endpoint": "ovh-ca"}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEachFactoryDeclaresTheTTLRangeOfItsProviders(t *testing.T) {
+	r := providers.Registry()
+
+	for typ, f := range r {
+		p, err := r.New(typ, validFields[typ])
+		if err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+
+		if got, want := f.TTLRange(), dnsprovider.TTLRangeOf(p); got != want {
+			t.Errorf("%s: Factory declares TTL range %+v, its Provider takes %+v", typ, got, want)
+		}
+	}
+}
+
+func TestFactoryTTLRangesNeedNoProvider(t *testing.T) {
+	r := providers.Registry()
+
+	for typ, want := range map[string]dnsprovider.TTLRange{
+		"cloudflare": {Min: 60, Max: 86400, Auto: true},
+		"godaddy":    {Min: 600, Max: 86400},
+		"vultr":      {Min: 30, Max: 86400},
+	} {
+		if got := r[typ].TTLRange(); got != want {
+			t.Errorf("%s: Factory TTL range = %+v, want %+v", typ, got, want)
+		}
+	}
+}
+
+func TestEachFactoryDeclaresTheProxiableTypesOfItsProviders(t *testing.T) {
+	r := providers.Registry()
+
+	for typ, f := range r {
+		p, err := r.New(typ, validFields[typ])
+		if err != nil {
+			t.Fatalf("%s: %v", typ, err)
+		}
+
+		if got, want := f.ProxiableTypes(), dnsprovider.ProxiableTypesOf(p); !slices.Equal(got, want) {
+			t.Errorf("%s: Factory declares proxiable types %v, its Provider proxies %v", typ, got, want)
+		}
+	}
+}
+
+func TestEachFactoryDeclaresWellFormedExtras(t *testing.T) {
+	kinds := []dnsprovider.ExtraKind{dnsprovider.ExtraBool, dnsprovider.ExtraString, dnsprovider.ExtraJSON}
+
+	for typ, f := range providers.Registry() {
+		var keys []string
+
+		for _, s := range f.Extras {
+			if s.Key == "" || s.Label == "" || !slices.Contains(kinds, s.Kind) {
+				t.Errorf("%s: extra %+v has no key, no label or an unknown kind", typ, s)
+			}
+
+			if slices.Contains(keys, s.Key) {
+				t.Errorf("%s: extra %q is declared twice", typ, s.Key)
+			}
+
+			keys = append(keys, s.Key)
+
+			for _, rt := range s.Types {
+				if rt != strings.ToUpper(rt) {
+					t.Errorf("%s: extra %q names type %q, not upper case", typ, s.Key, rt)
+				}
+			}
+		}
+	}
+}
+
+func TestFactoriesDeclareTheRecordExtrasTheirProvidersRead(t *testing.T) {
+	const (
+		b = dnsprovider.ExtraBool
+		s = dnsprovider.ExtraString
+		j = dnsprovider.ExtraJSON
+	)
+
+	want := map[string][]dnsprovider.ExtraSpec{
+		"cloudflare": {
+			{Key: "proxied", Label: "Proxied", Kind: b, Writable: true, Types: []string{"A", "AAAA", "CNAME"}},
+			{Key: "comment", Label: "Comment", Kind: s},
+			{Key: "tags", Label: "Tags", Kind: j},
+		},
+		"cloudns": {{Key: "*", Label: "Record metadata", Kind: s}},
+		"dnsimple": {
+			{Key: "system_record", Label: "System record", Kind: b},
+			{Key: "regions", Label: "Regions", Kind: j},
+			{Key: "parent_id", Label: "Parent record ID", Kind: s},
+		},
+		"hetzner": {
+			{Key: "comment", Label: "Comment", Kind: s},
+			{Key: "protected", Label: "Change protection", Kind: b},
+			{Key: "labels", Label: "Labels", Kind: j},
+		},
+		"internetbs": {
+			{Key: "internetbs:wire_value", Label: "Wire value", Kind: s, Types: []string{"CNAME", "NS", "MX"}},
+			{Key: "*", Label: "Record metadata", Kind: j},
+		},
+		"porkbun": {{Key: "notes", Label: "Notes", Kind: s, Writable: true}},
+	}
+
+	for typ, f := range providers.Registry() {
+		if got := f.Extras; !reflect.DeepEqual(got, want[typ]) {
+			t.Errorf("%s: Extras = %+v, want %+v", typ, got, want[typ])
+		}
 	}
 }

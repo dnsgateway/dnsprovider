@@ -220,11 +220,22 @@ func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	if p.ttlRange == nil {
-		return dnsprovider.DefaultTTLRange.Min, dnsprovider.DefaultTTLRange.Max
+	r := p.scriptedTTLRange()
+
+	return r.Min, r.Max
+}
+
+// scriptedTTLRange is the TTLRange scripted (SetTTLRange, SetAutoTTL),
+// with the default range when none is. The caller holds p.mu.
+func (p *Provider) scriptedTTLRange() dnsprovider.TTLRange {
+	r := dnsprovider.DefaultTTLRange
+	if p.ttlRange != nil {
+		r.Min, r.Max = p.ttlRange[0], p.ttlRange[1]
 	}
 
-	return p.ttlRange[0], p.ttlRange[1]
+	r.Auto = p.autoTTL
+
+	return r
 }
 
 // AutoTTL implements dnsprovider.AutoTTL.
@@ -413,7 +424,9 @@ const FieldTenant = "tenant"
 // Cloudflare takes one. As the Factory contract wants, a missing token or
 // a field it does not take is an error. It declares the Zone writes
 // scripted by then (SetZoneUpdater, SetZoneCreator, SetZoneDeleter) as
-// its Capabilities.
+// its Capabilities, the TTL range scripted by then (SetTTLRange,
+// SetAutoTTL) as its TTL, and the proxiable types scripted by then
+// (SetProxiableTypes) as its dnsprovider.ExtraProxied extra.
 // Every Provider it builds shares this fake's script; it records each
 // build of valid fields as OpNew with its fields.
 func (p *Provider) Factory() dnsprovider.Factory {
@@ -427,6 +440,11 @@ func (p *Provider) Factory() dnsprovider.Factory {
 
 	f := fields.Factory("providertest", fs, p.build)
 	f.Capabilities = p.zoneWrites()
+	f.TTL = p.scriptedTTLRange()
+
+	if p.proxiable != nil {
+		f.Extras = []dnsprovider.ExtraSpec{dnsprovider.ProxiedExtra(p.proxiable...)}
+	}
 
 	return f
 }

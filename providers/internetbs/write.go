@@ -246,7 +246,15 @@ func (p *Provider) replace(ctx context.Context, zone dnsprovider.Zone, source, a
 // Factory builds an account from its two secret API credential fields.
 func Factory() dnsprovider.Factory {
 	fs := []dnsprovider.Field{{Name: FieldKey, Label: "API key", Secret: true}, {Name: FieldPassword, Label: "API password", Secret: true}}
-	return fields.Factory("internetbs", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	f := fields.Factory("internetbs", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Key: m[FieldKey], Password: m[FieldPassword]}, opts...)
 	})
+	// Records carry the API's other record fields as their raw JSON;
+	// writes refuse to create or change them.
+	f.Extras = []dnsprovider.ExtraSpec{
+		{Key: ExtraWireValue, Label: "Wire value", Kind: dnsprovider.ExtraString, Types: []string{"CNAME", "NS", "MX"}},
+		{Key: dnsprovider.ExtraOther, Label: "Record metadata", Kind: dnsprovider.ExtraJSON},
+	}
+
+	return f
 }

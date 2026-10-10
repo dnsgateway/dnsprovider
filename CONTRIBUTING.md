@@ -158,10 +158,15 @@ stable and use shared Options, validation, filters, error types, and Apply.
 An adapter in `providers/<name>` exports typed `Config`, `New`, and `Factory`.
 Construction validates locally without network calls. Mark secret Factory
 fields, reject unknown fields, and declare only implemented optional
-capabilities. Honor custom HTTP clients, endpoint overrides, and logging;
-prevent credentials from reaching diagnostics. Discover complete inventories,
-normalize names, preserve unrelated Records, and make uncertain write outcomes
-and retry behavior explicit.
+capabilities. Declare the Provider's TTL range as the Factory's `TTL`, from
+the same value its `TTLRange` and `AutoTTL` methods return. Declare every
+Record extra the adapter reads as an `ExtraSpec` in the Factory's `Extras`,
+`Writable` only when a write sends it, and check read Records against them
+with `Factory().CheckExtras` in the adapter's tests. Honor custom HTTP
+clients, endpoint overrides, and logging; prevent credentials from reaching
+diagnostics. Discover complete inventories, normalize names, preserve
+unrelated Records, and make uncertain write outcomes and retry behavior
+explicit.
 
 Test consumer-visible behavior through the exported Provider and Apply using
 protocol-faithful local `httptest` fixtures in the external test package.

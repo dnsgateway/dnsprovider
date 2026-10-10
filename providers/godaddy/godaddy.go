@@ -54,9 +54,12 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldSecret, Label: "API secret", Secret: true},
 	}
 
-	return fields.Factory("godaddy", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	f := fields.Factory("godaddy", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Key: m[FieldKey], Secret: m[FieldSecret]}, opts...)
 	})
+	f.TTL = ttlRange
+
+	return f
 }
 
 // New builds the GoDaddy Provider for an Account, without a network call.
@@ -134,8 +137,12 @@ var (
 // TTLRange implements dnsprovider.TTLLimits: a GoDaddy TTL is at least 600
 // seconds.
 func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return 600, 86400
+	return ttlRange.Min, ttlRange.Max
 }
+
+// ttlRange is the TTLRange of every Provider, which TTLRange and
+// Factory report.
+var ttlRange = dnsprovider.TTLRange{Min: 600, Max: 86400}
 
 // wireDomain is the part of a v1 domain that the adapter reads.
 type wireDomain struct {

@@ -92,6 +92,11 @@ func TestFrozenRecordsPreservePresentationUnknownTypesAndSOASerial(t *testing.T)
 	if set.Records[3].Name != "*.example.com" || set.Records[1].Extras["regions"] != `["SV1","IAD"]` {
 		t.Fatalf("names and metadata: %+v", set.Records)
 	}
+	for _, r := range set.Records {
+		if err := dnsimple.Factory().CheckExtras(r); err != nil {
+			t.Errorf("Factory does not declare the extras of %+v: %v", r, err)
+		}
+	}
 }
 
 func TestRecordsRejectMissingNullAndWronglyTypedRequiredFields(t *testing.T) {

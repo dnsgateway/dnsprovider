@@ -35,10 +35,17 @@ func TestZoneDiscoveryExhaustsShortPagesAndSharesLookupState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	zones, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.ORG."})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.ORG."})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	if set.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
+	zones := set.Zones
+
 	if len(zones) != 1 || zones[0].State != dnsprovider.HostingUnknown {
 		t.Fatalf("Zones = %+v", zones)
 	}

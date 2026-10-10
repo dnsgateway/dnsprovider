@@ -168,7 +168,15 @@ type getListResult struct {
 // elsewhere has no host list Namecheap will read. The filter goes to
 // getList as its SearchTerm, and the answer is filtered again with
 // dnsprovider.MatchZone. Every Zone is Active.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+// The ZoneSet is a full view.
+func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+	zs, err := p.zoneList(ctx, f)
+
+	return dnsprovider.ZoneSet{Zones: zs}, err
+}
+
+// zoneList lists the Zones that Zones returns.
+func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	all, err := p.listDomains(ctx, names.ZoneName(f.Contains))
 	if err != nil {
 		return nil, err

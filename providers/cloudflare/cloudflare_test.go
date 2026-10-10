@@ -599,10 +599,12 @@ func TestZonesListsEveryPage(t *testing.T) {
 	}}
 	p := newProvider(t, api)
 
-	zones, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	want := []dnsprovider.Zone{
 		{Name: "example.com", ID: "z1", State: dnsprovider.HostingActive, Nameservers: []string{"ada.ns.cloudflare.com", "bob.ns.cloudflare.com"}},
@@ -625,10 +627,12 @@ func TestZonesPushTheNameFilterToCloudflare(t *testing.T) {
 		cfZone("z3", "other.org"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE"})
+	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE"})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	if got, want := zoneNames(zones), []string{"example.com", "shop.example.net"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("Zones = %v, want %v", got, want)
@@ -646,10 +650,12 @@ func TestZonesKeepOnlyMatchesWhenCloudflareIgnoresTheFilter(t *testing.T) {
 		cfZone("z2", "other.org"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "ample"})
+	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "ample"})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	if got, want := zoneNames(zones), []string{"example.com"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("Zones = %v, want %v", got, want)
@@ -681,10 +687,12 @@ func TestZonesCarryTheirHostingState(t *testing.T) {
 		zone("z6", "odd.example", "read only"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	got := map[string]dnsprovider.HostingState{}
 	for _, z := range zones {
@@ -747,10 +755,12 @@ func TestZonesCarryTheNameserversCloudflareAssignedToEachZone(t *testing.T) {
 	}}
 	p := newProvider(t, api)
 
-	zones, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	got := map[string][]string{}
 	for _, z := range zones {
@@ -1532,10 +1542,12 @@ func TestAConsumersClientKeepsItsOwnTimeouts(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones through the consumer's client: %v", err)
 	}
+
+	zs := set.Zones
 
 	if len(zs) != 1 {
 		t.Errorf("Zones = %+v, want one", zs)
@@ -1620,6 +1632,10 @@ func TestRecordsListsEveryPageWithTheProxyFlag(t *testing.T) {
 	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
+	}
+
+	if rs.Partial {
+		t.Error("Records is a Partial View, want a full view")
 	}
 
 	want := []dnsprovider.Record{
@@ -1801,10 +1817,12 @@ func TestZonesFilteredByAnAbsoluteNamePushItWithoutTheDot(t *testing.T) {
 		cfZone("z2", "example.community"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example.COM."})
+	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example.COM."})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	if got, want := zoneNames(zones), []string{"example.com"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("Zones = %v, want %v", got, want)

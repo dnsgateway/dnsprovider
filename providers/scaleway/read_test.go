@@ -39,10 +39,17 @@ func TestProjectDiscoveryAndOwnership(t *testing.T) {
 	if err != nil || account.Tenant.ID != project || account.Tenant.Name != "" {
 		t.Fatalf("account %+v %v", account, err)
 	}
-	zs, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	set, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	zs := set.Zones
+
 	if err != nil || len(zs) != 2 {
 		t.Fatalf("zones %+v %v", zs, err)
 	}
+
+	if set.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
 	sub, err := p.Zone(ctx, "DEV.EXAMPLE.COM.")
 	if err != nil || sub.ID != "dev.example.com" || sub.Name != "dev.example.com" {
 		t.Fatalf("sub %+v %v", sub, err)
@@ -111,7 +118,9 @@ func TestCompletePaginationAndRepeatedPageDetection(t *testing.T) {
 			}))
 			defer srv.Close()
 			p, _ := scaleway.New(scaleway.Config{SecretKey: "secret", ProjectID: project}, dnsprovider.WithBaseURL(srv.URL))
-			zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+			set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+			zs := set.Zones
+
 			if repeated {
 				if !errors.Is(err, rest.ErrSamePage) {
 					t.Fatalf("repeated: %v", err)
@@ -149,11 +158,18 @@ func TestFiltersAndStructuredRecordRoundTrips(t *testing.T) {
 	if err != nil || len(set.Records) != 1 {
 		t.Fatalf("filter %+v %v", set, err)
 	}
+
+	if set.Partial {
+		t.Error("Records is a Partial View, want a full view")
+	}
+
 	unsupported, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{Type: "unsupported"})
 	if err != nil || len(unsupported.Records) != 0 {
 		t.Fatalf("unsupported: %+v %v", unsupported, err)
 	}
-	zones, err := p.Zones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	zoneSet, err := p.Zones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	zones := zoneSet.Zones
+
 	if err != nil || len(zones) != 1 {
 		t.Fatalf("zone filter %+v %v", zones, err)
 	}

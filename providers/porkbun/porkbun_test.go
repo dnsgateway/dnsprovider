@@ -49,10 +49,17 @@ func TestZonesRespectAPIAccessAndNameBoundaries(t *testing.T) {
 	}))
 	defer s.Close()
 	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-	zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	zs := set.Zones
+
 	if err != nil || len(zs) != 1 || zs[0].ID != "example.com" || zs[0].State != dnsprovider.HostingUnknown {
 		t.Fatalf("Zones=%+v,%v", zs, err)
 	}
+
+	if set.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
 	z, err := p.Zone(context.Background(), "EXAMPLE.COM.")
 	if err != nil || z.ID != zs[0].ID || z.State != zs[0].State {
 		t.Fatalf("Zone=%+v,%v", z, err)
@@ -74,6 +81,11 @@ func TestRecordsRetainNativeIDsAndPresentation(t *testing.T) {
 	if err != nil || len(set.Records) != 5 {
 		t.Fatalf("Records=%+v,%v", set, err)
 	}
+
+	if set.Partial {
+		t.Error("Records is a Partial View, want a full view")
+	}
+
 	if set.Records[0].ID != "101" || set.Records[0].Name != "Example.COM" || set.Records[0].Value != "10 mail.example.net." || set.Records[0].Extras[porkbun.ExtraNotes] != "keep" {
 		t.Errorf("MX=%+v", set.Records[0])
 	}

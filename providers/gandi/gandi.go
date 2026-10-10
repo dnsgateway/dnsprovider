@@ -161,7 +161,7 @@ func list[T any](ctx context.Context, p *Provider, path string) ([]T, error) {
 // Account proves LiveDNS read access even when the Account has no Zones.
 // LiveDNS does not expose the authenticated organization's identity here.
 func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error) {
-	_, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	_, err := p.zoneList(ctx, dnsprovider.ZoneFilter{})
 	return dnsprovider.AccountInfo{}, err
 }
 
@@ -177,7 +177,17 @@ func zone(w wireZone) (dnsprovider.Zone, error) {
 	return dnsprovider.Zone{ID: n, Name: n, State: dnsprovider.HostingUnknown}, nil
 }
 
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+// Zones implements dnsprovider.Provider: the Account's Zones that match
+// the filter.
+// The ZoneSet is a full view.
+func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+	zs, err := p.zoneList(ctx, f)
+
+	return dnsprovider.ZoneSet{Zones: zs}, err
+}
+
+// zoneList lists the Zones that Zones returns.
+func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	all, err := list[wireZone](ctx, p, "/domains")
 	if err != nil {
 		return nil, err

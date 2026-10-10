@@ -121,10 +121,12 @@ func TestDeleteZoneDeletesTheZoneByItsID(t *testing.T) {
 
 	assertWrites(t, o.api, []write{{Method: "DELETE", Path: "/client/v4/zones/z1"}})
 
-	zones, err := d.(dnsprovider.Provider).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := d.(dnsprovider.Provider).Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	if got := zoneNames(zones); !slices.Equal(got, []string{"example.org"}) {
 		t.Errorf("Zones after DeleteZone = %v, want only example.org", got)

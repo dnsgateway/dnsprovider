@@ -155,7 +155,15 @@ type wireDomain struct {
 // Account whose names match the filter. The v1 API has no name filter, so
 // every page is read and filtered with dnsprovider.MatchZone. A Zone's
 // Hosting State follows its Delegation; see hostingState.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+// The ZoneSet is a full view.
+func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+	zs, err := p.zoneList(ctx, f)
+
+	return dnsprovider.ZoneSet{Zones: zs}, err
+}
+
+// zoneList lists the Zones that Zones returns.
+func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	all, err := p.listDomains(ctx)
 	if err != nil {
 		return nil, err

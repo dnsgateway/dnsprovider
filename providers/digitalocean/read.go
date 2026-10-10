@@ -168,7 +168,15 @@ func zone(w wireDomain) (dnsprovider.Zone, error) {
 }
 
 // Zones lists every Domain of the Account, filtered locally.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+// The ZoneSet is a full view.
+func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+	zs, err := p.zoneList(ctx, f)
+
+	return dnsprovider.ZoneSet{Zones: zs}, err
+}
+
+// zoneList lists the Zones that Zones returns.
+func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	all, err := list[wireDomain](ctx, p, "/domains", "domains", nil)
 	if err != nil {
 		return nil, err

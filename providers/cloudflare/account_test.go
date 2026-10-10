@@ -301,10 +301,16 @@ func TestZonesWithoutATenantListEveryZoneTheTokenReaches(t *testing.T) {
 		return false
 	}
 
-	got, err := newProviderIn(t, api, acme, "").Zones(context.Background(), dnsprovider.ZoneFilter{})
+	gotSet, err := newProviderIn(t, api, acme, "").Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	if gotSet.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
+	got := gotSet.Zones
 
 	if len(got) != 2 || got[0].ID != "z1" || got[1].ID != "z2" {
 		t.Errorf("Zones = %+v, want z1 and z2", got)

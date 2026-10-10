@@ -10,13 +10,16 @@ type Provider interface {
 	// Zones lists the Account's Zones that match the filter, in every
 	// Hosting State, exactly filtered. Each has ID, Name and State set,
 	// and Nameservers when the Provider assigns them per Zone. The adapter
-	// pages through the whole list.
-	Zones(ctx context.Context, f ZoneFilter) ([]Zone, error)
+	// pages through the whole list. The ZoneSet is a full view: only an
+	// adapter in front of another service with its own access rules, such
+	// as a Gateway's, reports a Partial View.
+	Zones(ctx context.Context, f ZoneFilter) (ZoneSet, error)
 	// Zone reads one Zone by its name, in any Hosting State, set as Zones
 	// sets it: ErrNotFound when the Account has no Zone of that name.
 	Zone(ctx context.Context, name string) (Zone, error)
 	// Records lists a Zone's Records that match the filter, exactly
-	// filtered, with the SOA serial when the Provider reports it.
+	// filtered, with the SOA serial when the Provider reports it. The
+	// RecordSet is a full view, as Zones' ZoneSet is.
 	Records(ctx context.Context, zone Zone, f RecordFilter) (RecordSet, error)
 	// CreateRecord adds a Record and returns it as the Provider stored
 	// it, with its ID: ErrConflict when the Zone holds a Record identical
@@ -213,11 +216,24 @@ func ProxiableTypesOf(p Provider) []string {
 	return nil
 }
 
+// ZoneSet is the Account's Zones as the Provider returned them.
+type ZoneSet struct {
+	Zones []Zone
+	// Partial reports a Partial View: the caller's access does not cover
+	// every Zone of the Account. It does not mean any Zone was left out.
+	// False is a full view.
+	Partial bool
+}
+
 // RecordSet is a Zone's Records as the Provider returned them.
 type RecordSet struct {
 	Records []Record
 	// Serial is the Zone's SOA serial; zero when the Provider does not report it.
 	Serial uint32
+	// Partial reports a Partial View: the caller's access does not cover
+	// every name and type in the Zone. It does not mean any Record was
+	// left out. False is a full view.
+	Partial bool
 }
 
 // ChangeResult is the outcome of one change in a Changeset.

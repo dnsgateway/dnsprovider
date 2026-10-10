@@ -42,10 +42,17 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 	s := discoveryServer(t)
 	defer s.Close()
 	p, _ := hetzner.New(hetzner.Config{Token: "secret"}, dnsprovider.WithBaseURL(s.URL))
-	zones, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	zones := set.Zones
+
 	if err != nil || len(zones) != 1 {
 		t.Fatalf("Zones = %+v,%v", zones, err)
 	}
+
+	if set.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
 	z, err := p.Zone(context.Background(), "EXAMPLE.COM.")
 	if err != nil || z.State != dnsprovider.HostingActive || z.Nameservers[0] != "hydrogen.ns.hetzner.com" {
 		t.Fatalf("Zone = %+v,%v", z, err)
@@ -57,6 +64,11 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 	if err != nil || len(rs.Records) != 5 || rs.Serial != 123 {
 		t.Fatalf("Records = %+v,%v", rs, err)
 	}
+
+	if rs.Partial {
+		t.Error("Records is a Partial View, want a full view")
+	}
+
 	if rs.Records[0].Name != "example.com" || rs.Records[0].TTL != 300 || rs.Records[0].ID == rs.Records[1].ID || rs.Records[0].Extras[hetzner.ExtraComment] != "first" || rs.Records[0].Extras[hetzner.ExtraLabels] != `{"team":"dns"}` {
 		t.Fatalf("expanded = %+v", rs.Records)
 	}

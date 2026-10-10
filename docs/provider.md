@@ -215,7 +215,7 @@ These signatures are in the root `dnsprovider` package:
 ```go
 type Provider interface {
     Account(context.Context) (AccountInfo, error)
-    Zones(context.Context, ZoneFilter) ([]Zone, error)
+    Zones(context.Context, ZoneFilter) (ZoneSet, error)
     Zone(context.Context, string) (Zone, error)
     Records(context.Context, Zone, RecordFilter) (RecordSet, error)
     CreateRecord(context.Context, Zone, Record) (Record, error)
@@ -242,6 +242,13 @@ Adapters push filters down where possible and apply `MatchZone` or
 and returns `ErrNotFound` when absent.
 
 `RecordSet` contains Records and an optional SOA Serial. Adapters return zero for the serial when it is unknown.
+
+`ZoneSet` contains Zones. Both `ZoneSet` and `RecordSet` carry `Partial`,
+which marks a Partial View: the caller's access does not cover every Zone, or
+every name and type in the Zone. It does not mean anything was left out;
+false is a full view. Every adapter in this module returns a full view; only an
+adapter in front of a service with its own access rules, such as a Gateway,
+reports a Partial View.
 
 ## Accounts, Tenants, and Hosting State
 
@@ -470,7 +477,8 @@ Adapter tests use `httptest` API responses. Run `go test ./...` for the test
 suite and `go vet ./...` for static checks.
 
 `providertest.New()` creates a scriptable fake with call recording, Zones,
-Records, account data, failures, and withheld results or serials. Its
+Records, account data, failures, withheld results or serials, and Partial
+Views (`SetPartialZones`, `SetPartialRecords`). Its
 `Factory` builds Providers sharing the script. Configure optional interfaces
 before building: `SetTenants`, `SetZoneStatus`, `SetBatcher`,
 `SetZoneCreator`, `SetZoneUpdater`, and `SetZoneDeleter`. Unscripted Providers

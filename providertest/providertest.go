@@ -82,8 +82,10 @@ type Provider struct {
 	failChange func(dnsprovider.Change) error
 	withhold   bool
 	noSerial   bool
-	ttlRange   []uint32 // min, max; nil when not scripted
-	proxiable  []string // nil when not scripted
+	partialZ   bool            // whether Zones is a Partial View
+	partialR   map[string]bool // by Zone ID: whether its Records are a Partial View
+	ttlRange   []uint32        // min, max; nil when not scripted
+	proxiable  []string        // nil when not scripted
 	autoTTL    bool
 	batcher    bool
 	updater    bool
@@ -96,11 +98,12 @@ type Provider struct {
 // New returns an empty fake Provider.
 func New() *Provider {
 	return &Provider{
-		records: map[string][]dnsprovider.Record{},
-		serials: map[string]uint32{},
-		hosting: map[string]dnsprovider.HostingState{},
-		status:  map[string]dnsprovider.ZoneStatus{},
-		fail:    map[Op]error{},
+		records:  map[string][]dnsprovider.Record{},
+		serials:  map[string]uint32{},
+		hosting:  map[string]dnsprovider.HostingState{},
+		status:   map[string]dnsprovider.ZoneStatus{},
+		fail:     map[Op]error{},
+		partialR: map[string]bool{},
 	}
 }
 
@@ -144,8 +147,8 @@ func (p *Provider) SetSerial(zoneID string, serial uint32) *Provider {
 }
 
 // RemoveZone drops a scripted Zone, as if it was deleted outside the
-// consumer, with its Records, serial, Hosting State and Zone Status: a
-// Zone added again with the same ID starts clean.
+// consumer, with its Records, serial, Hosting State, Zone Status and
+// Partial View: a Zone added again with the same ID starts clean.
 func (p *Provider) RemoveZone(zoneID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -155,6 +158,7 @@ func (p *Provider) RemoveZone(zoneID string) {
 	delete(p.serials, zoneID)
 	delete(p.hosting, zoneID)
 	delete(p.status, zoneID)
+	delete(p.partialR, zoneID)
 }
 
 // SetRecords replaces a scripted Zone's Records, as if they were changed
@@ -534,11 +538,23 @@ func (p *Provider) record(c Call) error {
 	return p.fail[c.Op]
 }
 
+// SetPartialZones makes Zones report a Partial View, as an adapter in
+// front of a Gateway does when the caller's access does not cover every
+// Zone. The Zones listed stay as scripted. Unscripted, Zones is a full
+// view.
+func (p *Provider) SetPartialZones(on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.partialZ = on
+}
+
 // Zones implements dnsprovider.Provider: the scripted Zones the filter
-// matches, in the order added, with their scripted Hosting State.
-func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+// matches, in the order added, with their scripted Hosting State, as a
+// Partial View once SetPartialZones scripts one.
+func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	if err := p.record(Call{Op: OpZones, ZoneFilter: f}); err != nil {
-		return nil, err
+		return dnsprovider.ZoneSet{}, err
 	}
 
 	p.mu.Lock()
@@ -552,7 +568,7 @@ func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) ([]dnsprov
 		}
 	}
 
-	return out, nil
+	return dnsprovider.ZoneSet{Zones: out, Partial: p.partialZ}, nil
 }
 
 // Zone implements dnsprovider.Provider: the scripted Zone of that name,
@@ -601,8 +617,21 @@ func (p *Provider) scripted(z dnsprovider.Zone) dnsprovider.Zone {
 	return z
 }
 
+// SetPartialRecords makes Records of a Zone report a Partial View, as an
+// adapter in front of a Gateway does when the caller's access does not
+// cover every name and type in the Zone. The Records listed stay as
+// scripted. Like SetSerial, it holds for a Zone added later with that ID,
+// until RemoveZone. Unscripted, Records is a full view.
+func (p *Provider) SetPartialRecords(zoneID string, on bool) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.partialR[zoneID] = on
+}
+
 // Records implements dnsprovider.Provider: the scripted Records that
-// match the filter, by dnsprovider.MatchRecord.
+// match the filter, by dnsprovider.MatchRecord, as a Partial View once
+// SetPartialRecords scripts one for the Zone.
 func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	if err := p.record(Call{Op: OpRecords, Zone: z, RecordFilter: f}); err != nil {
 		return dnsprovider.RecordSet{}, err
@@ -624,7 +653,7 @@ func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, f dnsprovider.
 		}
 	}
 
-	return dnsprovider.RecordSet{Records: matched, Serial: p.serial(z.ID)}, nil
+	return dnsprovider.RecordSet{Records: matched, Serial: p.serial(z.ID), Partial: p.partialR[z.ID]}, nil
 }
 
 // CreateRecord implements dnsprovider.Provider: it adds the Record with

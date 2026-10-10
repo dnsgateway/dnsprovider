@@ -31,10 +31,17 @@ func TestDiscoveryExhaustsShortPagesAndAppliesExactFilters(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	})
-	zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	zs := set.Zones
+
 	if err != nil || len(zs) != 1 || zs[0].ID != "7" || zs[0].State != dnsprovider.HostingActive {
 		t.Fatalf("Zones: %+v %v", zs, err)
 	}
+
+	if set.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
 	z, err := p.Zone(context.Background(), "EXAMPLE.COM.")
 	if err != nil || !reflect.DeepEqual(z, zs[0]) {
 		t.Fatalf("Zone: %+v %v", z, err)

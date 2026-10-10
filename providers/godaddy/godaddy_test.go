@@ -325,10 +325,16 @@ func TestZonesAreTheAccountsActiveDomainsOnEveryPage(t *testing.T) {
 		domain("a.example"), domain("b.example"), domain("c.example"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	if set.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
+	zones := set.Zones
 
 	var names []string
 	for _, z := range zones {
@@ -351,10 +357,12 @@ func TestZonesFilteredByNameKeepOnlyMatchesFromEveryPage(t *testing.T) {
 		domain("a.example"), domain("b.other"), domain("Shop.EXAMPLE"), domain("d.other"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example"})
+	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example"})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	var names []string
 	for _, z := range zones {
@@ -378,10 +386,12 @@ func TestZonesAreActiveOnlyWhileDelegationNamesGoDaddy(t *testing.T) {
 		domain("unknown.example"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	got := map[string]dnsprovider.HostingState{}
 	for _, z := range zones {
@@ -475,10 +485,12 @@ func TestZonesCarryTheirNameserversOnlyWhenGoDaddyAnswersForThem(t *testing.T) {
 		domain("unknown.example"),
 	}}
 
-	zones, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	zones := set.Zones
 
 	got := map[string][]string{}
 	for _, z := range zones {
@@ -509,6 +521,10 @@ func TestRecordsListsEveryPageWithAbsoluteNamesAndThePriorityFirst(t *testing.T)
 	set, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
+	}
+
+	if set.Partial {
+		t.Error("Records is a Partial View, want a full view")
 	}
 
 	want := withIDs(

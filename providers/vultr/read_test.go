@@ -46,11 +46,20 @@ func TestZonesFollowCursorsThroughConfiguredEndpointAndFilterExactly(t *testing.
 		}
 	})
 	ctx := context.Background()
-	all, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	allSet, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	all := allSet.Zones
+
 	if err != nil || len(all) != 3 || !reflect.DeepEqual(pages, []string{"/500", "bmV4dF9fZXhhbXBsZS5jb21tdW5pdHk=/500"}) {
 		t.Fatalf("Zones: %+v %v pages=%v", all, err, pages)
 	}
-	zs, err := p.Zones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+
+	if allSet.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
+	set, err := p.Zones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	zs := set.Zones
+
 	want := []dnsprovider.Zone{
 		{ID: "example.com", Name: "example.com", State: dnsprovider.HostingUnknown},
 		{ID: "shop.example.com", Name: "shop.example.com", State: dnsprovider.HostingUnknown},
@@ -71,7 +80,9 @@ func TestEmptyAccountListsNoZones(t *testing.T) {
 	p := provider(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, `{"domains":[],%s}`, meta(0, "", ""))
 	})
-	zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	zs := set.Zones
+
 	if err != nil || len(zs) != 0 {
 		t.Fatalf("Zones: %+v %v", zs, err)
 	}
@@ -156,7 +167,9 @@ func TestCursorsThatLookLikeURLsStayOnTheConfiguredEndpoint(t *testing.T) {
 		}
 		fmt.Fprintf(w, `{"domains":[%s],%s}`, domainJSON("b.com"), meta(2, "", ""))
 	})
-	zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	zs := set.Zones
+
 	if err != nil || len(zs) != 2 || cursors[1] != "https://attacker.example/v2/domains?x=1" {
 		t.Fatalf("Zones: %+v %v %v", zs, err, cursors)
 	}
@@ -206,6 +219,10 @@ func TestRecordsConvertStructuredFields(t *testing.T) {
 	set, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{})
 	if err != nil || !reflect.DeepEqual(set.Records, wantRecords) || set.Serial != 0 {
 		t.Fatalf("Records: %+v %v", set, err)
+	}
+
+	if set.Partial {
+		t.Error("Records is a Partial View, want a full view")
 	}
 }
 

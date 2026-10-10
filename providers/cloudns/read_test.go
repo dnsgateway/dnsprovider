@@ -42,10 +42,17 @@ func TestZonesExhaustPagesAndApplyExactSharedFilters(t *testing.T) {
 		}
 	})
 	ctx := context.Background()
-	zs, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	set, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	zs := set.Zones
+
 	if err != nil || len(zs) != 102 {
 		t.Fatalf("Zones = %d, %v", len(zs), err)
 	}
+
+	if set.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
 	z, err := p.Zone(ctx, "Example.Com.")
 	if err != nil || z.ID != "example.com" || z.Name != "example.com" || z.State != dnsprovider.HostingUnknown {
 		t.Fatalf("Zone = %+v, %v", z, err)
@@ -54,10 +61,13 @@ func TestZonesExhaustPagesAndApplyExactSharedFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 	f := dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."}
-	filtered, err := p.Zones(ctx, f)
+	filteredSet, err := p.Zones(ctx, f)
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	filtered := filteredSet.Zones
+
 	for _, z := range filtered {
 		if !dnsprovider.MatchZone(f, z) {
 			t.Fatal(z)
@@ -91,6 +101,11 @@ func TestRecordsConvertStructuredValuesAndNativeIDs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	if rs.Partial {
+		t.Error("Records is a Partial View, want a full view")
+	}
+
 	wants := []string{"192.0.2.1", "10 mail.example.net", "5 20 5060 sip.example.net", `128 issue "letsencrypt.org"`, "v=spf1 include:example.net -all", "abcd"}
 	if len(rs.Records) != len(wants) {
 		t.Fatal(rs)

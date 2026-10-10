@@ -55,10 +55,17 @@ func TestZonesNormalizesCompleteInventoryAndExactLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	if set.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
+	zs := set.Zones
+
 	if len(zs) != 2 || zs[0].ID != "example.com" || zs[0].Name != "example.com" || zs[0].State != dnsprovider.HostingUnknown || len(zs[0].Nameservers) != 2 || zs[0].Nameservers[0] != "ns-uk.topdns.com" {
 		t.Fatalf("unexpected zones: %+v", zs)
 	}
@@ -86,6 +93,11 @@ func TestRecordsPreserveValuesFiltersAndContentIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	if all.Partial {
+		t.Error("Records is a Partial View, want a full view")
+	}
+
 	if len(all.Records) != 5 || all.Serial != 0 || all.Records[0].Name != "example.com" || all.Records[0].Type != "MX" || all.Records[0].Value != "10 Mail.Example.Com" || all.Records[0].TTL != 300 || all.Records[0].ID == "" || all.Records[0].ID == all.Records[4].ID {
 		t.Fatalf("unexpected records: %+v", all)
 	}

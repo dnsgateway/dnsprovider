@@ -24,7 +24,8 @@ func Env(typ, field string) string {
 // them by name and its Records, unfiltered and then filtered by the
 // first Record's type and name, without writing to the Account. It skips
 // the test unless every secret field is set. A Provider that lists
-// Tenants has them listed too.
+// Tenants has them listed too. Every read must be a full view, not a
+// Partial View: the Providers here do not report one.
 // DNSPROVIDER_<TYPE>_BASE_URL may point it at another endpoint, such as a
 // sandbox.
 func Run(t *testing.T, typ string, f dnsprovider.Factory) {
@@ -66,10 +67,16 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		}
 	}
 
-	zones, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	zs, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
+
+	if zs.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
+	zones := zs.Zones
 
 	for _, z := range zones {
 		if z.ID == "" || z.Name == "" {
@@ -93,6 +100,10 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 	rs, err := p.Records(ctx, zones[0], dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records(%s): %v", zones[0].Name, err)
+	}
+
+	if rs.Partial {
+		t.Errorf("Records(%s) is a Partial View, want a full view", zones[0].Name)
 	}
 
 	if len(rs.Records) == 0 {

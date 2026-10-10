@@ -25,7 +25,15 @@ type wireDomain struct {
 
 // Zones reads the complete single-response domain inventory. Registration
 // and its NSList alone do not establish whether DNS hosting is active.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+// The ZoneSet is a full view.
+func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+	zs, err := p.zoneList(ctx, f)
+
+	return dnsprovider.ZoneSet{Zones: zs}, err
+}
+
+// zoneList lists the Zones that Zones returns.
+func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	body, err := p.call(ctx, "Domain/List", url.Values{"CompactList": {"no"}, "ReturnFields": {"NSList"}})
 	if err != nil {
 		return nil, err
@@ -62,7 +70,7 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 // Zone looks up a normalized exact domain name in the account inventory.
 func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	name = names.ZoneName(name)
-	zs, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	zs, err := p.zoneList(ctx, dnsprovider.ZoneFilter{})
 	if err != nil {
 		return dnsprovider.Zone{}, err
 	}

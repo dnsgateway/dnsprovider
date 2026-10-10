@@ -53,11 +53,20 @@ func TestZonesFollowNextLinksThroughConfiguredEndpointAndFilterExactly(t *testin
 		}
 	})
 	ctx := context.Background()
-	all, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	allSet, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	all := allSet.Zones
+
 	if err != nil || len(all) != 3 || !reflect.DeepEqual(pages, []string{"1/200", "2/200"}) {
 		t.Fatalf("Zones: %+v %v pages=%v", all, err, pages)
 	}
-	zs, err := p.Zones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+
+	if allSet.Partial {
+		t.Error("Zones is a Partial View, want a full view")
+	}
+
+	set, err := p.Zones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	zs := set.Zones
+
 	want := []dnsprovider.Zone{
 		{ID: "example.com", Name: "example.com", State: dnsprovider.HostingUnknown},
 		{ID: "shop.example.com", Name: "shop.example.com", State: dnsprovider.HostingUnknown},
@@ -78,7 +87,9 @@ func TestEmptyAccountListsNoZones(t *testing.T) {
 	p := provider(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"domains":[],"links":{},"meta":{"total":0}}`)
 	})
-	zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	zs := set.Zones
+
 	if err != nil || len(zs) != 0 {
 		t.Fatalf("Zones: %+v %v", zs, err)
 	}
@@ -186,6 +197,10 @@ func TestRecordsConvertStructuredFieldsAndReportSerial(t *testing.T) {
 	set, err := p.Records(context.Background(), dnsprovider.Zone{ID: "example.com", Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil || !reflect.DeepEqual(set.Records, wantRecords) || set.Serial != 1415982609 {
 		t.Fatalf("Records: %+v %v", set, err)
+	}
+
+	if set.Partial {
+		t.Error("Records is a Partial View, want a full view")
 	}
 }
 

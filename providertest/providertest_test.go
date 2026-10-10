@@ -222,14 +222,14 @@ func TestZonesAreFilteredAndRecordTheFilter(t *testing.T) {
 
 	f := dnsprovider.ZoneFilter{Contains: "AMPLE"}
 
-	zones, err := p.Zones(context.Background(), f)
+	zs, err := p.Zones(context.Background(), f)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	want := []dnsprovider.Zone{{ID: "z1", Name: "example.com", State: dnsprovider.HostingActive}}
-	if !reflect.DeepEqual(zones, want) {
-		t.Errorf("Zones = %+v, want %+v", zones, want)
+	want := dnsprovider.ZoneSet{Zones: []dnsprovider.Zone{{ID: "z1", Name: "example.com", State: dnsprovider.HostingActive}}}
+	if !reflect.DeepEqual(zs, want) {
+		t.Errorf("Zones = %+v, want %+v, a full view", zs, want)
 	}
 
 	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZones || calls[len(calls)-1].ZoneFilter != f {
@@ -237,17 +237,35 @@ func TestZonesAreFilteredAndRecordTheFilter(t *testing.T) {
 	}
 }
 
+func TestZonesAreAPartialViewOnlyOnceScripted(t *testing.T) {
+	fake := providertest.New().AddZone(dnsprovider.Zone{ID: "z1", Name: "example.com"})
+	p := newFake(t, fake)
+
+	for _, partial := range []bool{true, false} {
+		fake.SetPartialZones(partial)
+
+		zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if zs.Partial != partial || len(zs.Zones) != 1 {
+			t.Errorf("Zones after SetPartialZones(%v) = %+v, want the Zone with Partial %v", partial, zs, partial)
+		}
+	}
+}
+
 func TestSetHostingStateChangesAScriptedZone(t *testing.T) {
 	fake := providertest.New().AddZone(dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingPending})
 	fake.SetHostingState("z1", dnsprovider.HostingActive)
 
-	zones, err := newFake(t, fake).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	zs, err := newFake(t, fake).Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if len(zones) != 1 || zones[0].State != dnsprovider.HostingActive {
-		t.Errorf("Zones = %+v, want example.com Active", zones)
+	if len(zs.Zones) != 1 || zs.Zones[0].State != dnsprovider.HostingActive {
+		t.Errorf("Zones = %+v, want example.com Active", zs)
 	}
 }
 
@@ -365,6 +383,42 @@ func TestRecordsAreFilteredAndRecordTheFilter(t *testing.T) {
 		if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpRecords || calls[len(calls)-1].RecordFilter != c.filter {
 			t.Errorf("last call = %+v, want Records with the filter %+v", calls[len(calls)-1], c.filter)
 		}
+	}
+}
+
+func TestRecordsAreAPartialViewOnlyForTheZoneScriptedUntilItIsRemoved(t *testing.T) {
+	z1 := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	z2 := dnsprovider.Zone{ID: "z2", Name: "example.org"}
+	a := dnsprovider.Record{ID: "r1", Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	fake := providertest.New().AddZone(z1, a).AddZone(z2)
+	p := newFake(t, fake)
+
+	fake.SetPartialRecords("z1", true)
+
+	for _, c := range []struct {
+		zone    dnsprovider.Zone
+		partial bool
+	}{{z1, true}, {z2, false}} {
+		rs, err := p.Records(context.Background(), c.zone, dnsprovider.RecordFilter{})
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		if rs.Partial != c.partial {
+			t.Errorf("Records(%s) Partial = %v, want %v", c.zone.Name, rs.Partial, c.partial)
+		}
+	}
+
+	fake.RemoveZone("z1")
+	fake.AddZone(z1, a)
+
+	rs, err := p.Records(context.Background(), z1, dnsprovider.RecordFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if rs.Partial || !reflect.DeepEqual(rs.Records, []dnsprovider.Record{a}) {
+		t.Errorf("Records(%s) after re-adding the Zone = %+v, want its Record as a full view", z1.Name, rs)
 	}
 }
 
@@ -735,7 +789,7 @@ func TestCreateZoneFailsAsScriptedAndForNoName(t *testing.T) {
 		t.Errorf("CreateZone error = %v, want the scripted ErrUnauthorized", err)
 	}
 
-	if zs, _ := c.(dnsprovider.Provider).Zones(ctx, dnsprovider.ZoneFilter{}); len(zs) != 0 {
+	if zs, _ := c.(dnsprovider.Provider).Zones(ctx, dnsprovider.ZoneFilter{}); len(zs.Zones) != 0 {
 		t.Errorf("Zones after failed creates = %+v, want none", zs)
 	}
 }
@@ -762,7 +816,7 @@ func TestAFakeWithTenantsTakesOneAndOnboardsOnlyWithinIt(t *testing.T) {
 		t.Errorf("unscoped CreateZone: err = %v, want ErrNoTenant", err)
 	}
 
-	if zs, _ := unscoped.Zones(ctx, dnsprovider.ZoneFilter{}); len(zs) != 0 {
+	if zs, _ := unscoped.Zones(ctx, dnsprovider.ZoneFilter{}); len(zs.Zones) != 0 {
 		t.Errorf("Zones after an unscoped create = %+v, want none", zs)
 	}
 
@@ -832,9 +886,9 @@ func TestDeleteZoneRemovesTheZoneAndItsRecordsAndRecordsTheZone(t *testing.T) {
 		t.Fatalf("DeleteZone: %v", err)
 	}
 
-	zones, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
-	if err != nil || len(zones) != 1 || zones[0].ID != "z2" {
-		t.Errorf("Zones after DeleteZone = %+v, %v; want example.org alone", zones, err)
+	zs, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	if err != nil || len(zs.Zones) != 1 || zs.Zones[0].ID != "z2" {
+		t.Errorf("Zones after DeleteZone = %+v, %v; want example.org alone", zs, err)
 	}
 
 	if _, err := p.Records(ctx, gone, dnsprovider.RecordFilter{}); err == nil {
@@ -868,8 +922,8 @@ func TestDeleteZoneFailsAsScriptedAndForAZoneNotScripted(t *testing.T) {
 
 	fake.Fail(providertest.OpDeleteZone, nil)
 
-	zones, err := newFake(t, fake).Zones(ctx, dnsprovider.ZoneFilter{})
-	if err != nil || len(zones) != 1 {
-		t.Errorf("Zones after a failed DeleteZone = %+v, %v; want the Zone kept", zones, err)
+	zs, err := newFake(t, fake).Zones(ctx, dnsprovider.ZoneFilter{})
+	if err != nil || len(zs.Zones) != 1 {
+		t.Errorf("Zones after a failed DeleteZone = %+v, %v; want the Zone kept", zs, err)
 	}
 }

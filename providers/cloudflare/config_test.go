@@ -91,15 +91,19 @@ func TestFactoryBuildsTheSameProviderAsTheTypedConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want, err := typed.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	wantSet, err := typed.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got, err := built.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	want := wantSet.Zones
+
+	gotSet, err := built.Zones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
+
+	got := gotSet.Zones
 
 	if !reflect.DeepEqual(got, want) || len(got) != 1 {
 		t.Fatalf("Zones from the field map = %+v, from the Config = %+v", got, want)

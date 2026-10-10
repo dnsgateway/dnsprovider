@@ -70,7 +70,17 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 	return dnsprovider.AccountInfo{Tenant: dnsprovider.Tenant{ID: p.project}}, nil
 }
 
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
+// Zones implements dnsprovider.Provider: the Account's Zones that match
+// the filter.
+// The ZoneSet is a full view.
+func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+	zs, err := p.zoneList(ctx, f)
+
+	return dnsprovider.ZoneSet{Zones: zs}, err
+}
+
+// zoneList lists the Zones that Zones returns.
+func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
 	all, err := list[wireZone](ctx, p, "/dns-zones", "dns_zones")
 	if err != nil {
 		return nil, err
@@ -101,7 +111,7 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnspr
 
 func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	name = names.ZoneName(name)
-	all, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	all, err := p.zoneList(ctx, dnsprovider.ZoneFilter{})
 	if err != nil {
 		return dnsprovider.Zone{}, err
 	}

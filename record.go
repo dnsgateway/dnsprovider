@@ -3,6 +3,7 @@ package dnsprovider
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"slices"
 	"strconv"
@@ -243,6 +244,26 @@ func isAlnum(s string) bool {
 // told.
 func SameRecord(a, b Record) bool {
 	return sameRRset(a, b) && a.Value == b.Value
+}
+
+// SameExtras reports whether two Records' Extras are the same: the same
+// keys with the same values, a proxy flag (ExtraProxied) that is off
+// counting as none, as a Provider that proxies Records reads every one
+// it does not proxy with the flag off.
+func SameExtras(a, b map[string]string) bool {
+	return maps.Equal(proxyOffDropped(a), proxyOffDropped(b))
+}
+
+// proxyOffDropped returns extras without a proxy flag that is off.
+func proxyOffDropped(extras map[string]string) map[string]string {
+	if extras[ExtraProxied] != "false" {
+		return extras
+	}
+
+	out := maps.Clone(extras)
+	delete(out, ExtraProxied)
+
+	return out
 }
 
 // sameRRset reports whether two Records are of one RRset: the same type

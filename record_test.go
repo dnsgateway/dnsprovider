@@ -182,3 +182,21 @@ func TestMatchRecordMatchesTheTypeAndNamesHoldingTheText(t *testing.T) {
 		}
 	}
 }
+
+func TestSameExtrasTakesAProxyFlagThatIsOffAsNone(t *testing.T) {
+	for _, tc := range []struct {
+		a, b map[string]string
+		want bool
+	}{
+		{nil, map[string]string{}, true},
+		{map[string]string{"proxied": "false"}, nil, true},
+		{map[string]string{"proxied": "false", "comment": "x"}, map[string]string{"comment": "x"}, true},
+		{map[string]string{"proxied": "true"}, nil, false},
+		{map[string]string{"comment": "x"}, map[string]string{"comment": "y"}, false},
+		{map[string]string{"comment": ""}, nil, false},
+	} {
+		if got := dnsprovider.SameExtras(tc.a, tc.b); got != tc.want {
+			t.Errorf("SameExtras(%v, %v) = %v, want %v", tc.a, tc.b, got, tc.want)
+		}
+	}
+}

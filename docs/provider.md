@@ -108,7 +108,9 @@ keeps any other as the Provider holds it, leaving it alone or refusing a
 change. The key `ExtraOther` (`"*"`) stands for the API fields an adapter
 passes through without modelling them. `Factory.Extra(key)` finds a key's
 entry, `Factory.CheckExtras(r)` rejects a Record carrying an extra the
-Factory does not declare for its type, and `Factory.ProxiableTypes()` reads
+Factory does not declare for its type or a bool one that is not `true` or
+`false`, `SameExtras(a, b)` compares two Records' extras as a re-check
+does, a proxy flag that is off counting as none, and `Factory.ProxiableTypes()` reads
 the `ExtraProxied` entry, matching `ProxiableTypesOf`, as a Registry
 contract test checks.
 

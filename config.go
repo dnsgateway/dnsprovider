@@ -179,7 +179,8 @@ func (f Factory) Extra(key string) (ExtraSpec, bool) {
 }
 
 // CheckExtras reports an error when r carries a Record extra f does not
-// declare for r's type. It does not check which extras a write may
+// declare for r's type, or a bool one (ExtraBool) whose value is not
+// "true" or "false". It does not check which extras a write may
 // change: that takes the Record as last read.
 func (f Factory) CheckExtras(r Record) error {
 	for _, key := range slices.Sorted(maps.Keys(r.Extras)) {
@@ -190,6 +191,10 @@ func (f Factory) CheckExtras(r Record) error {
 
 		if !s.AppliesTo(r.Type) {
 			return fmt.Errorf("Record extra %q is not one the Provider reads on %s Records", key, r.Type)
+		}
+
+		if v := r.Extras[key]; s.Kind == ExtraBool && v != "true" && v != "false" {
+			return fmt.Errorf("Record extra %q is %q, not true or false", key, v)
 		}
 	}
 

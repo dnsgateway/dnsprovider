@@ -88,3 +88,88 @@ func TestRegistryBuildsAProviderFromItsFields(t *testing.T) {
 		t.Error("an unregistered Provider type built a Provider")
 	}
 }
+
+func TestFactoryWithoutATTLRangeTakesTheDefault(t *testing.T) {
+	if got, want := (dnsprovider.Factory{}).TTLRange(), (dnsprovider.TTLRange{Min: 30, Max: 86400}); got != want {
+		t.Errorf("TTLRange() = %+v, want %+v", got, want)
+	}
+
+	declared := dnsprovider.TTLRange{Min: 0, Max: 600, Auto: true}
+	if got := (dnsprovider.Factory{TTL: declared}).TTLRange(); got != declared {
+		t.Errorf("TTLRange() = %+v, want %+v", got, declared)
+	}
+}
+
+func TestFactoryLooksUpTheRecordExtrasItDeclares(t *testing.T) {
+	f := dnsprovider.Factory{Extras: []dnsprovider.ExtraSpec{
+		{Key: "proxied", Label: "Proxied", Kind: dnsprovider.ExtraBool, Writable: true, Types: []string{"A", "AAAA", "CNAME"}},
+		{Key: "comment", Label: "Comment", Kind: dnsprovider.ExtraString},
+	}}
+
+	proxied, ok := f.Extra("proxied")
+	if !ok || !proxied.Writable || proxied.Kind != dnsprovider.ExtraBool {
+		t.Errorf("Extra(proxied) = %+v, %v", proxied, ok)
+	}
+
+	if !proxied.AppliesTo("aaaa") || proxied.AppliesTo("TXT") {
+		t.Errorf("proxied applies to AAAA %v, to TXT %v; want true, false", proxied.AppliesTo("aaaa"), proxied.AppliesTo("TXT"))
+	}
+
+	if comment, ok := f.Extra("comment"); !ok || !comment.AppliesTo("MX") {
+		t.Errorf("Extra(comment) = %+v, %v; want one for every type", comment, ok)
+	}
+
+	if _, ok := f.Extra("labels"); ok {
+		t.Error("found an extra the Factory does not declare")
+	}
+}
+
+func TestFactoryOtherExtrasStandForEveryUnnamedKey(t *testing.T) {
+	f := dnsprovider.Factory{Extras: []dnsprovider.ExtraSpec{
+		{Key: "wire", Label: "Wire value", Kind: dnsprovider.ExtraString},
+		{Key: dnsprovider.ExtraOther, Label: "Other fields", Kind: dnsprovider.ExtraJSON},
+	}}
+
+	if got, ok := f.Extra("wire"); !ok || got.Key != "wire" {
+		t.Errorf("Extra(wire) = %+v, %v", got, ok)
+	}
+
+	if got, ok := f.Extra("comment"); !ok || got.Key != dnsprovider.ExtraOther {
+		t.Errorf("Extra(comment) = %+v, %v; want the ExtraOther entry", got, ok)
+	}
+}
+
+func TestFactoryChecksARecordCarriesOnlyTheExtrasItDeclares(t *testing.T) {
+	f := dnsprovider.Factory{Extras: []dnsprovider.ExtraSpec{
+		{Key: "proxied", Label: "Proxied", Kind: dnsprovider.ExtraBool, Writable: true, Types: []string{"A"}},
+		{Key: "comment", Label: "Comment", Kind: dnsprovider.ExtraString},
+	}}
+
+	for _, tc := range []struct {
+		r  dnsprovider.Record
+		ok bool
+	}{
+		{dnsprovider.Record{Type: "TXT"}, true},
+		{dnsprovider.Record{Type: "a", Extras: map[string]string{"proxied": "true", "comment": "x"}}, true},
+		{dnsprovider.Record{Type: "TXT", Extras: map[string]string{"proxied": "true"}}, false},
+		{dnsprovider.Record{Type: "A", Extras: map[string]string{"labels": "{}"}}, false},
+	} {
+		if err := f.CheckExtras(tc.r); (err == nil) != tc.ok {
+			t.Errorf("CheckExtras(%+v) = %v, want ok %v", tc.r, err, tc.ok)
+		}
+	}
+}
+
+func TestFactoryProxiableTypesComeFromItsProxiedExtra(t *testing.T) {
+	if got := (dnsprovider.Factory{}).ProxiableTypes(); got != nil {
+		t.Errorf("ProxiableTypes() = %v, want none", got)
+	}
+
+	f := dnsprovider.Factory{Extras: []dnsprovider.ExtraSpec{
+		{Key: dnsprovider.ExtraOther, Label: "Other", Kind: dnsprovider.ExtraString},
+		{Key: dnsprovider.ExtraProxied, Label: "Proxied", Kind: dnsprovider.ExtraBool, Writable: true, Types: []string{"A", "CNAME"}},
+	}}
+	if got, want := f.ProxiableTypes(), []string{"A", "CNAME"}; !slices.Equal(got, want) {
+		t.Errorf("ProxiableTypes() = %v, want %v", got, want)
+	}
+}

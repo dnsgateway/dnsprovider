@@ -158,8 +158,16 @@ func TestOptionalInterfacesAreScriptedIndependently(t *testing.T) {
 		t.Errorf("unscripted TTL range = %+v, want the default", r)
 	}
 
+	if r := fake.Factory().TTLRange(); r != dnsprovider.DefaultTTLRange {
+		t.Errorf("unscripted Factory TTL range = %+v, want the default", r)
+	}
+
 	if types := dnsprovider.ProxiableTypesOf(p); types != nil {
 		t.Errorf("unscripted proxiable types = %v, want none", types)
+	}
+
+	if extras := fake.Factory().Extras; extras != nil {
+		t.Errorf("unscripted Factory extras = %+v, want none", extras)
 	}
 
 	fake.SetTTLRange(60, 3600)
@@ -167,7 +175,9 @@ func TestOptionalInterfacesAreScriptedIndependently(t *testing.T) {
 	fake.SetProxiableTypes("A")
 	fake.SetTenants(dnsprovider.Tenant{ID: "t1"})
 
-	p, err = fake.Factory().New(map[string]string{"token": "t"})
+	f := fake.Factory()
+
+	p, err = f.New(map[string]string{"token": "t"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -176,8 +186,16 @@ func TestOptionalInterfacesAreScriptedIndependently(t *testing.T) {
 		t.Errorf("TTL range = %+v, want %+v", r, want)
 	}
 
+	if r, want := f.TTLRange(), (dnsprovider.TTLRange{Min: 60, Max: 3600, Auto: true}); r != want {
+		t.Errorf("Factory TTL range = %+v, want %+v", r, want)
+	}
+
 	if types := dnsprovider.ProxiableTypesOf(p); !reflect.DeepEqual(types, []string{"A"}) {
 		t.Errorf("proxiable types = %v, want [A]", types)
+	}
+
+	if s, ok := f.Extra(dnsprovider.ExtraProxied); !ok || !s.Writable || s.Kind != dnsprovider.ExtraBool || !reflect.DeepEqual(s.Types, []string{"A"}) {
+		t.Errorf("Factory proxied extra = %+v, %v; want a writable bool on A Records", s, ok)
 	}
 
 	if !dnsprovider.CanListTenants(p) {

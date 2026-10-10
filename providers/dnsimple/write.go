@@ -15,7 +15,13 @@ import (
 
 // TTLRange uses the API schema minimum and the public uint32 ceiling.
 // DNSimple enforces any narrower plan or traffic restrictions.
-func (p *Provider) TTLRange() (uint32, uint32) { return 0, ^uint32(0) }
+func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
+	return ttlRange.Min, ttlRange.Max
+}
+
+// ttlRange is the TTLRange of every Provider, which TTLRange and
+// Factory report.
+var ttlRange = dnsprovider.TTLRange{Min: 0, Max: ^uint32(0)}
 
 func (p *Provider) payload(z dnsprovider.Zone, r dnsprovider.Record) (map[string]any, error) {
 	r.Type = strings.ToUpper(r.Type)

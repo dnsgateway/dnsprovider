@@ -64,9 +64,19 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 
 // Factory describes the single secret credential and validates field maps.
 func Factory() dnsprovider.Factory {
-	return fields.Factory("hetzner", []dnsprovider.Field{{Name: FieldToken, Label: "Project API token", Secret: true}}, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	f := fields.Factory("hetzner", []dnsprovider.Field{{Name: FieldToken, Label: "Project API token", Secret: true}}, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Token: m[FieldToken]}, opts...)
 	})
+	f.TTL = ttlRange
+	// Writes keep each value's comment and the RRset's labels and
+	// protection as Hetzner holds them.
+	f.Extras = []dnsprovider.ExtraSpec{
+		{Key: ExtraComment, Label: "Comment", Kind: dnsprovider.ExtraString},
+		{Key: ExtraProtected, Label: "Change protection", Kind: dnsprovider.ExtraBool},
+		{Key: ExtraLabels, Label: "Labels", Kind: dnsprovider.ExtraJSON},
+	}
+
+	return f
 }
 
 func (p *Provider) api() *rest.Client {

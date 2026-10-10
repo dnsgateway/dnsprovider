@@ -1693,6 +1693,11 @@ func assertRecords(t *testing.T, got, want []dnsprovider.Record) {
 			g.Value != w.Value || g.TTL != w.TTL || !maps.Equal(g.Extras, w.Extras) {
 			t.Errorf("Record %d = %+v, want %+v", i, g, w)
 		}
+
+		// The Factory declares every extra a Record carries.
+		if err := cloudflare.Factory().CheckExtras(g); err != nil {
+			t.Errorf("Record %d: %v", i, err)
+		}
 	}
 }
 

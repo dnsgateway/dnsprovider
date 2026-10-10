@@ -100,6 +100,34 @@ The shared proxy key is `dnsprovider.ExtraProxied` (`"proxied"`), also
 exported as `cloudflare.ExtraProxied`. Values are `"true"` or `"false"`.
 Cloudflare can proxy A, AAAA, and CNAME Records.
 
+Each `Factory` lists the Record Extras its Providers read as `Extras`, one
+`ExtraSpec` per key: its `Label`, its `Kind` (`ExtraBool`, `ExtraString`
+or `ExtraJSON`), the record `Types` that carry it (none means every type),
+and whether it is `Writable`. A write sends a writable extra as given and
+keeps any other as the Provider holds it, leaving it alone or refusing a
+change. The key `ExtraOther` (`"*"`) stands for the API fields an adapter
+passes through without modelling them. `Factory.Extra(key)` finds a key's
+entry, `Factory.CheckExtras(r)` rejects a Record carrying an extra the
+Factory does not declare for its type, and `Factory.ProxiableTypes()` reads
+the `ExtraProxied` entry, matching `ProxiableTypesOf`, as a Registry
+contract test checks.
+
+| Provider | Key | Kind | Writable | Types |
+| --- | --- | --- | --- | --- |
+| Cloudflare | `proxied` | bool | Yes | A, AAAA, CNAME |
+| Cloudflare | `comment` | string | No | all |
+| Cloudflare | `tags` | json | No | all |
+| ClouDNS | `*` (other API fields) | string | No | all |
+| DNSimple | `system_record` | bool | No | all |
+| DNSimple | `regions` | json | No | all |
+| DNSimple | `parent_id` | string | No | all |
+| Hetzner | `comment` | string | No | all |
+| Hetzner | `protected` | bool | No | all |
+| Hetzner | `labels` | json | No | all |
+| Internet.bs | `internetbs:wire_value` | string | No | CNAME, NS, MX |
+| Internet.bs | `*` (other API fields) | json | No | all |
+| Porkbun | `notes` | string | Yes | all |
+
 `TTLRangeOf(p)` combines optional `TTLLimits` and `AutoTTL` support:
 
 | Provider | Minimum TTL | Maximum TTL | Automatic TTL |
@@ -115,6 +143,11 @@ Cloudflare can proxy A, AAAA, and CNAME Records.
 | Scaleway | 60 | 2592000 | No; explicit TTL, as validated by the official Terraform provider |
 | Vultr | 30 | 86400 | No; the default range, as Vultr documents no bounds |
 | OVHcloud | 30 | 86400 | No; the default range, as OVHcloud documents no bounds; a native zero TTL inherits the Zone default and reads as that effective TTL |
+
+Each `Factory` declares the same range as its `TTL`, for a consumer that
+knows only the Provider type; `Factory.TTLRange()` reads it, with a zero
+`TTL` standing for the default range. A Registry contract test keeps each
+Factory's range equal to `TTLRangeOf` of a Provider it builds.
 
 `TTLRange.Check` validates a TTL. Shared validation helpers are available
 to consumers; `Apply` does not run them automatically.
@@ -161,8 +194,11 @@ p, err := reg.New("namecheap", map[string]string{
 })
 ```
 
-`Field` describes each field's Name, Label, Secret flag, and Tenant flag.
-Factories reject unknown fields and missing required fields. `Registry.Types`
+`Field` describes each field's Name, Label, Secret flag, Tenant flag, Default,
+and Choices. A field with a Default is optional: the Factory fills it in when
+it is missing or empty. A field with Choices takes only one of them.
+Factories reject unknown fields, missing required fields, and values not among
+a field's Choices. `Registry.Types`
 returns sorted provider names; `Registry.New` rejects unknown types.
 
 Factory capabilities declare optional Zone writes. `Factory.Can` checks
@@ -438,7 +474,10 @@ before building: `SetTenants`, `SetZoneStatus`, `SetBatcher`,
 `SetZoneCreator`, `SetZoneUpdater`, and `SetZoneDeleter`. Unscripted Providers
 omit those optional interfaces. When any Zone write is scripted, built
 Providers expose all three Zone-write interfaces, but unscripted writes
-return `ErrNotImplemented`; Factory capabilities declare only scripted writes.
+return `ErrNotImplemented`; Factory capabilities declare only scripted writes,
+the Factory's `TTL` is the range scripted with `SetTTLRange` and
+`SetAutoTTL`, and its `Extras` hold the `ExtraProxied` entry for the types
+scripted with `SetProxiableTypes`.
 
 Live tests only read and are skipped when required secret fields are unset.
 Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:

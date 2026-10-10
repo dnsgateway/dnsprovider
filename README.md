@@ -44,7 +44,9 @@ field is secret, and whether it holds the Tenant ID), so a form and a
 credential store can be built from them, and declares the optional Zone
 writes its Providers implement, so a consumer can offer one before it has
 the credentials (`f.Can(dnsprovider.CapZoneCreator)`, `CapZoneUpdater`,
-`CapZoneDeleter`):
+`CapZoneDeleter`), the TTLs its Providers take (`f.TTLRange()`), and the
+Record Extras they read and which of them they write (`f.Extras`,
+`f.Extra(key)`, `f.CheckExtras(r)`):
 
 ```go
 reg := providers.Registry()

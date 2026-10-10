@@ -60,6 +60,11 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 	if rs.Records[0].Name != "example.com" || rs.Records[0].TTL != 300 || rs.Records[0].ID == rs.Records[1].ID || rs.Records[0].Extras[hetzner.ExtraComment] != "first" || rs.Records[0].Extras[hetzner.ExtraLabels] != `{"team":"dns"}` {
 		t.Fatalf("expanded = %+v", rs.Records)
 	}
+	for _, r := range rs.Records {
+		if err := hetzner.Factory().CheckExtras(r); err != nil {
+			t.Errorf("Factory does not declare the extras of %+v: %v", r, err)
+		}
+	}
 	if rs.Records[2].Name != "*.sub.example.com" || rs.Records[2].Value != "10 mail.example.com." || rs.Records[2].TTL != 600 {
 		t.Fatalf("MX = %+v", rs.Records[2])
 	}

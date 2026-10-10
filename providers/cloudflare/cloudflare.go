@@ -69,6 +69,12 @@ func Factory() dnsprovider.Factory {
 		return New(Config{Token: m[FieldToken], TenantID: m[FieldTenantID]}, opts...)
 	})
 	f.Capabilities = []dnsprovider.Capability{dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter}
+	f.TTL = ttlRange
+	f.Extras = []dnsprovider.ExtraSpec{
+		dnsprovider.ProxiedExtra(proxiableTypes...),
+		{Key: ExtraComment, Label: "Comment", Kind: dnsprovider.ExtraString},
+		{Key: ExtraTags, Label: "Tags", Kind: dnsprovider.ExtraJSON},
+	}
 
 	return f
 }
@@ -201,14 +207,18 @@ var (
 
 // AutoTTL implements dnsprovider.AutoTTL: Cloudflare reads TTL 1 as automatic.
 func (p *Provider) AutoTTL() bool {
-	return true
+	return ttlRange.Auto
 }
 
 // TTLRange implements dnsprovider.TTLLimits: below Enterprise plans, a
 // Cloudflare TTL is at least 60 seconds, besides 1 for automatic.
 func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return 60, 86400
+	return ttlRange.Min, ttlRange.Max
 }
+
+// ttlRange is the TTLRange of every Provider, which TTLRange, AutoTTL and
+// Factory report.
+var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 86400, Auto: true}
 
 // Zones implements dnsprovider.Provider: the Zones of the configured
 // Tenant, or without one every Zone the API token reaches, whose names
@@ -582,8 +592,12 @@ const (
 
 // ProxiableTypes implements dnsprovider.ProxyFlag.
 func (p *Provider) ProxiableTypes() []string {
-	return []string{"A", "AAAA", "CNAME"}
+	return slices.Clone(proxiableTypes)
 }
+
+// proxiableTypes are the Record types Cloudflare can proxy, which
+// ProxiableTypes and Factory's ExtraProxied entry report.
+var proxiableTypes = []string{"A", "AAAA", "CNAME"}
 
 // wireRecord is the part of a v4 DNS record that the adapter reads.
 //

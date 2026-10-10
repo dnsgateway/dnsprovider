@@ -27,6 +27,9 @@ TXT Values are literal text under the common Record contract, and CAA Values
 retain flags, tag and quoted content. Native IDs identify individual Records.
 Per-ID edits support name/type moves and omit unmodeled fields, retaining
 server metadata and siblings; `porkbun.ExtraNotes` exposes optional notes.
+A write sends notes only when the Record carries that extra: an update
+without it leaves the stored notes as they are, and an empty value clears
+them, as Porkbun documents for its edit endpoints.
 Creates and updates read the stored Record back. `dnsprovider.Apply` provides
 stale checking and ordered CRUD with per-change results; changes are not atomic.
 Mutations are never automatically retried, including after an uncertain reply.

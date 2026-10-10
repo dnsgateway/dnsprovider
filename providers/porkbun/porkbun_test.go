@@ -77,6 +77,11 @@ func TestRecordsRetainNativeIDsAndPresentation(t *testing.T) {
 	if set.Records[0].ID != "101" || set.Records[0].Name != "Example.COM" || set.Records[0].Value != "10 mail.example.net." || set.Records[0].Extras[porkbun.ExtraNotes] != "keep" {
 		t.Errorf("MX=%+v", set.Records[0])
 	}
+	for _, r := range set.Records {
+		if err := porkbun.Factory().CheckExtras(r); err != nil {
+			t.Errorf("Factory does not declare the extras of %+v: %v", r, err)
+		}
+	}
 	if set.Records[1].Value != "20 5 443 sip.example.net." || set.Records[2].Value != `hello "world"` || set.Records[4].Value != "1 . alpn=h2" {
 		t.Errorf("values=%+v", set.Records)
 	}

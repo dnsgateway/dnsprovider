@@ -24,7 +24,13 @@ var (
 
 // TTLRange is Hetzner's documented numeric TTL range. Inheritance is
 // reported as its effective numeric TTL and is not automatic TTL.
-func (p *Provider) TTLRange() (uint32, uint32) { return 60, 2147483647 }
+func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
+	return ttlRange.Min, ttlRange.Max
+}
+
+// ttlRange is the TTLRange of every Provider, which TTLRange and
+// Factory report.
+var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 2147483647}
 
 func normalizeValue(typ, value string) string {
 	switch typ {

@@ -121,12 +121,9 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 	return e
 }
 
-func (p *Provider) request(ctx context.Context, method, path string, q url.Values, body, out any) error {
-	return p.requestAt(ctx, p.baseURL, method, path, q, body, out)
-}
-
-// requestAt is request to the API at base, LiveDNS or the Domain API.
-func (p *Provider) requestAt(ctx context.Context, base, method, path string, q url.Values, body, out any) error {
+// request calls the API at base: p.baseURL for LiveDNS or p.domainURL for
+// the Domain API.
+func (p *Provider) request(ctx context.Context, base, method, path string, q url.Values, body, out any) error {
 	var raw []byte
 	client := p.api(base)
 	if method == http.MethodGet {
@@ -159,15 +156,10 @@ func (p *Provider) requestAt(ctx context.Context, base, method, path string, q u
 
 // list deliberately requests until the documented empty page. The server may
 // cap page length below per_page; the shared pager guards repeated pages.
-func list[T any](ctx context.Context, p *Provider, path string) ([]T, error) {
-	return listAt[T](ctx, p, p.baseURL, path)
-}
-
-// listAt is list from the API at base, LiveDNS or the Domain API.
-func listAt[T any](ctx context.Context, p *Provider, base, path string) ([]T, error) {
+func list[T any](ctx context.Context, p *Provider, base, path string) ([]T, error) {
 	pages, err := rest.Pages(1, nil, func(pg rest.Page) ([][]T, error) {
 		var items []T
-		err := p.requestAt(ctx, base, http.MethodGet, path, url.Values{"page": {strconv.Itoa(pg.Number)}, "per_page": {"100"}}, nil, &items)
+		err := p.request(ctx, base, http.MethodGet, path, url.Values{"page": {strconv.Itoa(pg.Number)}, "per_page": {"100"}}, nil, &items)
 		if err != nil {
 			return nil, err
 		}
@@ -217,7 +209,7 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprov
 // zoneList lists the Zones that Zones returns, as a bare slice: Zones
 // wraps it in a ZoneSet, while Account calls it to prove read access.
 func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dnsprovider.Zone, error) {
-	all, err := list[wireZone](ctx, p, "/domains")
+	all, err := list[wireZone](ctx, p, p.baseURL, "/domains")
 	if err != nil {
 		return nil, err
 	}
@@ -240,7 +232,7 @@ func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, err
 		return dnsprovider.Zone{}, dnsprovider.ErrNotFound
 	}
 	var w wireZone
-	if err := p.request(ctx, http.MethodGet, "/domains/"+url.PathEscape(name), nil, nil, &w); err != nil {
+	if err := p.request(ctx, p.baseURL, http.MethodGet, "/domains/"+url.PathEscape(name), nil, nil, &w); err != nil {
 		return dnsprovider.Zone{}, err
 	}
 	z, err := zone(w)
@@ -297,7 +289,7 @@ func (p *Provider) recordPath(z dnsprovider.Zone) string {
 }
 
 func (p *Provider) Records(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
-	all, err := list[wireSet](ctx, p, p.recordPath(z))
+	all, err := list[wireSet](ctx, p, p.baseURL, p.recordPath(z))
 	if err != nil {
 		return dnsprovider.RecordSet{}, err
 	}

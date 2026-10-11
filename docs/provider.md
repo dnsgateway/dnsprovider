@@ -373,8 +373,8 @@ looking for the registrar of a zone name skips that Account.
 `SetDelegationSigners` replaces the whole set; none removes DNSSEC from the
 Delegation. Each adapter sends every key in the form its registrar takes,
 the DNSKEY or the DS, and returns `ErrUnsupported` when the registry refuses
-the key's algorithm, digest type or form for the domain. No adapter
-implements it yet.
+the key's algorithm, digest type or form for the domain. Porkbun implements
+it, sending the DS.
 
 ## Applying a Changeset
 

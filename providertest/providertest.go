@@ -26,9 +26,7 @@ type Op string
 const (
 	OpNew       Op = "New"
 	OpListZones Op = "ListZones"
-	OpZones     Op = OpListZones // Deprecated: use OpListZones.
 	OpGetZone   Op = "GetZone"
-	OpZone      Op = OpGetZone // Deprecated: use OpGetZone.
 	OpRecords   Op = "Records"
 	// OpApply is the Batcher's ApplyChangeset; see SetBatcher.
 	OpApply Op = "Apply"
@@ -50,11 +48,11 @@ const (
 	OpSetDelegationSigners Op = "SetDelegationSigners"
 	OpAccount              Op = "Account"
 	OpTenants              Op = "Tenants"
-	// OpUpdateZone is the ZoneUpdater's UpdateZone; see SetZoneUpdater.
+	// OpUpdateZone is the Provider's UpdateZone; see SetZoneUpdater.
 	OpUpdateZone Op = "UpdateZone"
-	// OpCreateZone is the ZoneCreator's CreateZone; see SetZoneCreator.
+	// OpCreateZone is the Provider's CreateZone; see SetZoneCreator.
 	OpCreateZone Op = "CreateZone"
-	// OpDeleteZone is the ZoneDeleter's DeleteZone; see SetZoneDeleter.
+	// OpDeleteZone is the Provider's DeleteZone; see SetZoneDeleter.
 	OpDeleteZone Op = "DeleteZone"
 )
 
@@ -615,7 +613,7 @@ func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dns
 	if err := ctx.Err(); err != nil {
 		return dnsprovider.ZoneSet{}, err
 	}
-	if err := p.record(Call{Op: OpZones, ZoneFilter: f}); err != nil {
+	if err := p.record(Call{Op: OpListZones, ZoneFilter: f}); err != nil {
 		return dnsprovider.ZoneSet{}, err
 	}
 
@@ -642,7 +640,7 @@ func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, 
 	if err := ctx.Err(); err != nil {
 		return dnsprovider.Zone{}, err
 	}
-	if err := p.record(Call{Op: OpZone, Zone: dnsprovider.Zone{Name: name}}); err != nil {
+	if err := p.record(Call{Op: OpGetZone, Zone: dnsprovider.Zone{Name: name}}); err != nil {
 		return dnsprovider.Zone{}, err
 	}
 
@@ -929,7 +927,7 @@ func notRegistered(z dnsprovider.Zone) error {
 	return fmt.Errorf("providertest: %s is not registered by the Account: %w", z.Name, dnsprovider.ErrNotFound)
 }
 
-// updateZone is the fake's dnsprovider.ZoneUpdater: it turns HSTS On or
+// updateZone implements the fake's UpdateZone: it turns HSTS On or
 // Off, sets the minimum TLS version and turns DNSSEC Pending in the
 // scripted Zone Status and returns it;
 // ErrNotFound for a Zone not scripted.
@@ -965,7 +963,7 @@ func (p *Provider) updateZone(_ context.Context, z dnsprovider.Zone, u dnsprovid
 	return st, nil
 }
 
-// createZone is the fake's dnsprovider.ZoneCreator; see SetZoneCreator.
+// createZone implements the fake's CreateZone; see SetZoneCreator.
 func (p *Provider) createZone(_ context.Context, unscoped bool, name string) (dnsprovider.Zone, error) {
 	if err := p.record(Call{Op: OpCreateZone, Zone: dnsprovider.Zone{Name: name}}); err != nil {
 		return dnsprovider.Zone{}, err

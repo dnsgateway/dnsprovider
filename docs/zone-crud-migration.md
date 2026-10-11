@@ -9,16 +9,14 @@ for external adapters and handwritten fakes.
 
 Replace `p.Zone(ctx, name)` with `p.GetZone(ctx, name)` and
 `p.Zones(ctx, filter)` with `p.ListZones(ctx, filter)`. Built-in concrete
-adapters and `providertest.Provider` retain deprecated forwarding aliases.
-The `Provider` interface has only the canonical names, so the aliases do
-not make external implementations source compatible.
+adapters and `providertest.Provider` expose only the canonical read names.
 
 Call Zone writes directly on the Provider. Discover support with
 `CanCreateZone(p)`, `CanUpdateZone(p)`, and `CanDeleteZone(p)`, or inspect
 `p.Capabilities()` for `CapZoneCreator`, `CapZoneUpdater`, and
-`CapZoneDeleter`. These helpers read the explicit declaration; asserting
-`ZoneCreator`, `ZoneUpdater`, or `ZoneDeleter` now succeeds even for an
-adapter with unsupported writes. The narrow interfaces remain deprecated.
+`CapZoneDeleter`. These helpers read the explicit declaration.
+`ZoneCreator`, `ZoneUpdater`, and `ZoneDeleter` have been removed; replace
+parameters of those types with `Provider`.
 
 ```go
 if dnsprovider.CanCreateZone(p) {

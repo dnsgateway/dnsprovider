@@ -232,7 +232,7 @@ func TestZonesAreFilteredAndRecordTheFilter(t *testing.T) {
 		t.Errorf("Zones = %+v, want %+v, a Full View", zs, want)
 	}
 
-	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZones || calls[len(calls)-1].ZoneFilter != f {
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpListZones || calls[len(calls)-1].ZoneFilter != f {
 		t.Errorf("last call = %+v, want Zones with the filter", calls[len(calls)-1])
 	}
 }
@@ -287,7 +287,7 @@ func TestZoneReadsOneScriptedZoneByName(t *testing.T) {
 		t.Errorf("Zone(example) error = %v, want ErrNotFound", err)
 	}
 
-	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZone || calls[len(calls)-1].Zone.Name != "example" {
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpGetZone || calls[len(calls)-1].Zone.Name != "example" {
 		t.Errorf("last call = %+v, want Zone with the name asked for", calls[len(calls)-1])
 	}
 }

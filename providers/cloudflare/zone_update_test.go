@@ -12,7 +12,7 @@ import (
 
 var z1 = dnsprovider.Zone{ID: "z1", Name: "example.com"}
 
-// updateZone changes z1's settings through the Provider's ZoneUpdater.
+// updateZone changes z1's settings through the Provider's UpdateZone.
 func updateZone(t *testing.T, p dnsprovider.Provider, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
 	t.Helper()
 

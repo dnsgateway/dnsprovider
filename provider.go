@@ -104,44 +104,19 @@ func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error
 	return ZoneStatus{DNSSEC: Unknown, HSTS: Unknown}, nil
 }
 
-// ZoneCreator is retained for consumers accepting a narrow Zone write interface.
-// Implementing it does not imply operation support.
-//
-// Deprecated: use Provider and Capabilities for supported Zone writes.
-type ZoneCreator interface {
-	// CreateZone Onboards a zone name in the Provider's Tenant and returns
-	// the new Zone as ListZones reports it: normally Pending, with the
-	// nameservers Delegation must name before the Provider serves it. A
-	// create the Provider took without saying what it made is still a
-	// success: the Zone is then its name alone, Pending, without an ID or
-	// nameservers, until ListZones or GetZone reads it.
-	// ErrConflict when the Tenant already has a Zone of that name, or the
-	// Provider refuses it as another account holds it (Cloudflare's zone
-	// hold; without one, Cloudflare Onboards a name active in another
-	// account, pending until Delegation names the new Zone's
-	// nameservers); ErrNoTenant when the Provider has no Tenant to
-	// Onboard it in.
-	CreateZone(ctx context.Context, name string) (Zone, error)
-}
-
 // CanCreateZone reports whether a Provider declares support for this Zone write.
 func CanCreateZone(p Provider) bool {
 	return slices.Contains(p.Capabilities(), CapZoneCreator)
 }
 
-// ZoneUpdater is retained for consumers accepting a narrow Zone write interface.
-// Implementing it does not imply operation support.
-//
-// Deprecated: use Provider and Capabilities for supported Zone writes.
-type ZoneUpdater interface {
-	// UpdateZone changes the settings u sets, leaving those it leaves nil
-	// as they are, and returns the Zone Status as it is after the change:
-	// each setting written as the Provider answered, and each other one
-	// as read, Unknown when it could not be. A setting written before
-	// one fails stays written: the error comes with the Zone Status as
-	// far as it is known, the settings written as answered and the rest
-	// as read or Unknown.
-	UpdateZone(ctx context.Context, zone Zone, u ZoneUpdate) (ZoneStatus, error)
+// CanUpdateZone reports whether a Provider declares support for this Zone write.
+func CanUpdateZone(p Provider) bool {
+	return slices.Contains(p.Capabilities(), CapZoneUpdater)
+}
+
+// CanDeleteZone reports whether a Provider declares support for this Zone write.
+func CanDeleteZone(p Provider) bool {
+	return slices.Contains(p.Capabilities(), CapZoneDeleter)
 }
 
 // ZoneUpdate is the settings an UpdateZone changes: a nil one is left as
@@ -151,31 +126,6 @@ type ZoneUpdate struct {
 	HSTS   *bool
 	// MinTLS is one of TLSVersions.
 	MinTLS *TLSVersion
-}
-
-// CanUpdateZone reports whether a Provider declares support for this Zone write.
-func CanUpdateZone(p Provider) bool {
-	return slices.Contains(p.Capabilities(), CapZoneUpdater)
-}
-
-// ZoneDeleter is retained for consumers accepting a narrow Zone write interface.
-// Implementing it does not imply operation support.
-//
-// Deprecated: use Provider and Capabilities for supported Zone writes.
-type ZoneDeleter interface {
-	// DeleteZone Offboards the Zone by its ID, as ListZones or GetZone read it.
-	// A retried delete that finds the Zone gone succeeds when an earlier
-	// try may have Offboarded it: it was sent, and its answer was lost or
-	// a server error. Otherwise finding no such Zone is ErrNotFound, as
-	// the Provider does not say whether it ever held it. A Provider
-	// scoped to a Tenant refuses a Zone of another; an unscoped one
-	// leaves that check to the caller.
-	DeleteZone(ctx context.Context, zone Zone) error
-}
-
-// CanDeleteZone reports whether a Provider declares support for this Zone write.
-func CanDeleteZone(p Provider) bool {
-	return slices.Contains(p.Capabilities(), CapZoneDeleter)
 }
 
 // TenantLister is implemented by a Provider whose credentials can reach

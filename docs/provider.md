@@ -300,9 +300,9 @@ then Pending, then the first listed Zone.
 Every Provider exposes Zone CRUD. Cloudflare declares support for all three
 Zone writes; other built-in adapters return `ErrNotImplemented` before any
 network request. Test support with `CanCreateZone`, `CanUpdateZone`, or
-`CanDeleteZone`, then call the method directly on the Provider. The deprecated
-`ZoneCreator`, `ZoneUpdater`, and `ZoneDeleter` interfaces remain available
-for narrow parameters, but type assertions no longer detect support.
+`CanDeleteZone`, then call the method directly on the Provider.
+`ZoneCreator`, `ZoneUpdater`, and `ZoneDeleter` have been removed; use
+`Provider` instead.
 
 Cloudflare implements the optional `ZoneStatusReader` and `KeyReader`.
 Porkbun, Gandi, and Internet.bs implement `DSRegistrar`.

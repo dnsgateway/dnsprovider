@@ -57,8 +57,8 @@ const (
 )
 
 // Factory builds the Cloudflare Provider from a field map, for a
-// dnsprovider.Registry. It declares the Zone writes, ZoneCreator,
-// ZoneUpdater and ZoneDeleter, which every Cloudflare Provider implements.
+// dnsprovider.Registry. It declares support for CreateZone, UpdateZone,
+// and DeleteZone, which every Cloudflare Provider implements.
 func Factory() dnsprovider.Factory {
 	fs := []dnsprovider.Field{
 		{Name: FieldToken, Label: "API token", Secret: true},

@@ -88,8 +88,7 @@ use upper-case presentation. These are Provider Signing Keys, independent of
 registrar-held Delegation Signers; reading them does not establish DNSSEC
 validity through the parent Zone.
 
-Use canonical `GetZone` and `ListZones` reads. Deprecated concrete `Zone`
-and `Zones` aliases forward to them during migration; see the
+Use canonical `GetZone` and `ListZones` reads; see the
 [Zone CRUD migration guide](../zone-crud-migration.md).
 
 ## Live tests

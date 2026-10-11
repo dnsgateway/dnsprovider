@@ -99,6 +99,11 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 
 // call sends one command, without retries, and validates its status envelope.
 func (p *Provider) call(ctx context.Context, command string, params url.Values) (map[string]json.RawMessage, error) {
+	return p.command(ctx, command, params, false)
+}
+
+// command also accepts a queued result when the operation permits it.
+func (p *Provider) command(ctx context.Context, command string, params url.Values, acceptPending bool) (map[string]json.RawMessage, error) {
 	form := make(url.Values)
 	maps.Copy(form, params)
 	maps.Copy(form, p.auth)
@@ -117,6 +122,11 @@ func (p *Provider) call(ctx context.Context, command string, params url.Values) 
 	switch strings.ToUpper(status) {
 	case "SUCCESS":
 		return body, nil
+	case "PENDING":
+		if acceptPending {
+			return body, nil
+		}
+		return nil, errors.New("internetbs: unexpected pending response")
 	case "FAILURE":
 		return nil, p.apiError(0, body)
 	default:

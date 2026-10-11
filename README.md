@@ -1,127 +1,50 @@
-# dnsprovider
+# DNS Provider
 
-`github.com/dnsgateway/dnsprovider` manages DNS hosting at DNS Providers
-(Cloudflare, ClouDNS, DigitalOcean, DNSimple, Gandi, GoDaddy, Hetzner, Internet.bs, Namecheap, OVHcloud, Porkbun, Scaleway, Vultr) through one
-Go interface: lean, provider-neutral Zone and Record types, the record rules every consumer needs
-to build valid Records, and Changesets applied to a Zone. It never registers,
-renews or cancels a domain.
+`dnsprovider` is a Go library for managing DNS across different hosting
+services. It gives your application one shared interface to read and change
+DNS records, whether you use Cloudflare, Gandi, or another supported
+provider.
 
-```
-dnsprovider/         root package: Provider, types, record rules, typed errors,
-                     Options and Registry
-providertest/        fake Provider for consumers' tests
-providers/           Registry() of every adapter below
-providers/cloudflare
-providers/cloudns
-providers/digitalocean
-providers/dnsimple
-providers/gandi
-providers/godaddy
-providers/hetzner
-providers/internetbs
-providers/namecheap
-providers/ovhcloud
-providers/porkbun
-providers/scaleway
-providers/vultr
-rest/                shared HTTP client of the HTTP adapters:
-                     retries, rate limit, error decoding, pagination
-```
+## Why use it?
 
-## Building a Provider
+Each DNS provider has its own API, login fields, and record format. This
+library handles those differences so your application can use the same Go
+types and methods for each provider.
 
-Each provider package builds its Provider from a typed `Config`, without a
-network call:
+Use it to build a DNS management tool, an admin panel, or automation that
+works with several providers.
 
-```go
-p, err := cloudflare.New(cloudflare.Config{Token: token, TenantID: accountID},
-	dnsprovider.WithHTTPClient(client), dnsprovider.WithLogger(logger))
-```
+## What can it do?
 
-A consumer that picks its Provider at run time builds it from a plain field
-map instead. Each `Factory` lists its `Fields` (name, label, whether the
-field is secret, and whether it holds the Tenant ID), so a form and a
-credential store can be built from them, and declares the optional Zone
-writes its Providers implement, so a consumer can offer one before it has
-the credentials (`f.Can(dnsprovider.CapZoneCreator)`, `CapZoneUpdater`,
-`CapZoneDeleter`), the TTLs its Providers take (`f.TTLRange()`), and the
-Record Extras they read and which of them they write (`f.Extras`,
-`f.Extra(key)`, `f.CheckExtras(r)`):
+A **Zone** is a set of DNS records for a name such as `example.com`. A
+**Record** is one entry in that zone, such as an A record that points
+`www.example.com` to an IP address.
 
-```go
-reg := providers.Registry()
-p, err := reg.New("namecheap", map[string]string{
-	"user": "apiuser", "key": apiKey, "client_ip": "192.0.2.10",
-})
-```
+The shared interface lets you:
 
-`WithBaseURL` points a Provider at another endpoint, such as an `httptest`
-server or a sandbox.
+- Check account credentials.
+- List zones or find a zone by name.
+- List records and filter them by name or type.
+- Create, update, and delete records.
+- Apply several record changes with a `Changeset`.
 
-## Accounts and Tenants
+The library also provides record validation, shared error types, and a fake
+provider for testing your application. Provider adapters handle API details,
+such as reading all pages of a record list and following rate limits.
 
-`Account(ctx)` checks the credentials, even for an Account with no Zones, and
-returns its Tenant and, where they are the same for every Zone, the
-nameservers Delegation must name. A bad token is `ErrUnauthorized`.
+Some features depend on the provider. Cloudflare supports creating and deleting
+zones, changing zone settings, and reading Signing Keys for DNSSEC. Porkbun,
+Gandi, and Internet.bs support reading and changing DNSSEC Delegation Signer
+(DS) records at the registrar. Check the provider documentation for available
+features, supported record types, and limits.
 
-The optional `TenantLister` lists the Tenants a Provider can reach through
-`Tenants(ctx)`; `dnsprovider.CanListTenants(p)` reports support. Tenant scoping
-and credential requirements depend on the Provider; see its documentation below.
+The library manages DNS hosting. It does not register, renew, transfer, or
+cancel domains, or change the domain's nameserver delegation. Your application
+stores credentials and decides when to make changes.
 
-## Zones
+## Supported providers
 
-`Zones(ctx, dnsprovider.ZoneFilter{Contains: "shop"})` lists the Zones whose
-names hold the text, ignoring case; the zero filter lists every Zone. Each
-adapter pages through the whole list, pushes the filter to the Provider's API
-where it can and
-applies the rest with `dnsprovider.MatchZone`, so the result is always
-exactly filtered. `Zone(ctx, name)` reads one Zone by its exact name and
-fails with `dnsprovider.ErrNotFound` when the Account has none.
-
-Every Zone carries its `HostingState`; the states reported depend on the
-Provider.
-
-`Zones` returns a `ZoneSet`, and `Records` a `RecordSet`, each with a
-`Partial` flag. True marks a Partial View: the caller's access does not cover
-every Zone, or every name and type in the Zone. It does not mean anything was
-left out. Every Provider in this module returns a Full View (`Partial` false);
-only an adapter in front of a service with its own access rules, such as a
-Gateway, sets it.
-
-Onboarding uses the optional `ZoneCreator`, found with
-`dnsprovider.CanCreateZone(p)`: `CreateZone(ctx, "example.org")` starts DNS
-hosting of the name in the Provider's Tenant; it never registers the domain.
-
-Offboarding uses the optional `ZoneDeleter`, found with
-`dnsprovider.CanDeleteZone(p)`: `DeleteZone(ctx, zone)` stops DNS hosting of
-the Zone and drops its Records there; it never touches the registration.
-It cannot be undone, so a consumer asks first and never Offboards the Live Zone.
-
-Zone Status (DNSSEC, HSTS) uses the optional `ZoneStatusReader`.
-`dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and reports every setting
-Unknown, without a call, for a Provider without one. The optional `ZoneUpdater`,
-found with `dnsprovider.CanUpdateZone(p)`, turns DNSSEC and HSTS on or off:
-`UpdateZone(ctx, zone, dnsprovider.ZoneUpdate{DNSSEC: &on})` writes only the
-settings it is given and returns the Zone Status after the change, each
-setting it was not given as read, Unknown when it could not be. A write that
-fails comes with the Zone Status as far as it is known, the settings written
-before it as answered.
-
-The optional `KeyReader`, found with `dnsprovider.CanReadKeys(p)`, returns a
-Zone's key-signing keys through the Provider's API: `SigningKeys(ctx, zone)`
-gives each as a `SigningKey`, its DNSKEY, key tag and DS records.
-
-The optional `DSRegistrar`, found with `dnsprovider.CanRegisterDS(p)`, is a
-registrar adapter: `DelegationSigners(ctx, zone)` reads the Signing Keys the
-registry holds for the domain, `ErrNotFound` when the Account does not
-register it, and `SetDelegationSigners(ctx, zone, keys)` replaces them, none
-removing DNSSEC from the Delegation. `ErrUnsupported` is a registry that
-refuses the key's algorithm or form for the domain. A DS write changes the
-Delegation: a consumer asks the user first. Porkbun and Gandi implement it.
-
-## Providers
-
-Provider setup, behavior, limitations, and live-test credentials:
+Each link covers setup, features, and limitations.
 
 - [Cloudflare](docs/provider/cloudflare.md)
 - [ClouDNS](docs/provider/cloudns.md)
@@ -137,14 +60,119 @@ Provider setup, behavior, limitations, and live-test credentials:
 - [Scaleway](docs/provider/scaleway.md)
 - [Vultr](docs/provider/vultr.md)
 
-## Tests
+## Install
 
-`go test ./...` runs every adapter against recorded API answers. Live tests
-against real accounts run only when their credentials are set.
+Requires Go 1.24 or later. Run this command in your Go project:
 
-Each Factory field is read from `DNSPROVIDER_<PROVIDER>_<FIELD>`; a live
-test is skipped while any required secret field is unset. See the Provider
-pages above for credential requirements.
+```sh
+go get github.com/dnsgateway/dnsprovider
+```
 
-`DNSPROVIDER_<PROVIDER>_BASE_URL` points a live test at another endpoint.
-Live tests only read.
+## Read DNS records
+
+This example reads records from an existing Cloudflare zone. Set
+`CLOUDFLARE_API_TOKEN` to an API token with permission to read the zone and its
+DNS records. Replace `example.com` with a zone you manage.
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+
+	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/providers/cloudflare"
+)
+
+func main() {
+	ctx := context.Background()
+
+	p, err := cloudflare.New(cloudflare.Config{
+		Token: os.Getenv("CLOUDFLARE_API_TOKEN"),
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	zone, err := p.Zone(ctx, "example.com")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	records, err := p.Records(ctx, zone, dnsprovider.RecordFilter{})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	for _, record := range records.Records {
+		fmt.Println(record.Name, record.Type, record.Value, record.TTL)
+	}
+}
+```
+
+An empty `RecordFilter` returns all records. Use
+`dnsprovider.RecordFilter{Type: "A"}` to read only A records.
+
+## Create a DNS record
+
+To add a record, put this code inside `main`, after reading the zone. This
+writes to your provider account, so the token needs permission to edit DNS
+records. Replace the name and IP address with your own values.
+
+```go
+record, err := p.CreateRecord(ctx, zone, dnsprovider.Record{
+	Type:  "A",
+	Name:  "www.example.com",
+	Value: "192.0.2.10",
+	TTL:   300,
+})
+if err != nil {
+	log.Fatal(err)
+}
+fmt.Println("Created:", record.Name)
+```
+
+Record names are full names without a final dot. TTL is in seconds and tells
+DNS caches how long to keep the record. Use `UpdateRecord` or `DeleteRecord`
+to change or remove an existing record, passing the record you read from the
+provider.
+
+## Choose a provider at runtime
+
+If your application lets users choose a provider, use the registry. It
+includes every supported provider and builds one from a map of login fields:
+
+```go
+import "github.com/dnsgateway/dnsprovider/providers"
+
+// Inside your function:
+p, err := providers.Registry().New("cloudflare", map[string]string{
+	"token": token,
+})
+```
+
+Check `err` before using `p`. The returned provider uses the same methods as
+the examples above. If you already know which provider you need, import its
+package directly.
+
+## More details
+
+See the [module design](docs/provider.md) for the full interface, record rules,
+optional features, and package layout.
+
+For tests in your own application, use the fake provider in
+[`providertest`](providertest/).
+
+Run the library's tests with:
+
+```sh
+go test ./...
+```
+
+Live tests use real accounts and only read data. They run when the required
+credentials are set in `DNSPROVIDER_<PROVIDER>_<FIELD>` environment variables.
+See each provider's documentation for the required fields. Use
+`DNSPROVIDER_<PROVIDER>_BASE_URL` to test against a different API endpoint.

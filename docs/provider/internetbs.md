@@ -72,7 +72,7 @@ outside the write defaults remain readable. API metadata using the reserved
 ## Writes, selection, and failures
 
 Writes support **A, AAAA, CNAME, MX, TXT, and NS**. SRV, CAA, URI, DYNAMIC,
-forwarding records, and registry-side DNS changes are excluded. Unsupported
+forwarding records, and registry-side DNS changes through Record operations are excluded. Unsupported
 types, out-of-Zone owner names, invalid Values, and unrepresentable TTLs fail
 before mutation. Record operations reject empty or invalid Zone names locally,
 before sending any request. There is no automatic TTL sentinel. The shared local TTL range
@@ -116,6 +116,29 @@ order. Stale modifications/deletions cause no writes. Direct CRUD has no lock or
 stronger concurrency guarantee, and Changesets are not transactions. This
 adapter implements no Batcher, TenantLister, Zone creation/deletion/settings,
 or automatic TTL capability.
+
+## Registration Signing Keys
+
+The Provider implements `dnsprovider.DSRegistrar`. `DelegationSigners` reads
+`Domain/Info`, grouping DS records by key tag and algorithm with any returned
+DNSKEY, and ordering SHA-256 DS records first. A DNSKEY's tag is computed from
+its content. Missing or malformed data fails explicitly; `disabled` means no keys.
+
+`SetDelegationSigners` validates every key before requests, reads the held set,
+and skips an unchanged set. It submits all available DS and DNSKEY forms in
+one `Domain/Update`, or an explicitly empty `dnssec` to clear the set, following
+the [first-party module](https://github.com/centralnicgroup-opensource/rtldev-middleware-whmcs/blob/edee17784da8b39b3d99f7afff9056e74ac96042/whmcs-ibs-registrar-latest.zip).
+The wire TTL is 86400 because Signing Keys carry no TTL. The update changes
+only the Delegation's Signing Keys. `SUCCESS` and `PENDING` acknowledge it;
+neither guarantees propagation. Writes are never retried.
+
+A key without either form is `ErrUnsupported`. Distinct DNSKEYs sharing a tag
+and algorithm are refused because their DS cannot be associated unambiguously.
+Permission failures remain `ErrUnauthorized` unless an authenticated inventory
+proves the Registration absent, when they become `ErrNotFound`. Unknown registry
+refusals retain `APIError`; no undocumented refusal codes are guessed.
+
+See [protocol research](internetbs-dnssec-research.md) for sources and verification limits.
 
 ## Errors and quotas
 

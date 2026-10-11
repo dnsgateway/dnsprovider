@@ -108,7 +108,7 @@ func (p *Provider) heldKeys(ctx context.Context, z dnsprovider.Zone) ([]heldKey,
 	return held, nil
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar: the keys Gandi
+// ListDelegationSigners implements dnsprovider.DSRegistrar: the keys Gandi
 // holds at the registry for the Zone's domain, ordered by key tag, each
 // with the DS Gandi computed for it. The list holds every key Gandi has,
 // so a key of type "zsk" or none reads too, its DNSKEY with flags 256.
@@ -117,7 +117,7 @@ func (p *Provider) heldKeys(ctx context.Context, z dnsprovider.Zone) ([]heldKey,
 // ErrNotFound, a domain the Account does not hold, is an assumption, and
 // a domain another organization holds may come back as 403,
 // ErrUnauthorized, instead. Either error keeps Gandi's description.
-func (p *Provider) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+func (p *Provider) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
 	held, err := p.heldKeys(ctx, z)
 	if err != nil {
 		return nil, err
@@ -176,7 +176,24 @@ func byComparedKey(a, b comparedKey) int {
 	return cmp.Or(cmp.Compare(a.Algorithm, b.Algorithm), cmp.Compare(a.PublicKey, b.PublicKey), cmp.Compare(a.Type, b.Type))
 }
 
-// SetDelegationSigners implements dnsprovider.DSRegistrar: it reads the
+// SetDelegationSigners implements dnsprovider.DSRegistrar through
+// replaceDelegationSigners.
+func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+	if len(keys) == 0 {
+		return dnsprovider.ErrNoSigningKeys
+	}
+
+	return p.replaceDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar through
+// replaceDelegationSigners with no keys.
+func (p *Provider) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.replaceDelegationSigners(ctx, z, nil)
+}
+
+// replaceDelegationSigners replaces the Signing Keys the registry holds
+// with keys, none deleting them all: it reads the
 // keys Gandi holds, a read even when nothing is to be written, and when
 // they differ from the keys' DNSKEYs it sends those, in their order, as
 // gandiKSK keys in one replace, Gandi computing their DS for the registry.
@@ -186,7 +203,7 @@ func byComparedKey(a, b comparedKey) int {
 // it at the registry asynchronously, so a read right after may still show
 // the old set. A key with no DNSKEY is ErrUnsupported, and so is a replace
 // Gandi answers with 400.
-func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+func (p *Provider) replaceDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	want := make([]comparedKey, 0, len(keys))
 	for _, k := range keys {
 		s, err := keyToSend(k)

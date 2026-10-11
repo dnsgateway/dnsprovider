@@ -65,18 +65,27 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldTenantID, Label: "Account ID", Tenant: true},
 	}
 
-	f := fields.Factory("cloudflare", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	return fields.Factory("cloudflare", fs, traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Token: m[FieldToken], TenantID: m[FieldTenantID]}, opts...)
 	})
-	f.Capabilities = []dnsprovider.Capability{dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter}
-	f.TTL = ttlRange
-	f.Extras = []dnsprovider.ExtraSpec{
+}
+
+// traits are the Traits of every Provider, which Traits and Factory
+// report: every Zone write, below Enterprise plans a TTL of at least 60
+// seconds besides 1 for automatic, and the proxy flag, comment and tags.
+var traits = dnsprovider.Traits{
+	Capabilities: []dnsprovider.Capability{dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter},
+	TTL:          dnsprovider.TTLRange{Min: 60, Max: 86400, Auto: true},
+	Extras: []dnsprovider.ExtraSpec{
 		dnsprovider.ProxiedExtra(proxiableTypes...),
 		{Key: ExtraComment, Label: "Comment", Kind: dnsprovider.ExtraString},
 		{Key: ExtraTags, Label: "Tags", Kind: dnsprovider.ExtraJSON},
-	}
+	},
+}
 
-	return f
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
 }
 
 // DefaultRequestTimeout bounds each request to the Cloudflare API. A
@@ -193,30 +202,12 @@ type Provider struct {
 }
 
 var (
-	_ dnsprovider.Provider  = (*Provider)(nil)
-	_ dnsprovider.TTLLimits = (*Provider)(nil)
-	_ dnsprovider.ProxyFlag = (*Provider)(nil)
-	_ dnsprovider.AutoTTL   = (*Provider)(nil)
+	_ dnsprovider.Provider = (*Provider)(nil)
 
 	_ dnsprovider.TenantLister     = (*Provider)(nil)
 	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
 	_ dnsprovider.KeyReader        = (*Provider)(nil)
 )
-
-// AutoTTL implements dnsprovider.AutoTTL: Cloudflare reads TTL 1 as automatic.
-func (p *Provider) AutoTTL() bool {
-	return ttlRange.Auto
-}
-
-// TTLRange implements dnsprovider.TTLLimits: below Enterprise plans, a
-// Cloudflare TTL is at least 60 seconds, besides 1 for automatic.
-func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return ttlRange.Min, ttlRange.Max
-}
-
-// ttlRange is the TTLRange of every Provider, which TTLRange, AutoTTL and
-// Factory report.
-var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 86400, Auto: true}
 
 // ListZones implements dnsprovider.Provider: the Zones of the configured
 // Tenant, or without one every Zone the API token reaches, whose names
@@ -589,13 +580,8 @@ const (
 	ExtraTags = "tags"
 )
 
-// ProxiableTypes implements dnsprovider.ProxyFlag.
-func (p *Provider) ProxiableTypes() []string {
-	return slices.Clone(proxiableTypes)
-}
-
-// proxiableTypes are the Record types Cloudflare can proxy, which
-// ProxiableTypes and Factory's ExtraProxied entry report.
+// proxiableTypes are the Record types Cloudflare can proxy, which its
+// Traits' ExtraProxied entry reports.
 var proxiableTypes = []string{"A", "AAAA", "CNAME"}
 
 // wireRecord is the part of a v4 DNS record that the adapter reads.
@@ -787,7 +773,7 @@ func (p *Provider) replaceRecord(ctx context.Context, zone dnsprovider.Zone, id 
 		b.Tags = cur.Tags
 	}
 
-	if b.Proxied == nil && slices.Contains(p.ProxiableTypes(), strings.ToUpper(b.Type)) {
+	if b.Proxied == nil && slices.Contains(proxiableTypes, strings.ToUpper(b.Type)) {
 		b.Proxied = cur.Proxied
 	}
 

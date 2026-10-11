@@ -20,7 +20,7 @@ func updateZone(t *testing.T, p dnsprovider.Provider, u dnsprovider.ZoneUpdate) 
 }
 
 func TestCloudflareUpdatesZones(t *testing.T) {
-	if !dnsprovider.CanUpdateZone(newProvider(t, &cfAPI{})) {
+	if !dnsprovider.Can(newProvider(t, &cfAPI{}), dnsprovider.CapZoneUpdater) {
 		t.Error("Cloudflare does not update Zones")
 	}
 }

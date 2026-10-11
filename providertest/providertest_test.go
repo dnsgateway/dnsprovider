@@ -366,7 +366,7 @@ func TestSigningKeysAreReadOnlyOnceScripted(t *testing.T) {
 	fake.SetZoneUpdater(true)
 	p := newFake(t, fake)
 
-	if !dnsprovider.CanReadKeys(p) || !dnsprovider.CanUpdateZone(p) {
+	if !dnsprovider.CanReadKeys(p) || !dnsprovider.Can(p, dnsprovider.CapZoneUpdater) {
 		t.Error("a fake with scripted signing keys and Zone writes does not do both")
 	}
 
@@ -420,17 +420,17 @@ func TestDelegationSignersAreRegisteredOnceScripted(t *testing.T) {
 		t.Fatal("a fake with a scripted Registration is no DSRegistrar")
 	}
 
-	if got, err := r.DelegationSigners(ctx, z); err != nil || len(got) != 0 {
-		t.Errorf("DelegationSigners of a Registration without DS = %+v, %v; want none", got, err)
+	if got, err := r.ListDelegationSigners(ctx, z); err != nil || len(got) != 0 {
+		t.Errorf("ListDelegationSigners of a Registration without DS = %+v, %v; want none", got, err)
 	}
 
 	// The Account does not register a Zone not scripted as a Registration.
-	if _, err := r.DelegationSigners(ctx, other); !errors.Is(err, dnsprovider.ErrNotFound) {
-		t.Errorf("DelegationSigners of another Zone error = %v, want ErrNotFound", err)
+	if _, err := r.ListDelegationSigners(ctx, other); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("ListDelegationSigners of another Zone error = %v, want ErrNotFound", err)
 	}
 
-	if err := r.SetDelegationSigners(ctx, other, nil); !errors.Is(err, dnsprovider.ErrNotFound) {
-		t.Errorf("SetDelegationSigners of another Zone error = %v, want ErrNotFound", err)
+	if err := r.DeleteDelegationSigners(ctx, other); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("DeleteDelegationSigners of another Zone error = %v, want ErrNotFound", err)
 	}
 
 	key := dnsprovider.SigningKey{
@@ -449,21 +449,31 @@ func TestDelegationSignersAreRegisteredOnceScripted(t *testing.T) {
 		t.Errorf("last call = %+v, want SetDelegationSigners of z1 with %+v", last, key)
 	}
 
-	if got, err := r.DelegationSigners(ctx, z); err != nil || !reflect.DeepEqual(got, []dnsprovider.SigningKey{key}) {
-		t.Errorf("DelegationSigners after setting = %+v, %v; want %+v", got, err, key)
+	if got, err := r.ListDelegationSigners(ctx, z); err != nil || !reflect.DeepEqual(got, []dnsprovider.SigningKey{key}) {
+		t.Errorf("ListDelegationSigners after setting = %+v, %v; want %+v", got, err, key)
 	}
 
-	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpDelegationSigners {
-		t.Errorf("last call = %+v, want DelegationSigners", calls[len(calls)-1])
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpListDelegationSigners {
+		t.Errorf("last call = %+v, want ListDelegationSigners", calls[len(calls)-1])
 	}
 
-	// The set is replaced whole: none removes DNSSEC from the Delegation.
-	if err := r.SetDelegationSigners(ctx, z, nil); err != nil {
+	// Setting no keys is refused without a call; Delete removes DNSSEC
+	// from the Delegation.
+	before := len(fake.Calls())
+	if err := r.SetDelegationSigners(ctx, z, nil); !errors.Is(err, dnsprovider.ErrNoSigningKeys) || len(fake.Calls()) != before {
+		t.Errorf("SetDelegationSigners of no keys = %v, %d calls; want ErrNoSigningKeys, none", err, len(fake.Calls())-before)
+	}
+
+	if err := r.DeleteDelegationSigners(ctx, z); err != nil {
 		t.Fatal(err)
 	}
 
-	if got, _ := r.DelegationSigners(ctx, z); len(got) != 0 {
-		t.Errorf("DelegationSigners after removing = %+v, want none", got)
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpDeleteDelegationSigners {
+		t.Errorf("last call = %+v, want DeleteDelegationSigners", calls[len(calls)-1])
+	}
+
+	if got, _ := r.ListDelegationSigners(ctx, z); len(got) != 0 {
+		t.Errorf("ListDelegationSigners after deleting = %+v, want none", got)
 	}
 
 	fake.Fail(providertest.OpSetDelegationSigners, dnsprovider.ErrUnsupported)
@@ -472,15 +482,15 @@ func TestDelegationSignersAreRegisteredOnceScripted(t *testing.T) {
 		t.Errorf("failed SetDelegationSigners error = %v, want ErrUnsupported", err)
 	}
 
-	if got, _ := r.DelegationSigners(ctx, z); len(got) != 0 {
-		t.Errorf("DelegationSigners after a refused write = %+v, want none", got)
+	if got, _ := r.ListDelegationSigners(ctx, z); len(got) != 0 {
+		t.Errorf("ListDelegationSigners after a refused write = %+v, want none", got)
 	}
 
 	fake.SetSigningKeys("z1", key)
 	fake.SetZoneUpdater(true)
 	p := newFake(t, fake)
 
-	if !dnsprovider.CanRegisterDS(p) || !dnsprovider.CanReadKeys(p) || !dnsprovider.CanUpdateZone(p) {
+	if !dnsprovider.CanRegisterDS(p) || !dnsprovider.CanReadKeys(p) || !dnsprovider.Can(p, dnsprovider.CapZoneUpdater) {
 		t.Error("a fake with a scripted Registration, signing keys and Zone writes does not do all three")
 	}
 }
@@ -495,20 +505,20 @@ func TestARegistrationsKeysAreCopiesAndGoWithTheZone(t *testing.T) {
 
 	r, _ := newFake(t, fake).(dnsprovider.DSRegistrar)
 
-	got, _ := r.DelegationSigners(ctx, z)
+	got, _ := r.ListDelegationSigners(ctx, z)
 	if got[0].DS[0] != "1 13 2 AA" {
 		t.Errorf("scripted DS = %q, changed by the caller", got[0].DS[0])
 	}
 
 	got[0].DS[0] = "changed"
-	if again, _ := r.DelegationSigners(ctx, z); again[0].DS[0] != "1 13 2 AA" {
+	if again, _ := r.ListDelegationSigners(ctx, z); again[0].DS[0] != "1 13 2 AA" {
 		t.Errorf("read DS = %q, changed by an earlier reader", again[0].DS[0])
 	}
 
 	fake.RemoveZone("z1")
 	fake.AddZone(z)
 
-	if _, err := r.DelegationSigners(ctx, z); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err := r.ListDelegationSigners(ctx, z); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Errorf("a re-added Zone's DelegationSigners error = %v, want ErrNotFound", err)
 	}
 }
@@ -785,10 +795,10 @@ func TestZoneWritersDeclareOnlyScriptedOperationsWithAnyOtherOption(t *testing.T
 		_, isBatcher := p.(dnsprovider.Batcher)
 		_, readsStatus := p.(dnsprovider.ZoneStatusReader)
 
-		if dnsprovider.CanUpdateZone(p) != updater || dnsprovider.CanCreateZone(p) != creator || dnsprovider.CanDeleteZone(p) != deleter ||
+		if dnsprovider.Can(p, dnsprovider.CapZoneUpdater) != updater || dnsprovider.Can(p, dnsprovider.CapZoneCreator) != creator || dnsprovider.Can(p, dnsprovider.CapZoneDeleter) != deleter ||
 			isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
 			t.Errorf("tenants %v, status %v, batcher %v, updater %v, creator %v, deleter %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v, updating Zones %v, creating Zones %v, deleting Zones %v",
-				tenants, status, batcher, updater, creator, deleter, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.CanUpdateZone(p), dnsprovider.CanCreateZone(p), dnsprovider.CanDeleteZone(p))
+				tenants, status, batcher, updater, creator, deleter, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.Can(p, dnsprovider.CapZoneUpdater), dnsprovider.Can(p, dnsprovider.CapZoneCreator), dnsprovider.Can(p, dnsprovider.CapZoneDeleter))
 		}
 
 		if f.Can(dnsprovider.CapZoneUpdater) != updater || f.Can(dnsprovider.CapZoneCreator) != creator || f.Can(dnsprovider.CapZoneDeleter) != deleter {

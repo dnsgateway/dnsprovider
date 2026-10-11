@@ -13,14 +13,9 @@ import (
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
-// TTLRange uses the API schema minimum and the public uint32 ceiling.
-// DNSimple enforces any narrower plan or traffic restrictions.
-func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return ttlRange.Min, ttlRange.Max
-}
-
-// ttlRange is the TTLRange of every Provider, which TTLRange and
-// Factory report.
+// ttlRange is the TTLRange of every Provider, which its Traits
+// report: the API schema minimum and the public uint32 ceiling. DNSimple
+// enforces any narrower plan or traffic restrictions.
 var ttlRange = dnsprovider.TTLRange{Min: 0, Max: ^uint32(0)}
 
 func (p *Provider) payload(z dnsprovider.Zone, r dnsprovider.Record) (map[string]any, error) {

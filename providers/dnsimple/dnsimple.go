@@ -28,22 +28,32 @@ type Config struct{ Token, AccountID string }
 
 // Factory builds the adapter without contacting DNSimple.
 func Factory() dnsprovider.Factory {
-	f := fields.Factory("dnsimple", []dnsprovider.Field{{Name: FieldToken, Label: "API token", Secret: true}, {Name: FieldAccountID, Label: "Account ID"}},
-		func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	return fields.Factory("dnsimple", []dnsprovider.Field{{Name: FieldToken, Label: "API token", Secret: true}, {Name: FieldAccountID, Label: "Account ID"}},
+		traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 			return New(Config{Token: m[FieldToken], AccountID: m[FieldAccountID]}, opts...)
 		})
-	f.TTL = ttlRange
-	f.Extras = []dnsprovider.ExtraSpec{
+}
+
+// traits are the Traits of every Provider, which Traits and Factory
+// report.
+var traits = dnsprovider.Traits{
+	TTL: ttlRange,
+	Extras: []dnsprovider.ExtraSpec{
 		{Key: ExtraSystemRecord, Label: "System record", Kind: dnsprovider.ExtraBool},
 		{Key: ExtraRegions, Label: "Regions", Kind: dnsprovider.ExtraJSON},
 		{Key: ExtraParentID, Label: "Parent record ID", Kind: dnsprovider.ExtraString},
-	}
+	},
+}
 
-	return f
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
 }
 
 // Provider holds one Account's credentials, endpoint and consumer options.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	token, accountID, baseURL string
 	client                    *http.Client
 	limit                     *rest.Window

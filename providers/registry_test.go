@@ -77,16 +77,16 @@ func TestEachFactoryDeclaresTheZoneWritesItsProvidersImplement(t *testing.T) {
 			t.Fatalf("%s: %v", typ, err)
 		}
 
-		if f.Can(dnsprovider.CapZoneCreator) != dnsprovider.CanCreateZone(p) {
-			t.Errorf("%s: Factory declares ZoneCreator %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneCreator), dnsprovider.CanCreateZone(p))
+		if f.Can(dnsprovider.CapZoneCreator) != dnsprovider.Can(p, dnsprovider.CapZoneCreator) {
+			t.Errorf("%s: Factory declares ZoneCreator %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneCreator), dnsprovider.Can(p, dnsprovider.CapZoneCreator))
 		}
 
-		if f.Can(dnsprovider.CapZoneUpdater) != dnsprovider.CanUpdateZone(p) {
-			t.Errorf("%s: Factory declares ZoneUpdater %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneUpdater), dnsprovider.CanUpdateZone(p))
+		if f.Can(dnsprovider.CapZoneUpdater) != dnsprovider.Can(p, dnsprovider.CapZoneUpdater) {
+			t.Errorf("%s: Factory declares ZoneUpdater %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneUpdater), dnsprovider.Can(p, dnsprovider.CapZoneUpdater))
 		}
 
-		if f.Can(dnsprovider.CapZoneDeleter) != dnsprovider.CanDeleteZone(p) {
-			t.Errorf("%s: Factory declares ZoneDeleter %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneDeleter), dnsprovider.CanDeleteZone(p))
+		if f.Can(dnsprovider.CapZoneDeleter) != dnsprovider.Can(p, dnsprovider.CapZoneDeleter) {
+			t.Errorf("%s: Factory declares ZoneDeleter %v, its Provider implements it %v", typ, f.Can(dnsprovider.CapZoneDeleter), dnsprovider.Can(p, dnsprovider.CapZoneDeleter))
 		}
 	}
 }
@@ -148,7 +148,7 @@ func TestOVHcloudRegistryFactoriesAreIndependent(t *testing.T) {
 	}
 }
 
-func TestEachFactoryDeclaresTheTTLRangeOfItsProviders(t *testing.T) {
+func TestEachFactoryDeclaresTheTraitsOfItsProviders(t *testing.T) {
 	r := providers.Registry()
 
 	for typ, f := range r {
@@ -157,8 +157,8 @@ func TestEachFactoryDeclaresTheTTLRangeOfItsProviders(t *testing.T) {
 			t.Fatalf("%s: %v", typ, err)
 		}
 
-		if got, want := f.TTLRange(), dnsprovider.TTLRangeOf(p); got != want {
-			t.Errorf("%s: Factory declares TTL range %+v, its Provider takes %+v", typ, got, want)
+		if got, want := f.Traits, p.Traits(); !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: Factory declares %+v, its Provider %+v", typ, got, want)
 		}
 	}
 }
@@ -173,21 +173,6 @@ func TestFactoryTTLRangesNeedNoProvider(t *testing.T) {
 	} {
 		if got := r[typ].TTLRange(); got != want {
 			t.Errorf("%s: Factory TTL range = %+v, want %+v", typ, got, want)
-		}
-	}
-}
-
-func TestEachFactoryDeclaresTheProxiableTypesOfItsProviders(t *testing.T) {
-	r := providers.Registry()
-
-	for typ, f := range r {
-		p, err := r.New(typ, validFields[typ])
-		if err != nil {
-			t.Fatalf("%s: %v", typ, err)
-		}
-
-		if got, want := f.ProxiableTypes(), dnsprovider.ProxiableTypesOf(p); !slices.Equal(got, want) {
-			t.Errorf("%s: Factory declares proxiable types %v, its Provider proxies %v", typ, got, want)
 		}
 	}
 }

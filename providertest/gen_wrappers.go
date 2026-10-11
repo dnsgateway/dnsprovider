@@ -62,8 +62,9 @@ var options = []option{
 		Ifaces: []iface{{
 			Name: "DSRegistrar",
 			Methods: []string{
-				"DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) { return p.delegationSigners(ctx, z) }",
+				"ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) { return p.listDelegationSigners(ctx, z) }",
 				"SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error { return p.setDelegationSigners(ctx, z, keys) }",
+				"DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error { return p.deleteDelegationSigners(ctx, z) }",
 			},
 		}},
 	},

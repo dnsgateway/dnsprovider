@@ -122,14 +122,19 @@ type withDSRegistrar struct {
 	scopedProvider
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withDSRegistrar) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withDSRegistrar) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withDSRegistrar) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withDSRegistrar) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // withTenantsDSRegistrar is the fake as a dnsprovider.TenantLister and dnsprovider.DSRegistrar.
@@ -142,14 +147,19 @@ func (p withTenantsDSRegistrar) Tenants(ctx context.Context) ([]dnsprovider.Tena
 	return p.tenantList(ctx)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsDSRegistrar) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsDSRegistrar) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsDSRegistrar) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsDSRegistrar) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // withZoneStatusDSRegistrar is the fake as a dnsprovider.ZoneStatusReader and dnsprovider.DSRegistrar.
@@ -162,14 +172,19 @@ func (p withZoneStatusDSRegistrar) ZoneStatus(ctx context.Context, z dnsprovider
 	return p.zoneStatus(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withZoneStatusDSRegistrar) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusDSRegistrar) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withZoneStatusDSRegistrar) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusDSRegistrar) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // withTenantsZoneStatusDSRegistrar is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader and dnsprovider.DSRegistrar.
@@ -187,14 +202,19 @@ func (p withTenantsZoneStatusDSRegistrar) ZoneStatus(ctx context.Context, z dnsp
 	return p.zoneStatus(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsZoneStatusDSRegistrar) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusDSRegistrar) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsZoneStatusDSRegistrar) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusDSRegistrar) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // withKeyReaderDSRegistrar is the fake as a dnsprovider.KeyReader and dnsprovider.DSRegistrar.
@@ -207,14 +227,19 @@ func (p withKeyReaderDSRegistrar) SigningKeys(ctx context.Context, z dnsprovider
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withKeyReaderDSRegistrar) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withKeyReaderDSRegistrar) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withKeyReaderDSRegistrar) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withKeyReaderDSRegistrar) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // withTenantsKeyReaderDSRegistrar is the fake as a dnsprovider.TenantLister, dnsprovider.KeyReader and dnsprovider.DSRegistrar.
@@ -232,14 +257,19 @@ func (p withTenantsKeyReaderDSRegistrar) SigningKeys(ctx context.Context, z dnsp
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsKeyReaderDSRegistrar) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsKeyReaderDSRegistrar) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsKeyReaderDSRegistrar) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsKeyReaderDSRegistrar) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // withZoneStatusKeyReaderDSRegistrar is the fake as a dnsprovider.ZoneStatusReader, dnsprovider.KeyReader and dnsprovider.DSRegistrar.
@@ -257,14 +287,19 @@ func (p withZoneStatusKeyReaderDSRegistrar) SigningKeys(ctx context.Context, z d
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withZoneStatusKeyReaderDSRegistrar) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusKeyReaderDSRegistrar) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withZoneStatusKeyReaderDSRegistrar) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusKeyReaderDSRegistrar) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // withTenantsZoneStatusKeyReaderDSRegistrar is the fake as a dnsprovider.TenantLister, dnsprovider.ZoneStatusReader, dnsprovider.KeyReader and dnsprovider.DSRegistrar.
@@ -287,14 +322,19 @@ func (p withTenantsZoneStatusKeyReaderDSRegistrar) SigningKeys(ctx context.Conte
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsZoneStatusKeyReaderDSRegistrar) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusKeyReaderDSRegistrar) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsZoneStatusKeyReaderDSRegistrar) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusKeyReaderDSRegistrar) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // withBatcher is the fake as a dnsprovider.Batcher.
@@ -442,14 +482,19 @@ type withDSRegistrarBatcher struct {
 	scopedProvider
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withDSRegistrarBatcher) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withDSRegistrarBatcher) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withDSRegistrarBatcher) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withDSRegistrarBatcher) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -467,14 +512,19 @@ func (p withTenantsDSRegistrarBatcher) Tenants(ctx context.Context) ([]dnsprovid
 	return p.tenantList(ctx)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsDSRegistrarBatcher) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsDSRegistrarBatcher) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsDSRegistrarBatcher) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsDSRegistrarBatcher) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -492,14 +542,19 @@ func (p withZoneStatusDSRegistrarBatcher) ZoneStatus(ctx context.Context, z dnsp
 	return p.zoneStatus(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withZoneStatusDSRegistrarBatcher) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusDSRegistrarBatcher) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withZoneStatusDSRegistrarBatcher) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusDSRegistrarBatcher) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -522,14 +577,19 @@ func (p withTenantsZoneStatusDSRegistrarBatcher) ZoneStatus(ctx context.Context,
 	return p.zoneStatus(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsZoneStatusDSRegistrarBatcher) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusDSRegistrarBatcher) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsZoneStatusDSRegistrarBatcher) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusDSRegistrarBatcher) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -547,14 +607,19 @@ func (p withKeyReaderDSRegistrarBatcher) SigningKeys(ctx context.Context, z dnsp
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withKeyReaderDSRegistrarBatcher) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withKeyReaderDSRegistrarBatcher) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withKeyReaderDSRegistrarBatcher) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withKeyReaderDSRegistrarBatcher) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -577,14 +642,19 @@ func (p withTenantsKeyReaderDSRegistrarBatcher) SigningKeys(ctx context.Context,
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsKeyReaderDSRegistrarBatcher) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsKeyReaderDSRegistrarBatcher) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsKeyReaderDSRegistrarBatcher) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsKeyReaderDSRegistrarBatcher) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -607,14 +677,19 @@ func (p withZoneStatusKeyReaderDSRegistrarBatcher) SigningKeys(ctx context.Conte
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withZoneStatusKeyReaderDSRegistrarBatcher) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusKeyReaderDSRegistrarBatcher) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withZoneStatusKeyReaderDSRegistrarBatcher) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusKeyReaderDSRegistrarBatcher) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -642,14 +717,19 @@ func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcher) SigningKeys(ctx contex
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcher) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcher) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcher) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcher) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -802,14 +882,19 @@ type withDSRegistrarZoneDetails struct {
 	scopedProvider
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withDSRegistrarZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withDSRegistrarZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withDSRegistrarZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withDSRegistrarZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ZoneDetails implements dnsprovider.ZoneDetailsReader.
@@ -827,14 +912,19 @@ func (p withTenantsDSRegistrarZoneDetails) Tenants(ctx context.Context) ([]dnspr
 	return p.tenantList(ctx)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsDSRegistrarZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsDSRegistrarZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsDSRegistrarZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsDSRegistrarZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ZoneDetails implements dnsprovider.ZoneDetailsReader.
@@ -852,14 +942,19 @@ func (p withZoneStatusDSRegistrarZoneDetails) ZoneStatus(ctx context.Context, z 
 	return p.zoneStatus(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withZoneStatusDSRegistrarZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusDSRegistrarZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withZoneStatusDSRegistrarZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusDSRegistrarZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ZoneDetails implements dnsprovider.ZoneDetailsReader.
@@ -882,14 +977,19 @@ func (p withTenantsZoneStatusDSRegistrarZoneDetails) ZoneStatus(ctx context.Cont
 	return p.zoneStatus(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsZoneStatusDSRegistrarZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusDSRegistrarZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsZoneStatusDSRegistrarZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusDSRegistrarZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ZoneDetails implements dnsprovider.ZoneDetailsReader.
@@ -907,14 +1007,19 @@ func (p withKeyReaderDSRegistrarZoneDetails) SigningKeys(ctx context.Context, z 
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withKeyReaderDSRegistrarZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withKeyReaderDSRegistrarZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withKeyReaderDSRegistrarZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withKeyReaderDSRegistrarZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ZoneDetails implements dnsprovider.ZoneDetailsReader.
@@ -937,14 +1042,19 @@ func (p withTenantsKeyReaderDSRegistrarZoneDetails) SigningKeys(ctx context.Cont
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsKeyReaderDSRegistrarZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsKeyReaderDSRegistrarZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsKeyReaderDSRegistrarZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsKeyReaderDSRegistrarZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ZoneDetails implements dnsprovider.ZoneDetailsReader.
@@ -967,14 +1077,19 @@ func (p withZoneStatusKeyReaderDSRegistrarZoneDetails) SigningKeys(ctx context.C
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withZoneStatusKeyReaderDSRegistrarZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusKeyReaderDSRegistrarZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withZoneStatusKeyReaderDSRegistrarZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusKeyReaderDSRegistrarZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ZoneDetails implements dnsprovider.ZoneDetailsReader.
@@ -1002,14 +1117,19 @@ func (p withTenantsZoneStatusKeyReaderDSRegistrarZoneDetails) SigningKeys(ctx co
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsZoneStatusKeyReaderDSRegistrarZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusKeyReaderDSRegistrarZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsZoneStatusKeyReaderDSRegistrarZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusKeyReaderDSRegistrarZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ZoneDetails implements dnsprovider.ZoneDetailsReader.
@@ -1202,14 +1322,19 @@ type withDSRegistrarBatcherZoneDetails struct {
 	scopedProvider
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withDSRegistrarBatcherZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withDSRegistrarBatcherZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withDSRegistrarBatcherZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withDSRegistrarBatcherZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -1232,14 +1357,19 @@ func (p withTenantsDSRegistrarBatcherZoneDetails) Tenants(ctx context.Context) (
 	return p.tenantList(ctx)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsDSRegistrarBatcherZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsDSRegistrarBatcherZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsDSRegistrarBatcherZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsDSRegistrarBatcherZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -1262,14 +1392,19 @@ func (p withZoneStatusDSRegistrarBatcherZoneDetails) ZoneStatus(ctx context.Cont
 	return p.zoneStatus(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withZoneStatusDSRegistrarBatcherZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusDSRegistrarBatcherZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withZoneStatusDSRegistrarBatcherZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusDSRegistrarBatcherZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -1297,14 +1432,19 @@ func (p withTenantsZoneStatusDSRegistrarBatcherZoneDetails) ZoneStatus(ctx conte
 	return p.zoneStatus(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsZoneStatusDSRegistrarBatcherZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusDSRegistrarBatcherZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsZoneStatusDSRegistrarBatcherZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusDSRegistrarBatcherZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -1327,14 +1467,19 @@ func (p withKeyReaderDSRegistrarBatcherZoneDetails) SigningKeys(ctx context.Cont
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withKeyReaderDSRegistrarBatcherZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withKeyReaderDSRegistrarBatcherZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withKeyReaderDSRegistrarBatcherZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withKeyReaderDSRegistrarBatcherZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -1362,14 +1507,19 @@ func (p withTenantsKeyReaderDSRegistrarBatcherZoneDetails) SigningKeys(ctx conte
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsKeyReaderDSRegistrarBatcherZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsKeyReaderDSRegistrarBatcherZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsKeyReaderDSRegistrarBatcherZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsKeyReaderDSRegistrarBatcherZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -1397,14 +1547,19 @@ func (p withZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) SigningKeys(ctx co
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.
@@ -1437,14 +1592,19 @@ func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) SigningKeys
 	return p.signingKeys(ctx, z)
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar.
-func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return p.delegationSigners(ctx, z)
+// ListDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return p.listDelegationSigners(ctx, z)
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar.
 func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	return p.setDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar.
+func (p withTenantsZoneStatusKeyReaderDSRegistrarBatcherZoneDetails) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.deleteDelegationSigners(ctx, z)
 }
 
 // ApplyChangeset implements dnsprovider.Batcher.

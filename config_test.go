@@ -95,13 +95,13 @@ func TestFactoryWithoutATTLRangeTakesTheDefault(t *testing.T) {
 	}
 
 	declared := dnsprovider.TTLRange{Min: 0, Max: 600, Auto: true}
-	if got := (dnsprovider.Factory{TTL: declared}).TTLRange(); got != declared {
+	if got := (dnsprovider.Traits{TTL: declared}).TTLRange(); got != declared {
 		t.Errorf("TTLRange() = %+v, want %+v", got, declared)
 	}
 }
 
 func TestFactoryLooksUpTheRecordExtrasItDeclares(t *testing.T) {
-	f := dnsprovider.Factory{Extras: []dnsprovider.ExtraSpec{
+	f := dnsprovider.Traits{Extras: []dnsprovider.ExtraSpec{
 		{Key: "proxied", Label: "Proxied", Kind: dnsprovider.ExtraBool, Writable: true, Types: []string{"A", "AAAA", "CNAME"}},
 		{Key: "comment", Label: "Comment", Kind: dnsprovider.ExtraString},
 	}}
@@ -125,7 +125,7 @@ func TestFactoryLooksUpTheRecordExtrasItDeclares(t *testing.T) {
 }
 
 func TestFactoryOtherExtrasStandForEveryUnnamedKey(t *testing.T) {
-	f := dnsprovider.Factory{Extras: []dnsprovider.ExtraSpec{
+	f := dnsprovider.Traits{Extras: []dnsprovider.ExtraSpec{
 		{Key: "wire", Label: "Wire value", Kind: dnsprovider.ExtraString},
 		{Key: dnsprovider.ExtraOther, Label: "Other fields", Kind: dnsprovider.ExtraJSON},
 	}}
@@ -140,7 +140,7 @@ func TestFactoryOtherExtrasStandForEveryUnnamedKey(t *testing.T) {
 }
 
 func TestFactoryChecksARecordCarriesOnlyTheExtrasItDeclares(t *testing.T) {
-	f := dnsprovider.Factory{Extras: []dnsprovider.ExtraSpec{
+	f := dnsprovider.Traits{Extras: []dnsprovider.ExtraSpec{
 		{Key: "proxied", Label: "Proxied", Kind: dnsprovider.ExtraBool, Writable: true, Types: []string{"A"}},
 		{Key: "comment", Label: "Comment", Kind: dnsprovider.ExtraString},
 	}}
@@ -169,7 +169,7 @@ func TestFactoryProxiableTypesComeFromItsProxiedExtra(t *testing.T) {
 		t.Errorf("ProxiableTypes() = %v, want none", got)
 	}
 
-	f := dnsprovider.Factory{Extras: []dnsprovider.ExtraSpec{
+	f := dnsprovider.Traits{Extras: []dnsprovider.ExtraSpec{
 		{Key: dnsprovider.ExtraOther, Label: "Other", Kind: dnsprovider.ExtraString},
 		{Key: dnsprovider.ExtraProxied, Label: "Proxied", Kind: dnsprovider.ExtraBool, Writable: true, Types: []string{"A", "CNAME"}},
 	}}

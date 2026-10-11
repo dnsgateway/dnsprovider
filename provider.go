@@ -2,7 +2,6 @@ package dnsprovider
 
 import (
 	"context"
-	"slices"
 )
 
 // Provider is one Account at a DNS hosting service.
@@ -10,10 +9,11 @@ type Provider interface { //nolint:interfacebloat // Zone and Record CRUD form t
 	// Account describes the Account and proves its credentials work, even
 	// when it has no Zones: ErrUnauthorized when they do not.
 	Account(ctx context.Context) (AccountInfo, error)
-	// Capabilities declares supported Zone writes in an independent slice on
-	// each call. Support does not imply permission or a selected Tenant;
-	// merely exposing a method does not imply support.
-	Capabilities() []Capability
+	// Traits declares what the Provider supports, as its Factory declares
+	// it, in an independent copy on each call. Support does not imply
+	// permission or a selected Tenant; merely exposing a method does not
+	// imply support.
+	Traits() Traits
 	// GetZone reads one Zone by its name, in any Hosting State, set as ListZones
 	// sets it: ErrNotFound when the Account has no Zone of that name.
 	GetZone(ctx context.Context, name string) (Zone, error)
@@ -104,28 +104,31 @@ func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error
 	return ZoneStatus{DNSSEC: Unknown, HSTS: Unknown}, nil
 }
 
-// CanCreateZone reports whether a Provider declares support for this Zone write.
-func CanCreateZone(p Provider) bool {
-	return slices.Contains(p.Capabilities(), CapZoneCreator)
+// Can reports whether a Provider declares support for c in its Traits, as
+// Factory.Can does before it is built. Support does not imply permission
+// or a selected Tenant.
+func Can(p Provider, c Capability) bool {
+	return p.Traits().Can(c)
 }
 
-// CanUpdateZone reports whether a Provider declares support for this Zone write.
-func CanUpdateZone(p Provider) bool {
-	return slices.Contains(p.Capabilities(), CapZoneUpdater)
+// UnimplementedZoneWrites is embedded by an adapter that supports no
+// Zone write: each returns ErrNotImplemented without network traffic,
+// and its Traits declare no Capabilities.
+type UnimplementedZoneWrites struct{}
+
+// CreateZone returns ErrNotImplemented.
+func (UnimplementedZoneWrites) CreateZone(context.Context, string) (Zone, error) {
+	return Zone{}, ErrNotImplemented
 }
 
-// CanDeleteZone reports whether a Provider declares support for this Zone write.
-func CanDeleteZone(p Provider) bool {
-	return slices.Contains(p.Capabilities(), CapZoneDeleter)
+// UpdateZone returns ErrNotImplemented.
+func (UnimplementedZoneWrites) UpdateZone(context.Context, Zone, ZoneUpdate) (ZoneStatus, error) {
+	return ZoneStatus{}, ErrNotImplemented
 }
 
-// ZoneUpdate is the settings an UpdateZone changes: a nil one is left as
-// it is.
-type ZoneUpdate struct {
-	DNSSEC *bool
-	HSTS   *bool
-	// MinTLS is one of TLSVersions.
-	MinTLS *TLSVersion
+// DeleteZone returns ErrNotImplemented.
+func (UnimplementedZoneWrites) DeleteZone(context.Context, Zone) error {
+	return ErrNotImplemented
 }
 
 // TenantLister is implemented by a Provider whose credentials can reach
@@ -174,19 +177,22 @@ func SigningKeysOf(ctx context.Context, p Provider, zone Zone) ([]SigningKey, er
 // can replace the Delegation Signer (DS) records the registry publishes
 // for them, such as Porkbun or Gandi: a registrar adapter. Writing them
 // changes the Delegation, so callers should confirm the set
-// first; it never changes the Delegation's NS records.
+// first; it never changes the Delegation's NS records. Each method
+// returns ErrNotFound when the Account does not register the domain.
 type DSRegistrar interface {
-	// DelegationSigners returns the Signing Keys the registry holds for
-	// the Zone's domain, none when it holds none: ErrNotFound when the
-	// Account does not register the domain.
-	DelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
+	// ListDelegationSigners returns the Signing Keys the registry holds
+	// for the Zone's domain, none when it holds none.
+	ListDelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
 	// SetDelegationSigners replaces the Signing Keys the registry holds
-	// for the Zone's domain with keys; none removes DNSSEC from the
-	// Delegation. The adapter sends each key in the form its registrar
-	// takes, its DNSKEY or its DS: ErrUnsupported when the registry
-	// refuses the key's algorithm or form for the domain, ErrNotFound
-	// when the Account does not register it.
+	// for the Zone's domain with keys, at least one: ErrNoSigningKeys,
+	// without a request, for none. The adapter sends each key in the
+	// form its registrar takes, its DNSKEY or its DS: ErrUnsupported
+	// when the registry refuses the key's algorithm or form for the
+	// domain.
 	SetDelegationSigners(ctx context.Context, zone Zone, keys []SigningKey) error
+	// DeleteDelegationSigners removes every Signing Key the registry
+	// holds for the Zone's domain, taking DNSSEC off the Delegation.
+	DeleteDelegationSigners(ctx context.Context, zone Zone) error
 }
 
 // CanRegisterDS reports whether a Provider implements DSRegistrar.
@@ -196,65 +202,29 @@ func CanRegisterDS(p Provider) bool {
 	return ok
 }
 
-// TTLLimits is implemented by a Provider whose Record TTLs have other
-// limits than DefaultTTLRange. TTL TTLAuto is allowed only where
-// the Provider implements AutoTTL. Its Factory declares the same range
-// as its TTL.
-type TTLLimits interface {
-	// TTLRange is the shortest and the longest TTL, in seconds.
-	TTLRange() (minTTL, maxTTL uint32)
-}
-
-// TTLRangeOf returns the TTLs a Provider takes, with TTLAuto allowed when
-// it implements AutoTTL.
+// TTLRangeOf returns the TTLs a Provider takes, as its Traits declare
+// them.
 func TTLRangeOf(p Provider) TTLRange {
-	r := DefaultTTLRange
-	if l, ok := p.(TTLLimits); ok {
-		r.Min, r.Max = l.TTLRange()
-	}
-
-	r.Auto = AutoTTLOf(p)
-
-	return r
+	return p.Traits().TTLRange()
 }
 
-// AutoTTL is implemented by a Provider that reads TTL TTLAuto as
-// "automatic", such as Cloudflare. To any other Provider it is one second.
-// Its Factory declares it as TTL.Auto.
-type AutoTTL interface {
-	// AutoTTL reports whether TTL TTLAuto is automatic.
-	AutoTTL() bool
-}
-
-// AutoTTLOf reports whether a Provider has an automatic TTL.
+// AutoTTLOf reports whether a Provider reads TTL TTLAuto as "automatic",
+// such as Cloudflare. To any other Provider it is one second.
 func AutoTTLOf(p Provider) bool {
-	a, ok := p.(AutoTTL)
-
-	return ok && a.AutoTTL()
+	return TTLRangeOf(p).Auto
 }
 
 // ExtraProxied is the Record extra holding the proxy flag of a Provider
-// that implements ProxyFlag: "true" or "false". It is set only on Records
-// of the types the Provider can proxy.
+// that can proxy traffic to some Record types, such as Cloudflare: "true"
+// or "false". It is set only on Records of the types the Provider can
+// proxy. Its Traits declare that extra, writable, with these types as its
+// Types (ProxiedExtra, Traits.ProxiableTypes).
 const ExtraProxied = "proxied"
 
-// ProxyFlag is implemented by a Provider that can proxy traffic to some
-// Record types, such as Cloudflare. Their Records carry the proxy flag in
-// the extra ExtraProxied. Its Factory declares that extra, writable, with
-// these types as its Types (ProxiedExtra, Factory.ProxiableTypes).
-type ProxyFlag interface {
-	// ProxiableTypes are the Record types the Provider can proxy.
-	ProxiableTypes() []string
-}
-
 // ProxiableTypesOf returns the Record types a Provider can proxy; none
-// when it does not implement ProxyFlag.
+// when its Traits declare no ExtraProxied extra.
 func ProxiableTypesOf(p Provider) []string {
-	if f, ok := p.(ProxyFlag); ok {
-		return f.ProxiableTypes()
-	}
-
-	return nil
+	return p.Traits().ProxiableTypes()
 }
 
 // ZoneSet is the Account's Zones as the Provider returned them.

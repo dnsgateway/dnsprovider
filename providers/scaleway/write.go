@@ -19,18 +19,12 @@ import (
 )
 
 var (
-	_ dnsprovider.Provider  = (*Provider)(nil)
-	_ dnsprovider.Batcher   = (*Provider)(nil)
-	_ dnsprovider.TTLLimits = (*Provider)(nil)
+	_ dnsprovider.Provider = (*Provider)(nil)
+	_ dnsprovider.Batcher  = (*Provider)(nil)
 )
 
-// TTLRange matches the current official Terraform provider validation.
-func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return ttlRange.Min, ttlRange.Max
-}
-
-// ttlRange is the TTLRange of every Provider, which TTLRange and
-// Factory report.
+// ttlRange is the TTLRange of every Provider, which its Traits
+// report: the current official Terraform provider validation.
 var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 2592000}
 
 func (p *Provider) CreateRecord(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {

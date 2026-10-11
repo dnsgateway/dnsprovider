@@ -176,11 +176,15 @@ func TestZoneDetailsAllFailedPropertiesKeepIdentity(t *testing.T) {
 
 type registrationDetailHost struct{ detailHost }
 
-func (registrationDetailHost) DelegationSigners(context.Context, dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+func (registrationDetailHost) ListDelegationSigners(context.Context, dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
 	panic("provider details never consult registration")
 }
 
 func (registrationDetailHost) SetDelegationSigners(context.Context, dnsprovider.Zone, []dnsprovider.SigningKey) error {
+	panic("provider details never write registration")
+}
+
+func (registrationDetailHost) DeleteDelegationSigners(context.Context, dnsprovider.Zone) error {
 	panic("provider details never write registration")
 }
 

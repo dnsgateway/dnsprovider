@@ -36,6 +36,10 @@ var (
 	// domain: its TLD does not take the key's algorithm, digest type, or
 	// the form the registrar sends it in.
 	ErrUnsupported = errors.New("refused by the registry for this domain")
+	// ErrNoSigningKeys means SetDelegationSigners was given no Signing
+	// Key. It refuses before any request: DeleteDelegationSigners removes
+	// DNSSEC from the Delegation.
+	ErrNoSigningKeys = errors.New("no Signing Keys to set; DeleteDelegationSigners removes them")
 	// ErrNotImplemented means the adapter does not support the operation yet.
 	ErrNotImplemented = errors.New("not implemented yet")
 )

@@ -19,7 +19,7 @@ set; a token that may not read accounts, such as a DNS-only one, gets an
 
 All adapters expose Zone CRUD through `dnsprovider.Provider`. Cloudflare is
 the only built-in adapter declaring support for creation, settings updates,
-and deletion in `Capabilities()`. It also implements the optional
+and deletion in its `Traits`. It also implements the optional
 `ZoneStatusReader`, `KeyReader`, and `ZoneDetailsReader`.
 
 Cloudflare reports Hosting State Active, Pending (also for a Zone still
@@ -27,7 +27,7 @@ initializing) and Moved (also for a deactivated Zone). Zone filtering uses
 the API's `name=contains:` filter and the common local filter.
 
 Onboarding is `CreateZone`, whose support is declared through
-`dnsprovider.CanCreateZone(p)`: `CreateZone(ctx, "example.org")` starts DNS
+`dnsprovider.Can(p, dnsprovider.CapZoneCreator)`: `CreateZone(ctx, "example.org")` starts DNS
 hosting of the name in the Provider's Tenant (it never registers the domain)
 and returns the new Zone Pending, with the nameservers Delegation must name
 (its name alone, without an ID, when Cloudflare took the create but the Zone
@@ -38,7 +38,7 @@ Delegation moves it. A Provider without a Tenant returns
 `dnsprovider.ErrNoTenant` without a request. The create is never retried.
 
 Offboarding is `DeleteZone`, whose support is declared
-through `dnsprovider.CanDeleteZone(p)`: `DeleteZone(ctx, zone)` stops DNS
+through `dnsprovider.Can(p, dnsprovider.CapZoneDeleter)`: `DeleteZone(ctx, zone)` stops DNS
 hosting of the Zone, by its ID, and drops its Records there; it never
 touches the registration. It cannot be undone, so a consumer asks first and never
 Offboards the Live Zone. The delete is retried like a read: a retry that
@@ -53,7 +53,7 @@ Zone Status (DNSSEC, HSTS, minimum TLS) uses the optional `ZoneStatusReader`.
 `dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and
 reports every setting Unknown, without a call, for a Provider without one.
 `UpdateZone`, whose support is declared through
-`dnsprovider.CanUpdateZone(p)`, changes DNSSEC, HSTS, and minimum TLS:
+`dnsprovider.Can(p, dnsprovider.CapZoneUpdater)`, changes DNSSEC, HSTS, and minimum TLS:
 `UpdateZone(ctx, zone, dnsprovider.ZoneUpdate{DNSSEC: &on})` writes only the
 settings it is given and returns the Zone Status after the change, each
 setting it was not given as read, Unknown when it could not be. A write that

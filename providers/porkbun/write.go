@@ -14,14 +14,9 @@ import (
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
-// TTLRange uses the usual account minimum. Porkbun documents no universal
+// ttlRange is the TTLRange of every Provider, which its Traits
+// report: the usual account minimum. Porkbun documents no universal
 // maximum; the API remains authoritative for account-specific constraints.
-func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return ttlRange.Min, ttlRange.Max
-}
-
-// ttlRange is the TTLRange of every Provider, which TTLRange and
-// Factory report.
 var ttlRange = dnsprovider.TTLRange{Min: 600, Max: math.MaxUint32}
 
 func (p *Provider) writeBody(z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, map[string]any, error) {
@@ -140,16 +135,18 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldKey, Label: "API key", Secret: true},
 		{Name: FieldSecret, Label: "Secret API key", Secret: true},
 	}
-	f := fields.Factory("porkbun", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	return fields.Factory("porkbun", fs, traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Key: m[FieldKey], Secret: m[FieldSecret]}, opts...)
 	})
-	f.TTL = ttlRange
-	f.Extras = []dnsprovider.ExtraSpec{{Key: ExtraNotes, Label: "Notes", Kind: dnsprovider.ExtraString, Writable: true}}
-
-	return f
 }
 
-var (
-	_ dnsprovider.Provider  = (*Provider)(nil)
-	_ dnsprovider.TTLLimits = (*Provider)(nil)
-)
+// traits are the Traits of every Provider, which Traits and Factory
+// report.
+var traits = dnsprovider.Traits{TTL: ttlRange, Extras: []dnsprovider.ExtraSpec{{Key: ExtraNotes, Label: "Notes", Kind: dnsprovider.ExtraString, Writable: true}}}
+
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
+}
+
+var _ dnsprovider.Provider = (*Provider)(nil)

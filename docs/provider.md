@@ -105,19 +105,18 @@ The shared proxy key is `dnsprovider.ExtraProxied` (`"proxied"`), also
 exported as `cloudflare.ExtraProxied`. Values are `"true"` or `"false"`.
 Cloudflare can proxy A, AAAA, and CNAME Records.
 
-Each `Factory` lists the Record Extras its Providers read as `Extras`, one
+Each Provider's `Traits` list the Record Extras it reads as `Extras`, one
 `ExtraSpec` per key: its `Label`, its `Kind` (`ExtraBool`, `ExtraString`
 or `ExtraJSON`), the record `Types` that carry it (none means every type),
 and whether it is `Writable`. A write sends a writable extra as given and
 keeps any other as the Provider holds it, leaving it alone or refusing a
 change. The key `ExtraOther` (`"*"`) stands for the API fields an adapter
-passes through without modelling them. `Factory.Extra(key)` finds a key's
-entry, `Factory.CheckExtras(r)` rejects a Record carrying an extra the
-Factory does not declare for its type or a bool one that is not `true` or
+passes through without modelling them. `Traits.Extra(key)` finds a key's
+entry, `Traits.CheckExtras(r)` rejects a Record carrying an extra the
+Traits do not declare for its type or a bool one that is not `true` or
 `false`, `SameExtras(a, b)` compares two Records' extras as a re-check
-does, a proxy flag that is off counting as none, and `Factory.ProxiableTypes()` reads
-the `ExtraProxied` entry, matching `ProxiableTypesOf`, as a Registry
-contract test checks.
+does, a proxy flag that is off counting as none, and `Traits.ProxiableTypes()` reads
+the `ExtraProxied` entry, as `ProxiableTypesOf(p)` does for a built Provider.
 
 | Provider | Key | Kind | Writable | Types |
 | --- | --- | --- | --- | --- |
@@ -135,7 +134,7 @@ contract test checks.
 | Internet.bs | `*` (other API fields) | json | No | all |
 | Porkbun | `notes` | string | Yes | all |
 
-`TTLRangeOf(p)` combines optional `TTLLimits` and `AutoTTL` support:
+`TTLRangeOf(p)` reads the TTL range, with automatic TTL, from `p.Traits()`:
 
 | Provider | Minimum TTL | Maximum TTL | Automatic TTL |
 | --- | --- | --- | --- |
@@ -151,10 +150,9 @@ contract test checks.
 | Vultr | 30 | 86400 | No; the default range, as Vultr documents no bounds |
 | OVHcloud | 30 | 86400 | No; the default range, as OVHcloud documents no bounds; a native zero TTL inherits the Zone default and reads as that effective TTL |
 
-Each `Factory` declares the same range as its `TTL`, for a consumer that
-knows only the Provider type; `Factory.TTLRange()` reads it, with a zero
-`TTL` standing for the default range. A Registry contract test keeps each
-Factory's range equal to `TTLRangeOf` of a Provider it builds.
+`Traits.TTLRange()` reads the declared `TTL`, with a zero `TTL` standing
+for the default range; a Factory carries the same Traits, for a consumer
+that knows only the Provider type.
 
 `TTLRange.Check` validates a TTL. Shared validation helpers are available
 to consumers; `Apply` does not run them automatically.
@@ -208,11 +206,17 @@ Factories reject unknown fields, missing required fields, and values not among
 a field's Choices. `Registry.Types`
 returns sorted provider names; `Registry.New` rejects unknown types.
 
-Factory capabilities declare supported Zone writes. `Factory.Can` checks
-`CapZoneCreator`, `CapZoneUpdater`, or `CapZoneDeleter` before credentials are
-available. They agree with the built Provider's `Capabilities()` declaration.
-`CanCreateZone`, `CanUpdateZone`, and `CanDeleteZone` consult that declaration.
+`Traits` declare what a Provider type supports: its Zone writes
+(`Capabilities`), its TTL range (`TTL`) and its Record Extras (`Extras`).
+Each adapter declares them once; its `Factory` embeds them and every
+Provider it builds reports them from `Traits()`, an independent copy on each
+call. `Factory.Can` checks `CapZoneCreator`, `CapZoneUpdater`, or
+`CapZoneDeleter` before credentials are available; `Can(p, c)` reads a
+built Provider's Traits the same way.
 Support does not guarantee credentials, permissions, or a selected Tenant.
+An adapter supporting no Zone write embeds
+`dnsprovider.UnimplementedZoneWrites`, whose writes return
+`ErrNotImplemented` without network traffic.
 
 ## Required interface and filters
 
@@ -220,7 +224,7 @@ These signatures are in the root `dnsprovider` package:
 
 ```go
 type Provider interface {
-    Capabilities() []Capability
+    Traits() Traits
     Account(context.Context) (AccountInfo, error)
     CreateZone(context.Context, string) (Zone, error)
     GetZone(context.Context, string) (Zone, error)
@@ -299,8 +303,9 @@ then Pending, then the first listed Zone.
 
 Every Provider exposes Zone CRUD. Cloudflare declares support for all three
 Zone writes; other built-in adapters return `ErrNotImplemented` before any
-network request. Test support with `CanCreateZone`, `CanUpdateZone`, or
-`CanDeleteZone`, then call the method directly on the Provider.
+network request. Test support with `Can(p, CapZoneCreator)`,
+`CapZoneUpdater`, or `CapZoneDeleter`, then call the method directly on the
+Provider.
 `ZoneCreator`, `ZoneUpdater`, and `ZoneDeleter` have been removed; use
 `Provider` instead.
 
@@ -374,19 +379,23 @@ is signed, pending or pending-disabled.
 
 ```go
 type DSRegistrar interface {
-    DelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
+    ListDelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
     SetDelegationSigners(ctx context.Context, zone Zone, keys []SigningKey) error
+    DeleteDelegationSigners(ctx context.Context, zone Zone) error
 }
 ```
 
 A registrar adapter, a Provider that registers domains and can replace the
 DS records the registry publishes for them, implements `DSRegistrar`;
-`CanRegisterDS(p)` detects it. `DelegationSigners` returns the Signing Keys
-the registry holds for the Zone's domain, none when it holds none, and
-`ErrNotFound` when the Account does not register the domain: a consumer
-looking for the registrar of a zone name skips that Account.
-`SetDelegationSigners` replaces the whole set; none removes DNSSEC from the
-Delegation. Each adapter sends every key in the form its registrar takes,
+`CanRegisterDS(p)` detects it. Each method returns `ErrNotFound` when the
+Account does not register the domain: a consumer looking for the registrar
+of a zone name skips that Account. `ListDelegationSigners` returns the
+Signing Keys the registry holds for the Zone's domain, none when it holds
+none. `SetDelegationSigners` replaces the whole set with at least one key,
+keeping a DS in place through a rollover; given none it returns
+`ErrNoSigningKeys` without a request, so DNSSEC never leaves the Delegation
+by accident. `DeleteDelegationSigners` removes every key, taking DNSSEC off
+the Delegation. Each adapter sends every key in the form its registrar takes,
 the DNSKEY or the DS, and returns `ErrUnsupported` when the registry refuses
 the key's algorithm, digest type or form for the domain. Porkbun implements
 it, sending the DS, and Gandi, sending the DNSKEY. Internet.bs sends the
@@ -537,7 +546,7 @@ Kind. Kind overrides HTTP classification; otherwise 429 maps to
 ErrRateLimited, 401/403 to ErrUnauthorized, and 404 to ErrNotFound. StatusCode
 zero represents an error reported inside a successful HTTP response.
 
-Consult `Capabilities()` or the Zone-write helpers before offering Zone writes.
+Consult `Traits()` or the Zone-write helpers before offering Zone writes.
 Detect absent optional interfaces before offering their operations.
 `ErrNotImplemented` represents an operation the adapter has not implemented.
 
@@ -603,7 +612,7 @@ the `DSRegistrar`. Unscripted Providers
 omit those optional interfaces. Every built Provider exposes Zone CRUD;
 unscripted writes
 return `ErrNotImplemented` without recording a call. Factory and Provider
-capabilities declare only scripted writes. A built Provider keeps the write
+Traits declare only scripted writes. A built Provider keeps the write
 support and Tenant scope captured at construction, while sharing mutable
 Zone, Record, and failure scripts. Configure scripts before obtaining a
 Factory and constructing Providers; obtain a fresh Factory after changing
@@ -618,8 +627,8 @@ omitted, and an unscripted Zone reports unsupported properties. Combined reads
 record `OpGetZone` then `OpZoneDetails`, with the requested flags in
 `Call.ZoneDetailRequest`. Inputs and returned detail slices are independent copies.
 
-The Factory's `TTL` is the range scripted with `SetTTLRange` and
-`SetAutoTTL`, and its `Extras` hold the `ExtraProxied` entry for the types
+The Traits' `TTL` is the range scripted with `SetTTLRange` and
+`SetAutoTTL`, and their `Extras` hold the `ExtraProxied` entry for the types
 scripted with `SetProxiableTypes`.
 
 External implementations must migrate to the expanded interface. See the

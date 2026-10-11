@@ -28,19 +28,27 @@ type Config struct{ SecretKey, ProjectID string }
 
 // Factory describes the credentials and constructs locally.
 func Factory() dnsprovider.Factory {
-	f := fields.Factory("scaleway", []dnsprovider.Field{
+	return fields.Factory("scaleway", []dnsprovider.Field{
 		{Name: FieldSecretKey, Label: "Secret key", Secret: true},
 		{Name: FieldProjectID, Label: "Project ID"},
-	}, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	}, traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{SecretKey: m[FieldSecretKey], ProjectID: m[FieldProjectID]}, opts...)
 	})
-	f.TTL = ttlRange
+}
 
-	return f
+// traits are the Traits of every Provider, which Traits and Factory
+// report.
+var traits = dnsprovider.Traits{TTL: ttlRange}
+
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
 }
 
 // Provider manages the existing DNS Zones of one Project.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	key, project, baseURL string
 	client                *http.Client
 	log                   *slog.Logger

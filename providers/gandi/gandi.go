@@ -33,6 +33,8 @@ type Config struct{ Token string }
 
 // Provider manages the LiveDNS resources visible to its token.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	token, baseURL string
 	// domainURL is the Domain API, the sibling of the LiveDNS baseURL.
 	domainURL string
@@ -61,12 +63,20 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 
 // Factory declares the token field and constructs the same Provider as New.
 func Factory() dnsprovider.Factory {
-	f := fields.Factory("gandi", []dnsprovider.Field{{Name: FieldToken, Label: "Personal access token", Secret: true}}, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	fs := []dnsprovider.Field{{Name: FieldToken, Label: "Personal access token", Secret: true}}
+
+	return fields.Factory("gandi", fs, traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Token: m[FieldToken]}, opts...)
 	})
-	f.TTL = ttlRange
+}
 
-	return f
+// traits are the Traits of every Provider, which Traits and Factory
+// report.
+var traits = dnsprovider.Traits{TTL: ttlRange}
+
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
 }
 
 // domainAPI is the Domain API next to a LiveDNS endpoint: its "livedns"
@@ -318,16 +328,10 @@ func (p *Provider) ListRecords(ctx context.Context, z dnsprovider.Zone, f dnspro
 	return dnsprovider.RecordSet{Records: out, Serial: serial}, nil
 }
 
-// TTLRange is the documented LiveDNS cache interval; there is no auto sentinel.
-func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return ttlRange.Min, ttlRange.Max
-}
-
 // ttlRange is the TTL policy used by Record writes and reported by
-// TTLRange and Factory.
+// its Traits: the documented LiveDNS cache interval; there is no auto
+// sentinel.
 var ttlRange = dnsprovider.TTLRange{Min: 300, Max: 2592000}
-
-var _ dnsprovider.TTLLimits = (*Provider)(nil)
 
 func normalize(z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
 	r.Type = strings.ToUpper(r.Type)

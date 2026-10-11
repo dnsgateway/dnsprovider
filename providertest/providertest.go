@@ -40,14 +40,17 @@ const (
 	OpZoneDetails  Op = "ZoneDetails"
 	// OpSigningKeys is the KeyReader's SigningKeys; see SetSigningKeys.
 	OpSigningKeys Op = "SigningKeys"
-	// OpDelegationSigners is the DSRegistrar's DelegationSigners; see
-	// SetRegistration.
-	OpDelegationSigners Op = "DelegationSigners"
+	// OpListDelegationSigners is the DSRegistrar's ListDelegationSigners;
+	// see SetRegistration.
+	OpListDelegationSigners Op = "ListDelegationSigners"
 	// OpSetDelegationSigners is the DSRegistrar's SetDelegationSigners;
 	// see SetRegistration.
 	OpSetDelegationSigners Op = "SetDelegationSigners"
-	OpAccount              Op = "Account"
-	OpTenants              Op = "Tenants"
+	// OpDeleteDelegationSigners is the DSRegistrar's
+	// DeleteDelegationSigners; see SetRegistration.
+	OpDeleteDelegationSigners Op = "DeleteDelegationSigners"
+	OpAccount                 Op = "Account"
+	OpTenants                 Op = "Tenants"
 	// OpUpdateZone is the Provider's UpdateZone; see SetZoneUpdater.
 	OpUpdateZone Op = "UpdateZone"
 	// OpCreateZone is the Provider's CreateZone; see SetZoneCreator.
@@ -202,8 +205,8 @@ func (p *Provider) SetRecords(zoneID string, records ...dnsprovider.Record) {
 	p.records[zoneID] = slices.Clone(records)
 }
 
-// SetTTLRange makes the Providers New builds report a TTL range through
-// dnsprovider.TTLLimits. Unscripted, they report DefaultTTLRange.
+// SetTTLRange makes the Providers New builds report a TTL range in their
+// Traits. Unscripted, they report DefaultTTLRange.
 func (p *Provider) SetTTLRange(minTTL, maxTTL uint32) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -212,7 +215,7 @@ func (p *Provider) SetTTLRange(minTTL, maxTTL uint32) {
 }
 
 // SetProxiableTypes makes the Providers New builds proxy Records of these
-// types, through dnsprovider.ProxyFlag. Unscripted, they proxy none.
+// types, declared in their Traits. Unscripted, they proxy none.
 // The fake stores Records as given, so scripted Records carry the flag
 // under dnsprovider.ExtraProxied as a real Provider's would.
 func (p *Provider) SetProxiableTypes(types ...string) {
@@ -222,8 +225,8 @@ func (p *Provider) SetProxiableTypes(types ...string) {
 	p.proxiable = slices.Clone(types)
 }
 
-// SetAutoTTL makes the Providers New builds read TTL 1 as automatic,
-// through dnsprovider.AutoTTL. Unscripted, they do not.
+// SetAutoTTL makes the Providers New builds read TTL 1 as automatic, as
+// their Traits declare. Unscripted, they do not.
 func (p *Provider) SetAutoTTL(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -233,59 +236,30 @@ func (p *Provider) SetAutoTTL(on bool) {
 
 //go:generate go run gen_wrappers.go
 
-// The fake implements the optional interfaces whose absence the
-// dnsprovider helpers read as their unscripted answer, such as
-// TTLRangeOf's DefaultTTLRange. TenantLister, ZoneStatusReader, KeyReader
-// and DSRegistrar, which a consumer may branch on, and Batcher, which changes how
+// TenantLister, ZoneStatusReader, KeyReader and DSRegistrar, which a
+// consumer may branch on, and Batcher, which changes how
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted: one type per combination, generated (see
 // gen_wrappers.go) and picked by build. Core Zone writes always exist;
-// Capabilities declares each as scripted, and an unscripted write returns
+// Traits declare each as scripted, and an unscripted write returns
 // dnsprovider.ErrNotImplemented, recording nothing.
-var (
-	_ dnsprovider.TTLLimits = (*Provider)(nil)
-	_ dnsprovider.AutoTTL   = (*Provider)(nil)
-	_ dnsprovider.ProxyFlag = (*Provider)(nil)
-)
 
-// TTLRange implements dnsprovider.TTLLimits; the default range when not
-// scripted.
-func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	r := p.scriptedTTLRange()
-
-	return r.Min, r.Max
-}
-
-// scriptedTTLRange is the TTLRange scripted (SetTTLRange, SetAutoTTL),
-// with the default range when none is. The caller holds p.mu.
-func (p *Provider) scriptedTTLRange() dnsprovider.TTLRange {
-	r := dnsprovider.DefaultTTLRange
+// traits are the Traits scripted so far: the Zone writes, the TTL range
+// (SetTTLRange, SetAutoTTL), with the default range when none is, and the
+// ExtraProxied types. The caller holds p.mu.
+func (p *Provider) traits() dnsprovider.Traits {
+	t := dnsprovider.Traits{Capabilities: p.zoneWrites(), TTL: dnsprovider.DefaultTTLRange}
 	if p.ttlRange != nil {
-		r.Min, r.Max = p.ttlRange[0], p.ttlRange[1]
+		t.TTL.Min, t.TTL.Max = p.ttlRange[0], p.ttlRange[1]
 	}
 
-	r.Auto = p.autoTTL
+	t.TTL.Auto = p.autoTTL
 
-	return r
-}
+	if p.proxiable != nil {
+		t.Extras = []dnsprovider.ExtraSpec{dnsprovider.ProxiedExtra(p.proxiable...)}
+	}
 
-// AutoTTL implements dnsprovider.AutoTTL.
-func (p *Provider) AutoTTL() bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	return p.autoTTL
-}
-
-// ProxiableTypes implements dnsprovider.ProxyFlag.
-func (p *Provider) ProxiableTypes() []string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	return slices.Clone(p.proxiable)
+	return t
 }
 
 // SetZoneStatus scripts a Zone's Zone Status, and makes the Providers New
@@ -313,8 +287,10 @@ func (p *Provider) SetSigningKeys(zoneID string, keys ...dnsprovider.SigningKey)
 }
 
 // SetRegistration scripts a Zone as a Registration and enables the
-// dnsprovider.DSRegistrar methods, recorded as OpDelegationSigners and
-// OpSetDelegationSigners. Other Zones return ErrNotFound; without this
+// dnsprovider.DSRegistrar methods, recorded as OpListDelegationSigners,
+// OpSetDelegationSigners and OpDeleteDelegationSigners; a
+// SetDelegationSigners with no keys is ErrNoSigningKeys, recording
+// nothing. Other Zones return ErrNotFound; without this
 // script, the Provider does not implement DSRegistrar.
 func (p *Provider) SetRegistration(zoneID string, keys ...dnsprovider.SigningKey) {
 	p.mu.Lock()
@@ -480,8 +456,7 @@ const FieldTenant = "tenant"
 
 // Factory builds Providers from fields, requiring a secret "token" and
 // optionally accepting FieldTenant when Tenants are scripted. Its
-// Capabilities, TTL range, and ExtraProxied types reflect the scripts set
-// so far. Built Providers share the fake's script; valid builds are
+// Traits reflect the scripts set so far. Built Providers share the fake's script; valid builds are
 // recorded as OpNew.
 func (p *Provider) Factory() dnsprovider.Factory {
 	p.mu.Lock()
@@ -492,15 +467,7 @@ func (p *Provider) Factory() dnsprovider.Factory {
 		fs = append(fs, dnsprovider.Field{Name: FieldTenant, Label: "Tenant", Tenant: true})
 	}
 
-	f := fields.Factory("providertest", fs, p.build)
-	f.Capabilities = p.zoneWrites()
-	f.TTL = p.scriptedTTLRange()
-
-	if p.proxiable != nil {
-		f.Extras = []dnsprovider.ExtraSpec{dnsprovider.ProxiedExtra(p.proxiable...)}
-	}
-
-	return f
+	return fields.Factory("providertest", fs, p.traits(), p.build)
 }
 
 // zoneWrites are the Zone writes scripted; nil when none is. The caller
@@ -883,10 +850,10 @@ func (p *Provider) signingKeys(_ context.Context, z dnsprovider.Zone) ([]dnsprov
 	return cloneKeys(p.keys[z.ID]), nil
 }
 
-// delegationSigners is the DS the registry holds for a Registration, for
+// listDelegationSigners is the DS the registry holds for a Registration, for
 // dnsprovider.DSRegistrar; ErrNotFound for a Zone not scripted as one.
-func (p *Provider) delegationSigners(_ context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	if err := p.record(Call{Op: OpDelegationSigners, Zone: z}); err != nil {
+func (p *Provider) listDelegationSigners(_ context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	if err := p.record(Call{Op: OpListDelegationSigners, Zone: z}); err != nil {
 		return nil, err
 	}
 
@@ -902,10 +869,27 @@ func (p *Provider) delegationSigners(_ context.Context, z dnsprovider.Zone) ([]d
 }
 
 // setDelegationSigners replaces the DS the registry holds for a
-// Registration with keys, for dnsprovider.DSRegistrar; ErrNotFound for a
-// Zone not scripted as one.
-func (p *Provider) setDelegationSigners(_ context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
-	if err := p.record(Call{Op: OpSetDelegationSigners, Zone: z, Keys: cloneKeys(keys)}); err != nil {
+// Registration with keys, at least one, for dnsprovider.DSRegistrar;
+// ErrNotFound for a Zone not scripted as one.
+func (p *Provider) setDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+	if len(keys) == 0 {
+		return dnsprovider.ErrNoSigningKeys
+	}
+
+	return p.replaceDelegationSigners(ctx, OpSetDelegationSigners, z, keys)
+}
+
+// deleteDelegationSigners removes the DS the registry holds for a
+// Registration, for dnsprovider.DSRegistrar; ErrNotFound for a Zone not
+// scripted as one.
+func (p *Provider) deleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.replaceDelegationSigners(ctx, OpDeleteDelegationSigners, z, nil)
+}
+
+// replaceDelegationSigners records op and replaces a Registration's DS
+// with keys.
+func (p *Provider) replaceDelegationSigners(_ context.Context, op Op, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+	if err := p.record(Call{Op: op, Zone: z, Keys: cloneKeys(keys)}); err != nil {
 		return err
 	}
 

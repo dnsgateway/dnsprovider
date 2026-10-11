@@ -35,7 +35,7 @@ stale checking and ordered CRUD with per-change results; changes are not atomic.
 Mutations are never automatically retried, including after an uncertain reply.
 
 The Provider is a registrar adapter (`dnsprovider.DSRegistrar`); its DS
-writes need the `domains` scope (or `full`), which `Account` does not check. `DelegationSigners` reads the registry's DS records with
+writes need the `domains` scope (or `full`), which `Account` does not check. `ListDelegationSigners` reads the registry's DS records with
 `getDnssecRecords`, one Signing Key per key tag, without the DNSKEY, which
 Porkbun does not return. `SetDelegationSigners` sends each key's SHA-256 DS
 (its first DS when it has none), the only form Porkbun takes: a key without

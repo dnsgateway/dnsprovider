@@ -42,13 +42,24 @@ type Config struct{ APIKey string }
 // Factory builds the adapter from the field map without contacting Vultr.
 func Factory() dnsprovider.Factory {
 	return fields.Factory("vultr", []dnsprovider.Field{{Name: FieldAPIKey, Label: "API key", Secret: true}},
-		func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+		traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 			return New(Config{APIKey: m[FieldAPIKey]}, opts...)
 		})
 }
 
+// traits are the Traits of every Provider, which Traits and Factory
+// report.
+var traits = dnsprovider.Traits{}
+
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
+}
+
 // Provider is one Vultr Account, reached with its API key.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	key, baseURL string
 	client       *http.Client
 	limit        *rate.Limiter

@@ -65,7 +65,7 @@ Domain API's `dnskeys` routes, at the sibling of the LiveDNS endpoint
 without `/livedns`). Its token needs permission to manage the domain's
 technical configuration, which `Account` does not check.
 
-`DelegationSigners` lists every signing key Gandi holds at the registry,
+`ListDelegationSigners` lists every signing key Gandi holds at the registry,
 ordered by key tag, each with the DS Gandi computed and its DNSKEY when Gandi
 returns the public key: flags 257 for a key of type `ksk`, and 256 for any
 other, so a key of type `zsk` or none reads too. Gandi takes only key data and
@@ -73,7 +73,7 @@ computes the DS itself, so `SetDelegationSigners` sends each key's DNSKEY
 algorithm and public key with type `ksk`; a key without a DNSKEY is
 `ErrUnsupported` before any call. It always reads the held keys first, and
 writes nothing when they already match; otherwise it replaces the whole set
-with one `PUT`. No keys deletes the held keys one by one by id, as the docs do
+with one `PUT`. `DeleteDelegationSigners` deletes the held keys one by one by id, as the docs do
 not say a replace may hold none, so a delete failing partway through leaves
 the keys not yet deleted in place. Gandi answers writes with 202 Accepted and
 applies them at the registry asynchronously, so a read right after may still

@@ -28,6 +28,8 @@ type (
 	Config struct{ Key, Secret string }
 	// Provider manages the Porkbun DNS copy of accessible Zones.
 	Provider struct {
+		dnsprovider.UnimplementedZoneWrites
+
 		cfg Config
 		api rest.Client
 	}

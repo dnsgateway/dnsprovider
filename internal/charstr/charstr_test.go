@@ -72,3 +72,24 @@ func TestParsePreservesChunksAndSeparatorPolicy(t *testing.T) {
 		}
 	}
 }
+
+func TestEquivalentComparesRDATANotPresentation(t *testing.T) {
+	for _, c := range []struct {
+		typ, a, b string
+		want      bool
+	}{
+		{"TXT", `"a b"`, `"a b"`, true},
+		{"TXT", `"a\032b"`, `"a b"`, true},
+		{"TXT", `"ab"`, `"a" "b"`, false},
+		{"TXT", `"a`, `"a`, true},
+		{"TXT", `"a`, `"a"`, false},
+		{"CAA", `0 issue "ca.example"`, `0  ISSUE   "ca.example"`, true},
+		{"CAA", `0 issue "ca.example"`, `128 issue "ca.example"`, false},
+		{"CAA", `0 issue "ca.example"`, `0 issue "ca.example" "x"`, false},
+		{"A", "192.0.2.1", "192.0.2.01", false},
+	} {
+		if got := charstr.Equivalent(c.typ, c.a, c.b); got != c.want {
+			t.Errorf("Equivalent(%s, %q, %q) = %v, want %v", c.typ, c.a, c.b, got, c.want)
+		}
+	}
+}

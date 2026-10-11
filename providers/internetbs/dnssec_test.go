@@ -101,7 +101,7 @@ func TestDelegationSignersReadRegistrationSigningKeys(t *testing.T) {
 	if !dnsprovider.CanRegisterDS(p) {
 		t.Fatal("Provider does not implement DSRegistrar")
 	}
-	got, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "Example.COM."})
+	got, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "Example.COM."})
 	want := []dnsprovider.SigningKey{
 		{KeyTag: 2371, DS: []string{"2371 8 2 EE"}},
 		{KeyTag: 2371, DNSKEY: "257 3 13 " + signingPublicKey, DS: []string{"2371 13 2 ABCD", "2371 13 1 AA"}},
@@ -114,18 +114,18 @@ func TestDelegationSignersReadRegistrationSigningKeys(t *testing.T) {
 func TestDelegationSignersEmptyAndMalformedStates(t *testing.T) {
 	for _, state := range []any{"disabled", []string{}} {
 		p, _ := newSigningRegistry(t, state)
-		keys, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
+		keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
 		if err != nil || len(keys) != 0 {
 			t.Fatalf("empty state = %+v, %v", keys, err)
 		}
 	}
 	for _, state := range []any{nil, "enabled", 1, []any{nil}, []string{"other.com. 60 IN DS 1 13 2 AA"}, []string{"example.com. x IN DS 1 13 2 AA"}, []string{"example.com. 60 CH DS 1 13 2 AA"}, []string{"example.com. 60 IN DS 65536 13 2 AA"}, []string{"example.com. 60 IN DS 1 13 2 GG"}, []string{"example.com. 60 IN DNSKEY 257 2 13 AA=="}, []string{"example.com. 60 IN DNSKEY 257 3 13 !!!"}, []string{"example.com. 60 IN TXT plain"}} {
 		p, f := newSigningRegistry(t, state)
-		keys, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
+		keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
 		if err == nil || keys != nil {
 			t.Fatalf("malformed state %v = %+v, %v", state, keys, err)
 		}
-		if err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, nil); err == nil || len(f.writes) != 0 {
+		if err := p.DeleteDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err == nil || len(f.writes) != 0 {
 			t.Fatalf("malformed state permitted mutation: %v", err)
 		}
 	}
@@ -145,14 +145,14 @@ func TestSetDelegationSignersReplacesBothFormsAndSkipsUnchangedSet(t *testing.T)
 	if err := p.SetDelegationSigners(ctx, z, keys); err != nil || len(f.writes) != 1 {
 		t.Fatalf("unchanged set wrote again: %v, %v", f.writes, err)
 	}
-	got, err := p.DelegationSigners(ctx, z)
+	got, err := p.ListDelegationSigners(ctx, z)
 	if err != nil || len(got) != 1 || got[0].DNSKEY != keys[0].DNSKEY || !reflect.DeepEqual(got[0].DS, []string{"2371 13 2 ABCD", "2371 13 1 AA"}) {
 		t.Fatalf("readback = %+v, %v", got, err)
 	}
-	if err := p.SetDelegationSigners(ctx, z, nil); err != nil || len(f.writes) != 2 || f.writes[1].Get("dnssec") != "" {
+	if err := p.DeleteDelegationSigners(ctx, z); err != nil || len(f.writes) != 2 || f.writes[1].Get("dnssec") != "" {
 		t.Fatalf("clear = %v, %v", f.writes, err)
 	}
-	if err := p.SetDelegationSigners(ctx, z, nil); err != nil || len(f.writes) != 2 {
+	if err := p.DeleteDelegationSigners(ctx, z); err != nil || len(f.writes) != 2 {
 		t.Fatalf("already disabled set wrote again: %v", err)
 	}
 }
@@ -178,8 +178,8 @@ func TestSetDelegationSignersValidatesBeforeAnyCall(t *testing.T) {
 	}
 	p, f := newSigningRegistry(t, "disabled")
 	z := dnsprovider.Zone{Name: "signing-password..example.com"}
-	_, readErr := p.DelegationSigners(context.Background(), z)
-	writeErr := p.SetDelegationSigners(context.Background(), z, nil)
+	_, readErr := p.ListDelegationSigners(context.Background(), z)
+	writeErr := p.DeleteDelegationSigners(context.Background(), z)
 	for _, err := range []error{readErr, writeErr} {
 		if err == nil || strings.Contains(err.Error(), "signing-password") || len(f.calls) != 0 {
 			t.Errorf("invalid Registration name = %v, calls %v", err, f.calls)
@@ -192,7 +192,7 @@ func TestRegistrationErrorsPreserveRefusalAndProveAbsence(t *testing.T) {
 		p, f := newSigningRegistry(t, "disabled")
 		f.owned = owned
 		f.fail["/Domain/Info"] = `{"status":"FAILURE","code":100005,"message":"Permission denied signing-password"}`
-		_, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
+		_, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
 		kind := dnsprovider.ErrNotFound
 		if owned {
 			kind = dnsprovider.ErrUnauthorized
@@ -201,7 +201,7 @@ func TestRegistrationErrorsPreserveRefusalAndProveAbsence(t *testing.T) {
 		if !errors.Is(err, kind) || !errors.As(err, &api) || strings.Contains(err.Error(), "signing-password") {
 			t.Fatalf("owned=%v error=%v", owned, err)
 		}
-		if err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, nil); !errors.Is(err, kind) || len(f.writes) != 0 {
+		if err := p.DeleteDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); !errors.Is(err, kind) || len(f.writes) != 0 {
 			t.Fatalf("read refusal allowed mutation: %v", err)
 		}
 	}
@@ -222,7 +222,7 @@ func TestSetDelegationSignersAcceptsPendingWithoutRepeatingTheWrite(t *testing.T
 		t.Fatalf("queued update = %v, writes=%v", err, f.writes)
 	}
 	f.fail["/Domain/Info"] = `{"status":"PENDING","dnssec":"disabled"}`
-	if _, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err == nil {
+	if _, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err == nil {
 		t.Fatal("pending read was treated as empty")
 	}
 }
@@ -240,7 +240,7 @@ func TestSigningKeyCollisionsAreRefusedBeforeMutation(t *testing.T) {
 		t.Fatalf("colliding keys = %v, calls=%v", err, f.calls)
 	}
 	f.records = []string{"example.com. 60 IN DNSKEY " + keys[0].DNSKEY, "example.com. 60 IN DNSKEY " + keys[1].DNSKEY}
-	if got, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err == nil || got != nil {
+	if got, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err == nil || got != nil {
 		t.Fatalf("colliding keys were conflated: %+v, %v", got, err)
 	}
 }
@@ -248,7 +248,7 @@ func TestSigningKeyCollisionsAreRefusedBeforeMutation(t *testing.T) {
 func TestMalformedSigningRecordParenthesesFail(t *testing.T) {
 	for _, text := range []string{"( AA", "AA )", "(( AA ))", "( AA ) ( BB )"} {
 		p, _ := newSigningRegistry(t, []string{"example.com. 60 IN DS 1 13 2 " + text})
-		if keys, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err == nil || keys != nil {
+		if keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err == nil || keys != nil {
 			t.Fatalf("malformed parentheses = %+v, %v", keys, err)
 		}
 	}
@@ -261,7 +261,7 @@ func TestSigningKeyReadsHandleOddRDATAAndRSAKeyTags(t *testing.T) {
 		"example.com. 60 IN DNSKEY 257 3 13 AQ==",
 		"example.com. 60 IN DNSKEY 257 3 1 AQIDBA==",
 	})
-	keys, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
+	keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
 	if err != nil || len(keys) != 2 || keys[0].KeyTag != 515 || keys[1].KeyTag != 1294 {
 		t.Fatalf("computed key tags = %+v, %v", keys, err)
 	}
@@ -275,7 +275,7 @@ func TestRegistrationLookupFailuresDoNotInventAbsence(t *testing.T) {
 		p, f := newSigningRegistry(t, "disabled")
 		f.fail["/Domain/Info"] = `{"status":"FAILURE","code":100005,"message":"Permission denied"}`
 		f.fail["/Domain/List"] = body
-		_, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
+		_, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
 		if !errors.Is(err, dnsprovider.ErrUnauthorized) || errors.Is(err, dnsprovider.ErrNotFound) {
 			t.Fatalf("failed inventory became absence: %v", err)
 		}

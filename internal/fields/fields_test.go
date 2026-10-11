@@ -15,7 +15,7 @@ import (
 var testFields = []dnsprovider.Field{{Name: "token", Label: "API token", Secret: true}}
 
 func TestFactoryRefusesAnUnknownFieldBeforeBuilding(t *testing.T) {
-	f := fields.Factory("test", testFields, func(map[string]string, ...dnsprovider.Option) (*providertest.Provider, error) {
+	f := fields.Factory("test", testFields, dnsprovider.Traits{}, func(map[string]string, ...dnsprovider.Option) (*providertest.Provider, error) {
 		t.Error("built the Provider from a field map with an unknown field")
 
 		return providertest.New(), nil
@@ -29,7 +29,7 @@ func TestFactoryRefusesAnUnknownFieldBeforeBuilding(t *testing.T) {
 
 func TestFactoryReturnsANilProviderWhenBuildingFails(t *testing.T) {
 	boom := errors.New("boom")
-	f := fields.Factory("test", testFields, func(map[string]string, ...dnsprovider.Option) (*providertest.Provider, error) {
+	f := fields.Factory("test", testFields, dnsprovider.Traits{}, func(map[string]string, ...dnsprovider.Option) (*providertest.Provider, error) {
 		return nil, boom
 	})
 
@@ -48,7 +48,7 @@ func TestFactoryPassesTheFieldsAndOptionsThrough(t *testing.T) {
 
 	var gotOpts int
 
-	f := fields.Factory("test", testFields, func(m map[string]string, opts ...dnsprovider.Option) (*providertest.Provider, error) {
+	f := fields.Factory("test", testFields, dnsprovider.Traits{}, func(m map[string]string, opts ...dnsprovider.Option) (*providertest.Provider, error) {
 		gotToken, gotOpts = m["token"], len(opts)
 
 		return providertest.New(), nil
@@ -76,7 +76,7 @@ var egressFields = []dnsprovider.Field{
 func TestFactoryFillsInAMissingFieldWithItsDefault(t *testing.T) {
 	var got map[string]string
 
-	f := fields.Factory("test", egressFields, func(m map[string]string, _ ...dnsprovider.Option) (*providertest.Provider, error) {
+	f := fields.Factory("test", egressFields, dnsprovider.Traits{}, func(m map[string]string, _ ...dnsprovider.Option) (*providertest.Provider, error) {
 		got = m
 
 		return providertest.New(), nil
@@ -100,7 +100,7 @@ func TestFactoryFillsInAMissingFieldWithItsDefault(t *testing.T) {
 }
 
 func TestFactoryRefusesAValueNotAmongTheChoices(t *testing.T) {
-	f := fields.Factory("test", egressFields, func(map[string]string, ...dnsprovider.Option) (*providertest.Provider, error) {
+	f := fields.Factory("test", egressFields, dnsprovider.Traits{}, func(map[string]string, ...dnsprovider.Option) (*providertest.Provider, error) {
 		return providertest.New(), nil
 	})
 
@@ -123,7 +123,7 @@ func TestFactoryRefusesADefaultNotAmongTheChoices(t *testing.T) {
 		{Name: "token", Label: "API token", Secret: true},
 		{Name: "egress", Label: "Egress", Default: "proxy", Choices: []string{"auto", "gateway", "agent"}},
 	}
-	f := fields.Factory("test", bad, func(map[string]string, ...dnsprovider.Option) (*providertest.Provider, error) {
+	f := fields.Factory("test", bad, dnsprovider.Traits{}, func(map[string]string, ...dnsprovider.Option) (*providertest.Provider, error) {
 		t.Error("built the Provider from a Factory whose Default is not among its Choices")
 
 		return providertest.New(), nil

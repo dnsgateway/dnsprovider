@@ -1875,7 +1875,7 @@ func TestCloudflareTakesTTL1AsAutomatic(t *testing.T) {
 }
 
 func TestCloudflareProxyFlagIsTheNeutralExtra(t *testing.T) {
-	// A consumer that only knows dnsprovider.ProxyFlag reads and writes the
+	// A consumer that only knows ProxiableTypesOf reads and writes the
 	// flag under dnsprovider.ExtraProxied, the key Cloudflare's Records use.
 	if cloudflare.ExtraProxied != dnsprovider.ExtraProxied {
 		t.Fatalf("cloudflare.ExtraProxied = %q, want dnsprovider.ExtraProxied %q", cloudflare.ExtraProxied, dnsprovider.ExtraProxied)

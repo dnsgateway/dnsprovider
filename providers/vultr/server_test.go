@@ -117,7 +117,7 @@ func (s *recordServer) list(w http.ResponseWriter, r *http.Request) {
 	}
 	next := ""
 	if start+size < len(s.order) {
-		next = base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("next__%d", start+size)))
+		next = base64.StdEncoding.EncodeToString(fmt.Appendf(nil, "next__%d", start+size))
 	}
 	json.NewEncoder(w).Encode(map[string]any{"records": rows, "meta": map[string]any{"total": len(s.order), "links": map[string]string{"next": next, "prev": ""}}})
 }

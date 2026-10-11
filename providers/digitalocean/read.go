@@ -14,6 +14,7 @@ import (
 	"unicode"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 	"github.com/dnsgateway/dnsprovider/rest"
 )
@@ -320,7 +321,7 @@ func toRecord(zone string, w wireRecord) (dnsprovider.Record, error) {
 			data = strings.TrimSuffix(data, ".")
 		}
 
-		r.Value = fmt.Sprintf("%d %s %s", *w.Flags, *w.Tag, quote(data))
+		r.Value = fmt.Sprintf("%d %s %s", *w.Flags, *w.Tag, charstr.Quote(data))
 	}
 
 	return r, nil
@@ -335,30 +336,6 @@ func issuer(tag, data string) bool {
 
 	return (tag == "issue" || tag == "issuewild") && data != "" &&
 		!strings.Contains(data, ";") && strings.IndexFunc(data, unicode.IsSpace) < 0
-}
-
-// quote is a CAA value as a presentation character string: a quote or a
-// backslash is escaped by a backslash, a control character as \DDD.
-func quote(s string) string {
-	var b strings.Builder
-
-	b.WriteByte('"')
-
-	for i := range len(s) {
-		switch c := s[i]; {
-		case c == '"' || c == '\\':
-			b.WriteByte('\\')
-			b.WriteByte(c)
-		case c < 32 || c == 127:
-			fmt.Fprintf(&b, "\\%03d", c)
-		default:
-			b.WriteByte(c)
-		}
-	}
-
-	b.WriteByte('"')
-
-	return b.String()
 }
 
 // zoneName is the name of a Zone, or its ID, which is its name, when the

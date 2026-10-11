@@ -96,6 +96,15 @@ type ZoneStatus struct {
 	MinTLS TLSVersion
 }
 
+// ZoneUpdate is the settings an UpdateZone changes: a nil one is left as
+// it is.
+type ZoneUpdate struct {
+	DNSSEC *bool
+	HSTS   *bool
+	// MinTLS is one of TLSVersions.
+	MinTLS *TLSVersion
+}
+
 // SigningKey is a key-signing key of a Zone: its DNSKEY, and the
 // Delegation Signer (DS) records that fix it at the parent zone, each in
 // presentation form after the type. It is one type for the key a

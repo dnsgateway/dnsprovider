@@ -183,7 +183,7 @@ func TestFactory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(factory.Capabilities) != 0 || dnsprovider.CanCreateZone(p) || dnsprovider.CanUpdateZone(p) || dnsprovider.CanDeleteZone(p) || dnsprovider.AutoTTLOf(p) {
+	if len(factory.Capabilities) != 0 || dnsprovider.Can(p, dnsprovider.CapZoneCreator) || dnsprovider.Can(p, dnsprovider.CapZoneUpdater) || dnsprovider.Can(p, dnsprovider.CapZoneDeleter) || dnsprovider.AutoTTLOf(p) {
 		t.Fatal("unexpected capabilities")
 	}
 }

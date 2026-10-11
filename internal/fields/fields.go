@@ -76,16 +76,19 @@ func Fill(known []dnsprovider.Field, m map[string]string) map[string]string {
 // CheckDefaults), a field not in fs (see Check) and a value not among its
 // Choices (see CheckChoices), fills in defaults (see Fill), then builds
 // the Provider with build, which refuses a missing required field. A
-// failed build returns a nil Provider, never a typed nil.
+// failed build returns a nil Provider, never a typed nil. Its Traits are
+// a copy of traits, which the Providers build makes declare too.
 func Factory[P dnsprovider.Provider](
 	provider string,
 	fs []dnsprovider.Field,
+	traits dnsprovider.Traits,
 	build func(m map[string]string, opts ...dnsprovider.Option) (P, error),
 ) dnsprovider.Factory {
 	declared := CheckDefaults(provider, fs)
 
 	return dnsprovider.Factory{
 		Fields: fs,
+		Traits: traits.Clone(),
 		New: func(m map[string]string, opts ...dnsprovider.Option) (dnsprovider.Provider, error) {
 			if declared != nil {
 				return nil, declared

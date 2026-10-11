@@ -35,6 +35,8 @@ type Config struct {
 
 // Provider is one main API user or restricted sub-user.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	cfg     Config
 	baseURL string
 	client  *http.Client
@@ -200,18 +202,19 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldSubAuthID, Label: "Sub-user authentication ID", Secret: true},
 		{Name: FieldSubAuthUser, Label: "Sub-user username", Secret: true},
 	}
-	f := fields.Factory("cloudns", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	return fields.Factory("cloudns", fs, traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Password: m[FieldPassword], AuthID: m[FieldAuthID], SubAuthID: m[FieldSubAuthID], SubAuthUser: m[FieldSubAuthUser]}, opts...)
 	})
-	f.TTL = ttlRange
-	// Records carry the API's other record fields, such as status, as
-	// text; writes keep them as ClouDNS holds them.
-	f.Extras = []dnsprovider.ExtraSpec{{Key: dnsprovider.ExtraOther, Label: "Record metadata", Kind: dnsprovider.ExtraString}}
-
-	return f
 }
 
-var (
-	_ dnsprovider.Provider  = (*Provider)(nil)
-	_ dnsprovider.TTLLimits = (*Provider)(nil)
-)
+// traits are the Traits of every Provider, which Traits and Factory
+// report. Records carry the API's other record fields, such as status, as
+// text; writes keep them as ClouDNS holds them.
+var traits = dnsprovider.Traits{TTL: ttlRange, Extras: []dnsprovider.ExtraSpec{{Key: dnsprovider.ExtraOther, Label: "Record metadata", Kind: dnsprovider.ExtraString}}}
+
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
+}
+
+var _ dnsprovider.Provider = (*Provider)(nil)

@@ -12,17 +12,13 @@ import (
 	"strings"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
-// TTLRange reports documented bounds. Only the discrete TTLs returned for
-// a Zone by get-available-ttl may be written; no automatic TTL is supported.
-func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return ttlRange.Min, ttlRange.Max
-}
-
-// ttlRange is the TTLRange of every Provider, which TTLRange and
-// Factory report.
+// ttlRange is the TTLRange of every Provider, which its Traits
+// report: the documented bounds. Only the discrete TTLs returned for a
+// Zone by get-available-ttl may be written; no automatic TTL is supported.
 var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 2592000}
 
 func (p *Provider) writeParams(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) (url.Values, error) {
@@ -64,7 +60,7 @@ func (p *Provider) writeParams(ctx context.Context, z dnsprovider.Zone, r dnspro
 	case "CAA":
 		value := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(strings.TrimPrefix(r.Value, f[0])), f[1]))
 		if strings.HasPrefix(value, `"`) {
-			value, err = unquoteDNS(value)
+			value, err = charstr.Unquote(value)
 			if err != nil {
 				return nil, errors.New("cloudns: malformed quoted CAA value")
 			}

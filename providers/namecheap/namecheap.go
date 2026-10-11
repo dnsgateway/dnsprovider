@@ -66,12 +66,18 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldClientIP, Label: "Whitelisted client IPv4"},
 	}
 
-	f := fields.Factory("namecheap", fs, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	return fields.Factory("namecheap", fs, traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{User: m[FieldUser], Key: m[FieldKey], ClientIP: m[FieldClientIP]}, opts...)
 	})
-	f.TTL = ttlRange
+}
 
-	return f
+// traits are the Traits of every Provider, which Traits and Factory
+// report.
+var traits = dnsprovider.Traits{TTL: ttlRange}
+
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
 }
 
 // New builds the Namecheap Provider for an Account, without a network
@@ -126,6 +132,8 @@ const RequestsPerMinute = 20
 
 // Provider is one Namecheap Account.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	// api sends the Account's commands.
 	api *rest.Client
 	// auth are the parameters every request carries.
@@ -133,19 +141,13 @@ type Provider struct {
 }
 
 var (
-	_ dnsprovider.Provider  = (*Provider)(nil)
-	_ dnsprovider.TTLLimits = (*Provider)(nil)
-	_ dnsprovider.Batcher   = (*Provider)(nil)
+	_ dnsprovider.Provider = (*Provider)(nil)
+	_ dnsprovider.Batcher  = (*Provider)(nil)
 )
 
-// TTLRange implements dnsprovider.TTLLimits. Namecheap's "Automatic" TTL is
-// 1799 seconds, an ordinary TTL here.
-func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return ttlRange.Min, ttlRange.Max
-}
-
-// ttlRange is the TTLRange of every Provider, which TTLRange and
-// Factory report.
+// ttlRange is the TTLRange of every Provider, which its Traits
+// report. Namecheap's "Automatic" TTL is 1799 seconds, an ordinary TTL
+// here.
 var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 60000}
 
 // wireDomain is the part of a getList domain that the adapter reads.

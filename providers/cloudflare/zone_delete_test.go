@@ -97,7 +97,7 @@ func newOffboarding(t *testing.T, o *offboard) dnsprovider.Provider {
 var offboardZone = dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingPending}
 
 func TestCloudflareDeletesZonesAndItsFactorySaysSo(t *testing.T) {
-	if !dnsprovider.CanDeleteZone(newProvider(t, &cfAPI{})) {
+	if !dnsprovider.Can(newProvider(t, &cfAPI{}), dnsprovider.CapZoneDeleter) {
 		t.Error("Cloudflare does not delete Zones")
 	}
 

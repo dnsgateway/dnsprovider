@@ -70,7 +70,7 @@ func newOnboarding(t *testing.T, o *onboard) dnsprovider.Provider {
 }
 
 func TestCloudflareCreatesZones(t *testing.T) {
-	if !dnsprovider.CanCreateZone(newProvider(t, &cfAPI{})) {
+	if !dnsprovider.Can(newProvider(t, &cfAPI{}), dnsprovider.CapZoneCreator) {
 		t.Error("Cloudflare does not create Zones")
 	}
 }

@@ -64,6 +64,8 @@ type Config struct {
 
 // Provider manages DNS Zone services of one OVHcloud account.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	creds   credentials
 	baseURL string
 	client  *http.Client
@@ -195,12 +197,21 @@ func Factory() dnsprovider.Factory {
 		{Name: FieldApplicationSecret, Label: "Application secret", Secret: true},
 		{Name: FieldConsumerKey, Label: "Consumer key", Secret: true},
 		{Name: FieldEndpoint, Label: "API endpoint (ovh-eu, ovh-ca or ovh-us)"},
-	}, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	}, traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{
 			ApplicationKey: m[FieldApplicationKey], ApplicationSecret: m[FieldApplicationSecret],
 			ConsumerKey: m[FieldConsumerKey], Endpoint: m[FieldEndpoint],
 		}, opts...)
 	})
+}
+
+// traits are the Traits of every Provider, which Traits and Factory
+// report.
+var traits = dnsprovider.Traits{}
+
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
 }
 
 // syncClock reads the API's clock unless it is known, through the

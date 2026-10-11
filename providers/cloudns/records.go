@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 	"github.com/dnsgateway/dnsprovider/rest"
 )
@@ -85,7 +86,7 @@ func (w wireRecord) public(zone string) (dnsprovider.Record, error) {
 	case "SRV":
 		value = w["priority"] + " " + w["weight"] + " " + w["port"] + " " + target(value)
 	case "CAA":
-		value = w["caa_flag"] + " " + w["caa_type"] + " " + quoteDNS(w["caa_value"])
+		value = w["caa_flag"] + " " + w["caa_type"] + " " + charstr.Quote(w["caa_value"])
 	}
 	extras := maps.Clone(w)
 	for _, k := range []string{"id", "type", "host", "record", "ttl", "priority", "weight", "port", "caa_flag", "caa_type", "caa_value"} {

@@ -157,10 +157,10 @@ func (p *Provider) registryKeys(ctx context.Context, z dnsprovider.Zone) ([]sign
 	return records, nil
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar. DS records are grouped
+// ListDelegationSigners implements dnsprovider.DSRegistrar. DS records are grouped
 // by key tag and algorithm, SHA-256 first, with a DNSKEY when returned. A
 // DNSKEY's tag is computed because Internet.bs does not return it separately.
-func (p *Provider) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+func (p *Provider) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
 	records, err := p.registryKeys(ctx, z)
 	if err != nil {
 		return nil, err
@@ -192,11 +192,27 @@ func (p *Provider) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([
 	return keys, nil
 }
 
-// SetDelegationSigners replaces Registration Signing Keys in one Domain/Update.
+// SetDelegationSigners implements dnsprovider.DSRegistrar through
+// replaceDelegationSigners.
+func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+	if len(keys) == 0 {
+		return dnsprovider.ErrNoSigningKeys
+	}
+
+	return p.replaceDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar through
+// replaceDelegationSigners with no keys.
+func (p *Provider) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.replaceDelegationSigners(ctx, z, nil)
+}
+
+// replaceDelegationSigners replaces Registration Signing Keys in one Domain/Update.
 // Each key's available DS and DNSKEY forms are sent, as the first-party module
 // does, allowing the registry to take the form it needs. An empty dnssec clears
 // the set. SUCCESS or PENDING acknowledges the update, not DNS propagation.
-func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+func (p *Provider) replaceDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	if err := checkZone(z); err != nil {
 		return p.cleanError(err)
 	}

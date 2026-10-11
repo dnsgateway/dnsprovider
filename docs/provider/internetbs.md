@@ -119,14 +119,15 @@ or automatic TTL capability.
 
 ## Registration Signing Keys
 
-The Provider implements `dnsprovider.DSRegistrar`. `DelegationSigners` reads
+The Provider implements `dnsprovider.DSRegistrar`. `ListDelegationSigners` reads
 `Domain/Info`, grouping DS records by key tag and algorithm with any returned
 DNSKEY, and ordering SHA-256 DS records first. A DNSKEY's tag is computed from
 its content. Missing or malformed data fails explicitly; `disabled` means no keys.
 
 `SetDelegationSigners` validates every key before requests, reads the held set,
 and skips an unchanged set. It submits all available DS and DNSKEY forms in
-one `Domain/Update`, or an explicitly empty `dnssec` to clear the set, following
+one `Domain/Update`; `DeleteDelegationSigners` sends an explicitly empty
+`dnssec` to clear the set, following
 the [first-party module](https://github.com/centralnicgroup-opensource/rtldev-middleware-whmcs/blob/edee17784da8b39b3d99f7afff9056e74ac96042/whmcs-ibs-registrar-latest.zip).
 The wire TTL is 86400 because Signing Keys carry no TTL. The update changes
 only the Delegation's Signing Keys. `SUCCESS` and `PENDING` acknowledge it;

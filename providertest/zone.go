@@ -13,15 +13,20 @@ type scopedProvider struct {
 	scope
 }
 
-// Capabilities declares the scripted Zone writes.
-func (p *Provider) Capabilities() []dnsprovider.Capability {
+// Traits declare the scripted Zone writes, TTL range and proxiable types.
+func (p *Provider) Traits() dnsprovider.Traits {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.zoneWrites()
+	return p.traits()
 }
 
-// Capabilities declares the Zone writes scripted when this Provider was built.
-func (p scopedProvider) Capabilities() []dnsprovider.Capability { return slices.Clone(p.writes) }
+// Traits declare the Zone writes scripted when this Provider was built,
+// and the TTL range and proxiable types scripted so far.
+func (p scopedProvider) Traits() dnsprovider.Traits {
+	t := p.Provider.Traits()
+	t.Capabilities = slices.Clone(p.writes)
+	return t
+}
 
 // CreateZone starts scripted DNS hosting.
 func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {

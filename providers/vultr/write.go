@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
@@ -81,7 +82,7 @@ func (p *Provider) toWire(z dnsprovider.Zone, r dnsprovider.Record) (wire, error
 			return wire{}, err
 		}
 
-		w.Data = fmt.Sprintf("%s %s %s", flags, strings.ToLower(tag), quote(value))
+		w.Data = fmt.Sprintf("%s %s %s", flags, strings.ToLower(tag), charstr.Quote(value))
 	}
 
 	return w, nil

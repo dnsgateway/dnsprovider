@@ -45,13 +45,24 @@ type Config struct{ Token string }
 // DigitalOcean.
 func Factory() dnsprovider.Factory {
 	return fields.Factory("digitalocean", []dnsprovider.Field{{Name: FieldToken, Label: "API token", Secret: true}},
-		func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+		traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 			return New(Config{Token: m[FieldToken]}, opts...)
 		})
 }
 
+// traits are the Traits of every Provider, which Traits and Factory
+// report.
+var traits = dnsprovider.Traits{}
+
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
+}
+
 // Provider is one DigitalOcean Account, reached with its token.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	token, baseURL string
 	client         *http.Client
 	limit          *rest.Window

@@ -13,24 +13,19 @@ import (
 	"time"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/batch"
 	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
 var (
-	_ dnsprovider.Provider  = (*Provider)(nil)
-	_ dnsprovider.Batcher   = (*Provider)(nil)
-	_ dnsprovider.TTLLimits = (*Provider)(nil)
+	_ dnsprovider.Provider = (*Provider)(nil)
+	_ dnsprovider.Batcher  = (*Provider)(nil)
 )
 
-// TTLRange is Hetzner's documented numeric TTL range. Inheritance is
-// reported as its effective numeric TTL and is not automatic TTL.
-func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
-	return ttlRange.Min, ttlRange.Max
-}
-
 // ttlRange is the TTL policy used by Record writes and reported by
-// TTLRange and Factory.
+// its Traits: Hetzner's documented numeric TTL range. Inheritance is
+// reported as its effective numeric TTL and is not automatic TTL.
 var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 2147483647}
 
 func normalizeValue(typ, value string) string {
@@ -107,26 +102,17 @@ func restriction(w wireRRset) error {
 
 // CreateRecord adds one value while preserving all RRset siblings.
 func (p *Provider) CreateRecord(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
-	return p.single(ctx, z, dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: r})
+	return batch.Create(ctx, p, z, r)
 }
 
 // UpdateRecord finds before by content, retaining provider metadata.
 func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
-	return p.single(ctx, z, dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: after})
+	return batch.Update(ctx, p, z, before, after)
 }
 
 // DeleteRecord removes only the selected value, deleting an empty RRset.
 func (p *Provider) DeleteRecord(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) error {
-	_, err := p.single(ctx, z, dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: r})
-	return err
-}
-
-func (p *Provider) single(ctx context.Context, z dnsprovider.Zone, c dnsprovider.Change) (dnsprovider.Record, error) {
-	result, err := p.ApplyChangeset(ctx, dnsprovider.Changeset{Zone: z, Changes: []dnsprovider.Change{c}})
-	if err != nil {
-		return dnsprovider.Record{}, err
-	}
-	return result.Results[0].Record, result.Results[0].Err
+	return batch.Delete(ctx, p, z, r)
 }
 
 type plannedValue struct {
@@ -149,7 +135,7 @@ func addIndex(s *plannedSet, i int) {
 
 func findValue(s *plannedSet, value, zone string) int {
 	for i, v := range s.values {
-		if equivalentValue(s.before.Type, readValue(zone, s.before.Type, v.wire.Value), value) {
+		if charstr.Equivalent(s.before.Type, readValue(zone, s.before.Type, v.wire.Value), value) {
 			return i
 		}
 	}
@@ -390,7 +376,7 @@ func (b *batchPlan) verify(component []string, records []dnsprovider.Record) err
 		for _, v := range s.values {
 			found := false
 			for _, r := range stored {
-				if equivalentValue(s.before.Type, readValue(b.zone.Name, s.before.Type, v.wire.Value), r.Value) && v.ttl == r.TTL {
+				if charstr.Equivalent(s.before.Type, readValue(b.zone.Name, s.before.Type, v.wire.Value), r.Value) && v.ttl == r.TTL {
 					found = true
 					break
 				}
@@ -411,7 +397,7 @@ func (b *batchPlan) results(indices []int, records []dnsprovider.Record, res *dn
 		found := false
 		for _, r := range records {
 			target := b.targets[i]
-			if r.Type == target.Type && r.Name == target.Name && r.TTL == target.TTL && equivalentValue(r.Type, r.Value, target.Value) {
+			if r.Type == target.Type && r.Name == target.Name && r.TTL == target.TTL && charstr.Equivalent(r.Type, r.Value, target.Value) {
 				res.Results[i].Record = r
 				found = true
 				break

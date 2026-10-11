@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 )
 
 // writeTypes are the editable types the Domain Records API takes. URI is
@@ -111,51 +112,13 @@ func caaValue(value string) (string, error) {
 		return rest, nil
 	}
 
-	return unquote(rest)
-}
-
-// unquote decodes a presentation character string: \DDD is a decimal
-// byte, and a backslash before any other character stands for it.
-func unquote(s string) (string, error) {
-	if len(s) < 2 || s[len(s)-1] != '"' {
-		return "", fmt.Errorf("digitalocean: the CAA value %s is not closed by a quote", s)
+	v, err := charstr.Unquote(rest)
+	if err != nil {
+		return "", fmt.Errorf("digitalocean: the CAA value %s: %w", rest, err)
 	}
 
-	var b strings.Builder
-
-	for i := 1; i < len(s)-1; i++ {
-		c := s[i]
-
-		switch {
-		case c == '"':
-			return "", fmt.Errorf("digitalocean: the CAA value %s has a stray quote", s)
-		case c != '\\':
-		case i+1 >= len(s)-1:
-			return "", fmt.Errorf("digitalocean: the CAA value %s ends in an incomplete escape", s)
-		case isDigit(s[i+1]):
-			if i+3 >= len(s)-1 || !isDigit(s[i+2]) || !isDigit(s[i+3]) {
-				return "", fmt.Errorf("digitalocean: the CAA value %s has a decimal escape of fewer than three digits", s)
-			}
-
-			n := int(s[i+1]-'0')*100 + int(s[i+2]-'0')*10 + int(s[i+3]-'0')
-			if n > 255 {
-				return "", fmt.Errorf("digitalocean: the CAA value %s has a decimal escape over 255", s)
-			}
-
-			c = byte(n)
-			i += 3
-		default:
-			i++
-			c = s[i]
-		}
-
-		b.WriteByte(c)
-	}
-
-	return b.String(), nil
+	return v, nil
 }
-
-func isDigit(c byte) bool { return c >= '0' && c <= '9' }
 
 // collision fails with ErrConflict when the Zone holds a Record identical
 // to the payload's, whatever its TTL, other than the one with ID exclude.

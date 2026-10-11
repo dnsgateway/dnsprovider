@@ -42,6 +42,8 @@ type Config struct {
 
 // Provider is one Internet.bs account.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	api  *rest.Client
 	auth url.Values
 }
@@ -165,7 +167,9 @@ func (p *Provider) redact(s string) string {
 		var pattern strings.Builder
 		for i := 0; i < len(value); i++ {
 			if form.encoded && value[i] == '%' && i+2 < len(value) {
-				pattern.WriteString("(?i:" + regexp.QuoteMeta(value[i:i+3]) + ")")
+				pattern.WriteString("(?i:")
+				pattern.WriteString(regexp.QuoteMeta(value[i : i+3]))
+				pattern.WriteString(")")
 				i += 2
 			} else {
 				pattern.WriteString(regexp.QuoteMeta(value[i : i+1]))

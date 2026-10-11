@@ -91,10 +91,10 @@ func (p *Provider) registryDS(ctx context.Context, z dnsprovider.Zone) ([]dsValu
 	return out, nil
 }
 
-// DelegationSigners implements dnsprovider.DSRegistrar: the DS records
+// ListDelegationSigners implements dnsprovider.DSRegistrar: the DS records
 // the registry holds for the Zone's domain, one Signing Key per key tag,
 // without its DNSKEY, which Porkbun does not return.
-func (p *Provider) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+func (p *Provider) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
 	ds, err := p.registryDS(ctx, z)
 	if err != nil {
 		return nil, err
@@ -162,7 +162,24 @@ func diffDS(want, held []dsValue) (added, changed, gone []dsValue) {
 	return added, changed, gone
 }
 
-// SetDelegationSigners implements dnsprovider.DSRegistrar: it reads the
+// SetDelegationSigners implements dnsprovider.DSRegistrar through
+// replaceDelegationSigners.
+func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+	if len(keys) == 0 {
+		return dnsprovider.ErrNoSigningKeys
+	}
+
+	return p.replaceDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners implements dnsprovider.DSRegistrar through
+// replaceDelegationSigners with no keys.
+func (p *Provider) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return p.replaceDelegationSigners(ctx, z, nil)
+}
+
+// replaceDelegationSigners replaces the Signing Keys the registry holds
+// with keys, none deleting them all: it reads the
 // DS records the registry holds, then writes only those that differ from
 // the keys' DS. New key tags are added first, so a key rollover keeps a
 // DS in place. Then the changed and gone key tags are deleted. Porkbun
@@ -171,7 +188,7 @@ func diffDS(want, held []dsValue) (added, changed, gone []dsValue) {
 // wanted DS it lacks, the changed ones among them; a deleted DS still
 // held is an error. A failed write stops it, leaving those before it
 // written.
-func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+func (p *Provider) replaceDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	want := make([]dsValue, 0, len(keys))
 	for _, k := range keys {
 		d, err := dsToSend(k)

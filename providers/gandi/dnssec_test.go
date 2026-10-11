@@ -143,7 +143,7 @@ func TestDelegationSignersReadTheRegistryKeys(t *testing.T) {
 	if !dnsprovider.CanRegisterDS(p) {
 		t.Fatal("Gandi is not a DSRegistrar")
 	}
-	keys, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "Example.COM."})
+	keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "Example.COM."})
 	want := []dnsprovider.SigningKey{
 		{DNSKEY: "257 3 13 " + pubA, KeyTag: 2371, DS: []string{"2371 13 2 " + digestA}},
 		{DNSKEY: "256 3 8 " + pubB, KeyTag: 40000, DS: []string{"40000 8 2 " + digestA}},
@@ -155,7 +155,7 @@ func TestDelegationSignersReadTheRegistryKeys(t *testing.T) {
 
 func TestDelegationSignersAreNoneWhenTheRegistryHoldsNoKey(t *testing.T) {
 	_, p := registryAPI(t, "example.com")
-	keys, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
+	keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
 	if err != nil || len(keys) != 0 {
 		t.Fatalf("DelegationSigners=%+v,%v", keys, err)
 	}
@@ -163,7 +163,7 @@ func TestDelegationSignersAreNoneWhenTheRegistryHoldsNoKey(t *testing.T) {
 
 func TestDelegationSignersOfADomainTheAccountDoesNotRegisterAreNotFound(t *testing.T) {
 	_, p := registryAPI(t, "example.com")
-	keys, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.org"})
+	keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.org"})
 	if !errors.Is(err, dnsprovider.ErrNotFound) || keys != nil {
 		t.Fatalf("DelegationSigners=%+v,%v", keys, err)
 	}
@@ -179,7 +179,7 @@ func TestSetDelegationSignersPublishesTheDNSKEYAsASigningKey(t *testing.T) {
 	if want := []string{"replace ksk 13 " + pubA}; !slices.Equal(reg.writes, want) {
 		t.Fatalf("writes=%q, want %q", reg.writes, want)
 	}
-	keys, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
+	keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
 	if err != nil || len(keys) != 1 || keys[0].DNSKEY != "257 3 13 "+pubA {
 		t.Fatalf("DelegationSigners=%+v,%v", keys, err)
 	}
@@ -192,7 +192,7 @@ func TestSetDelegationSignersWithNoKeysDeletesEveryKey(t *testing.T) {
 		heldKey("a1b2", 40000, 8, "ksk", pubB, digestA),
 		heldKey(3, 2371, 13, "ksk", pubA, digestA),
 	)
-	if err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, nil); err != nil {
+	if err := p.DeleteDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err != nil {
 		t.Fatal(err)
 	}
 	if want := []string{"delete 3", "delete a1b2"}; !slices.Equal(reg.writes, want) {
@@ -234,7 +234,7 @@ func TestSetDelegationSignersToTheHeldSetWritesNothing(t *testing.T) {
 	if err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, keys); err != nil || len(reg.writes) != 0 {
 		t.Fatalf("SetDelegationSigners=%v, writes=%q", err, reg.writes)
 	}
-	if err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.org"}, nil); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if err := p.DeleteDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.org"}); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("SetDelegationSigners of another domain=%v", err)
 	}
 }
@@ -267,8 +267,11 @@ func TestSetDelegationSignersErrors(t *testing.T) {
 			}
 			zone := cmp.Or(tc.zone, "example.com")
 			err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: zone}, tc.keys)
+			if len(tc.keys) == 0 {
+				err = p.DeleteDelegationSigners(context.Background(), dnsprovider.Zone{Name: zone})
+			}
 			if !errors.Is(err, tc.kind) {
-				t.Fatalf("SetDelegationSigners=%v, want %v", err, tc.kind)
+				t.Fatalf("write=%v, want %v", err, tc.kind)
 			}
 			if strings.Contains(err.Error(), "pat_test") {
 				t.Fatal("token leaked")
@@ -320,7 +323,7 @@ func TestMalformedSigningKeysFailExplicitly(t *testing.T) {
 			}))
 			defer s.Close()
 			p, _ := gandi.New(gandi.Config{Token: "pat_test"}, dnsprovider.WithBaseURL(s.URL))
-			if _, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err == nil {
+			if _, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err == nil {
 				t.Fatal("malformed response accepted")
 			}
 		})
@@ -335,7 +338,7 @@ func TestTheDomainAPIIsTheSiblingOfLiveDNS(t *testing.T) {
 	}))
 	defer s.Close()
 	p, _ := gandi.New(gandi.Config{Token: "pat_test"}, dnsprovider.WithBaseURL(s.URL+"/v5/livedns/"))
-	if _, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err != nil || path != "/v5/domain/domains/example.com/dnskeys" {
+	if _, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); err != nil || path != "/v5/domain/domains/example.com/dnskeys" {
 		t.Fatalf("DelegationSigners read %s, %v", path, err)
 	}
 }

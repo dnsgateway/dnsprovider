@@ -38,6 +38,8 @@ type Config struct{ Token string }
 
 // Provider manages DNS through a project API token.
 type Provider struct {
+	dnsprovider.UnimplementedZoneWrites
+
 	token, baseURL string
 	client         *http.Client
 	limit          *rest.Window
@@ -64,19 +66,27 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 
 // Factory describes the single secret credential and validates field maps.
 func Factory() dnsprovider.Factory {
-	f := fields.Factory("hetzner", []dnsprovider.Field{{Name: FieldToken, Label: "Project API token", Secret: true}}, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
+	return fields.Factory("hetzner", []dnsprovider.Field{{Name: FieldToken, Label: "Project API token", Secret: true}}, traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
 		return New(Config{Token: m[FieldToken]}, opts...)
 	})
-	f.TTL = ttlRange
-	// Writes keep each value's comment and the RRset's labels and
-	// protection as Hetzner holds them.
-	f.Extras = []dnsprovider.ExtraSpec{
+}
+
+// traits are the Traits of every Provider, which Traits and Factory
+// report.
+// Writes keep each value's comment and the RRset's labels and
+// protection as Hetzner holds them.
+var traits = dnsprovider.Traits{
+	TTL: ttlRange,
+	Extras: []dnsprovider.ExtraSpec{
 		{Key: ExtraComment, Label: "Comment", Kind: dnsprovider.ExtraString},
 		{Key: ExtraProtected, Label: "Change protection", Kind: dnsprovider.ExtraBool},
 		{Key: ExtraLabels, Label: "Labels", Kind: dnsprovider.ExtraJSON},
-	}
+	},
+}
 
-	return f
+// Traits implements dnsprovider.Provider.
+func (p *Provider) Traits() dnsprovider.Traits {
+	return traits.Clone()
 }
 
 func (p *Provider) api() *rest.Client {

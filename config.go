@@ -85,6 +85,10 @@ type Field struct {
 
 // Factory builds one Provider type from a plain field map.
 type Factory struct {
+	// Traits are the Traits of every Provider New builds, as its Traits
+	// method reports them, available before credentials are known.
+	Traits
+
 	// Fields name every field the Provider takes, in form order.
 	Fields []Field
 	// New builds the Provider from the fields, without a network call. It
@@ -92,20 +96,37 @@ type Factory struct {
 	// field, a field not in Fields and a value not among its field's
 	// Choices are errors.
 	New func(fields map[string]string, opts ...Option) (Provider, error)
-	// Capabilities are the supported Zone writes every Provider New builds
-	// declares through Capabilities, available before credentials are known.
-	// Support does not imply permission or a selected Tenant.
+}
+
+// Traits are what a Provider type supports: its Zone writes, its Record
+// TTLs and its Record extras. Its Factory and every Provider it builds
+// declare the same Traits, from one declaration in the adapter.
+type Traits struct {
+	// Capabilities are the supported Zone writes. Support does not imply
+	// permission or a selected Tenant.
 	Capabilities []Capability
-	// TTL is the TTLRange of every Provider New builds, as TTLRangeOf
-	// reports it, for a consumer that knows only the Provider type. The
-	// zero TTLRange stands for DefaultTTLRange; read it through
-	// Factory.TTLRange.
+	// TTL is the TTLRange of the Provider's Records, as TTLRangeOf
+	// reports it. The zero TTLRange stands for DefaultTTLRange; read it
+	// through Traits.TTLRange.
 	TTL TTLRange
-	// Extras are the Record Extras every Provider New builds reads, and
-	// which of them it takes on write, for a consumer that checks or
-	// offers them knowing only the Provider type. A Provider that sets no
-	// extras declares none.
+	// Extras are the Record Extras the Provider reads, and which of them
+	// it takes on write, for a consumer that checks or offers them. A
+	// Provider that sets no extras declares none.
 	Extras []ExtraSpec
+}
+
+// Clone returns a copy of t sharing no slice with it.
+func (t Traits) Clone() Traits {
+	out := Traits{Capabilities: slices.Clone(t.Capabilities), TTL: t.TTL}
+	if t.Extras != nil {
+		out.Extras = make([]ExtraSpec, len(t.Extras))
+		for i, s := range t.Extras {
+			s.Types = slices.Clone(s.Types)
+			out.Extras[i] = s
+		}
+	}
+
+	return out
 }
 
 // ExtraSpec describes one Record extra a Provider reads.
@@ -155,18 +176,18 @@ const (
 // its API's records that the adapter does not model.
 const ExtraOther = "*"
 
-// Extra returns the ExtraSpec f declares for the Record extra key: its
-// own entry, else the ExtraOther entry. It reports false when f declares
+// Extra returns the ExtraSpec t declares for the Record extra key: its
+// own entry, else the ExtraOther entry. It reports false when t declares
 // neither.
-func (f Factory) Extra(key string) (ExtraSpec, bool) {
+func (t Traits) Extra(key string) (ExtraSpec, bool) {
 	var other *ExtraSpec
 
-	for i, s := range f.Extras {
+	for i, s := range t.Extras {
 		switch s.Key {
 		case key:
 			return s, true
 		case ExtraOther:
-			other = &f.Extras[i]
+			other = &t.Extras[i]
 		}
 	}
 
@@ -177,13 +198,13 @@ func (f Factory) Extra(key string) (ExtraSpec, bool) {
 	return ExtraSpec{}, false
 }
 
-// CheckExtras reports an error when r carries a Record extra f does not
+// CheckExtras reports an error when r carries a Record extra t does not
 // declare for r's type, or a bool one (ExtraBool) whose value is not
 // "true" or "false". It does not check which extras a write may
 // change: that takes the Record as last read.
-func (f Factory) CheckExtras(r Record) error {
+func (t Traits) CheckExtras(r Record) error {
 	for _, key := range slices.Sorted(maps.Keys(r.Extras)) {
-		s, ok := f.Extra(key)
+		s, ok := t.Extra(key)
 		if !ok {
 			return fmt.Errorf("Record extra %q is not one the Provider reads", key)
 		}
@@ -200,11 +221,11 @@ func (f Factory) CheckExtras(r Record) error {
 	return nil
 }
 
-// ProxiableTypes returns the Record types f's Providers can proxy, as
+// ProxiableTypes returns the Record types a Provider of t can proxy, as
 // ProxiableTypesOf reports them: the Types of its ExtraProxied entry,
 // none without one.
-func (f Factory) ProxiableTypes() []string {
-	for _, s := range f.Extras {
+func (t Traits) ProxiableTypes() []string {
+	for _, s := range t.Extras {
 		if s.Key == ExtraProxied {
 			return slices.Clone(s.Types)
 		}
@@ -213,20 +234,20 @@ func (f Factory) ProxiableTypes() []string {
 	return nil
 }
 
-// TTLRange returns the TTLs f's Providers take: f.TTL, or DefaultTTLRange
-// when f leaves it zero.
-func (f Factory) TTLRange() TTLRange {
-	if f.TTL == (TTLRange{}) {
+// TTLRange returns the TTLs a Provider of t takes: t.TTL, or
+// DefaultTTLRange when t leaves it zero.
+func (t Traits) TTLRange() TTLRange {
+	if t.TTL == (TTLRange{}) {
 		return DefaultTTLRange
 	}
 
-	return f.TTL
+	return t.TTL
 }
 
-// Capability names a supported Zone write declared by a Provider or its Factory.
+// Capability names a supported Zone write declared in Traits.
 type Capability string
 
-// The capabilities a Factory declares.
+// The capabilities Traits declare.
 const (
 	// CapZoneCreator declares support for Onboarding zone names.
 	CapZoneCreator Capability = "ZoneCreator"
@@ -236,9 +257,9 @@ const (
 	CapZoneDeleter Capability = "ZoneDeleter"
 )
 
-// Can reports whether f declares its Providers support c.
-func (f Factory) Can(c Capability) bool {
-	return slices.Contains(f.Capabilities, c)
+// Can reports whether t declares support for c.
+func (t Traits) Can(c Capability) bool {
+	return slices.Contains(t.Capabilities, c)
 }
 
 // Registry maps a Provider type, such as "cloudflare", to its Factory.

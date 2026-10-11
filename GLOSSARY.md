@@ -37,3 +37,10 @@ _Avoid_: Hosting State, DNS status
 Whether a Provider's Zone signing is Unknown, Off, On, or Pending. Pending
 includes both signing and unsigning in progress; Unknown does not establish Off.
 _Avoid_: DNSSEC validity, Delegation state
+
+**Traits**:
+What a Provider type supports, declared once by its adapter: the Zone
+writes it implements, its Record TTL range (and whether it has an automatic
+TTL), and the Record Extras it reads and writes. Known before credentials;
+support does not imply permission or a selected Tenant.
+_Avoid_: capabilities (for the whole set), features, limits

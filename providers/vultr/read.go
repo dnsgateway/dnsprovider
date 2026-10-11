@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 	"github.com/dnsgateway/dnsprovider/rest"
 )
@@ -244,7 +245,7 @@ func value(typ, data string, priority *int64) (string, bool) {
 			return "", false
 		}
 
-		return fmt.Sprintf("%s %s %s", flags, tag, quote(v)), true
+		return fmt.Sprintf("%s %s %s", flags, tag, charstr.Quote(v)), true
 	}
 
 	return data, true
@@ -312,74 +313,11 @@ func caaFields(s string) (flags, tag, value string, err error) {
 		return f[0], f[1], rest, nil
 	}
 
-	value, err = unquote(rest)
-
-	return f[0], f[1], value, err
-}
-
-// quote is a CAA value as a presentation character string: a quote or a
-// backslash is escaped by a backslash, a control character as \DDD.
-func quote(s string) string {
-	var b strings.Builder
-
-	b.WriteByte('"')
-
-	for i := range len(s) {
-		switch c := s[i]; {
-		case c == '"' || c == '\\':
-			b.WriteByte('\\')
-			b.WriteByte(c)
-		case c < 32 || c == 127:
-			fmt.Fprintf(&b, "\\%03d", c)
-		default:
-			b.WriteByte(c)
-		}
+	if value, err = charstr.Unquote(rest); err != nil {
+		return "", "", "", fmt.Errorf("vultr: the CAA value %s: %w", rest, err)
 	}
 
-	b.WriteByte('"')
-
-	return b.String()
-}
-
-// unquote decodes a presentation character string: \DDD is a decimal
-// byte, and a backslash before any other character stands for it.
-func unquote(s string) (string, error) {
-	if len(s) < 2 || s[len(s)-1] != '"' {
-		return "", fmt.Errorf("vultr: the CAA value %s is not closed by a quote", s)
-	}
-
-	var b strings.Builder
-
-	for i := 1; i < len(s)-1; i++ {
-		c := s[i]
-
-		switch {
-		case c == '"':
-			return "", fmt.Errorf("vultr: the CAA value %s has a stray quote", s)
-		case c != '\\':
-		case i+1 >= len(s)-1:
-			return "", fmt.Errorf("vultr: the CAA value %s ends in an incomplete escape", s)
-		case isDigit(s[i+1]):
-			if i+3 >= len(s)-1 || !isDigit(s[i+2]) || !isDigit(s[i+3]) {
-				return "", fmt.Errorf("vultr: the CAA value %s has a decimal escape of fewer than three digits", s)
-			}
-
-			n := int(s[i+1]-'0')*100 + int(s[i+2]-'0')*10 + int(s[i+3]-'0')
-			if n > 255 {
-				return "", fmt.Errorf("vultr: the CAA value %s has a decimal escape over 255", s)
-			}
-
-			c = byte(n)
-			i += 3
-		default:
-			i++
-			c = s[i]
-		}
-
-		b.WriteByte(c)
-	}
-
-	return b.String(), nil
+	return f[0], f[1], value, nil
 }
 
 func isDigit(c byte) bool { return c >= '0' && c <= '9' }

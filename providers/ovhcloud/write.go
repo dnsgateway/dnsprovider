@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/batch"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
@@ -28,35 +30,19 @@ var editable = []string{"A", "AAAA", "CAA", "CNAME", "MX", "NS", "SRV", "TXT"}
 // CreateRecord stages the Record, refreshes the Zone and returns the
 // Record as the API stored it.
 func (p *Provider) CreateRecord(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
-	return p.applyOne(ctx, z, dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: r})
+	return batch.Create(ctx, p, z, r)
 }
 
 // UpdateRecord finds before by its native ID (or, without one, by its
 // content), stages the edit, refreshes the Zone and reads the stored
 // Record back. A type change replaces the Record, so its ID changes.
 func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
-	return p.applyOne(ctx, z, dnsprovider.Change{Kind: dnsprovider.ChangeModify, Before: before, After: after})
+	return batch.Update(ctx, p, z, before, after)
 }
 
 // DeleteRecord deletes only the selected Record and refreshes the Zone.
 func (p *Provider) DeleteRecord(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) error {
-	_, err := p.applyOne(ctx, z, dnsprovider.Change{Kind: dnsprovider.ChangeDelete, Before: r})
-
-	return err
-}
-
-// applyOne applies one change as a Changeset of its own.
-func (p *Provider) applyOne(ctx context.Context, z dnsprovider.Zone, c dnsprovider.Change) (dnsprovider.Record, error) {
-	res, err := p.ApplyChangeset(ctx, dnsprovider.Changeset{Zone: z, Changes: []dnsprovider.Change{c}})
-	if len(res.Results) == 1 && res.Results[0].Err != nil {
-		return dnsprovider.Record{}, res.Results[0].Err
-	}
-
-	if err != nil {
-		return dnsprovider.Record{}, err
-	}
-
-	return res.Results[0].Record, nil
+	return batch.Delete(ctx, p, z, r)
 }
 
 // ApplyChangeset stages each change in Apply's order, then refreshes the
@@ -158,7 +144,7 @@ func prepareRecord(zone string, r dnsprovider.Record) (dnsprovider.Record, error
 }
 
 func sameContent(a, b dnsprovider.Record) bool {
-	return a.Type == b.Type && strings.EqualFold(a.Name, b.Name) && (a.Value == b.Value || equivalentValue(a.Type, a.Value, b.Value))
+	return a.Type == b.Type && strings.EqualFold(a.Name, b.Name) && (a.Value == b.Value || charstr.Equivalent(a.Type, a.Value, b.Value))
 }
 
 // find locates a Record as last read: by native ID, or by content.

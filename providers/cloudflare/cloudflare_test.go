@@ -1808,7 +1808,7 @@ func TestRecordsPutThePriorityInTheValue(t *testing.T) {
 
 func TestRecordsAreOneListingWithNoSerial(t *testing.T) {
 	// Cloudflare's v4 API has no SOA serial short of a BIND export of the
-	// whole Zone; a consumer asks the Zone's nameservers for it instead.
+	// whole Zone; query the Zone's nameservers for the serial instead.
 	api := &cfAPI{records: map[string][]map[string]any{"z1": {cfRecord("r1", "A", "example.com", "192.0.2.1", 1, true, true)}}}
 	p := newProvider(t, api)
 

@@ -352,7 +352,7 @@ var recordTypes = []string{"A", "AAAA", "CAA", "CNAME", "MX", "NS", "SOA", "SRV"
 // one type it holds itself; a type it does not hold is filtered here, from
 // the whole list, so it finds none rather than failing. The name filter,
 // and the type again, are applied with dnsprovider.MatchRecord. GoDaddy
-// reports no SOA serial: A consumer asks the Zone's nameservers for it.
+// reports no SOA serial: query the Zone's nameservers for it.
 func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	typ := strings.ToUpper(f.Type)
 	if !slices.Contains(recordTypes, typ) {

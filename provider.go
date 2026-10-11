@@ -64,8 +64,8 @@ func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error
 
 // ZoneCreator is implemented by a Provider that can Onboard a zone name,
 // such as Cloudflare ("add a site"). It starts DNS hosting only; it never
-// registers the domain. It is a Zone write: a consumer asks the user
-// first.
+// registers the domain. This is a Zone write and should be explicitly
+// authorized before use.
 type ZoneCreator interface {
 	// CreateZone Onboards a zone name in the Provider's Tenant and returns
 	// the new Zone as Zones reports it: normally Pending, with the
@@ -90,7 +90,8 @@ func CanCreateZone(p Provider) bool {
 }
 
 // ZoneUpdater is implemented by a Provider that changes Zone settings,
-// such as Cloudflare. It is a Zone write: a consumer asks the user first.
+// such as Cloudflare. This is a Zone write and should be explicitly
+// authorized before use.
 type ZoneUpdater interface {
 	// UpdateZone changes the settings u sets, leaving those it leaves nil
 	// as they are, and returns the Zone Status as it is after the change:
@@ -121,7 +122,7 @@ func CanUpdateZone(p Provider) bool {
 // ZoneDeleter is implemented by a Provider that can Offboard a Zone, such
 // as Cloudflare: stop hosting it and drop its Records there. It never
 // touches the domain's registration. It is a Zone write that cannot be
-// undone: a consumer asks the user first, and never Offboards the Live
+// undone: callers should authorize it first, and it never Offboards the Live
 // Zone, which would stop the domain resolving.
 type ZoneDeleter interface {
 	// DeleteZone Offboards the Zone by its ID, as Zones or Zone read it.
@@ -186,7 +187,7 @@ func SigningKeysOf(ctx context.Context, p Provider, zone Zone) ([]SigningKey, er
 // DSRegistrar is implemented by a Provider that registers domains and
 // can replace the Delegation Signer (DS) records the registry publishes
 // for them, such as Porkbun or Gandi: a registrar adapter. Writing them
-// changes the Delegation, so a consumer asks the user to confirm the set
+// changes the Delegation, so callers should confirm the set
 // first; it never changes the Delegation's NS records.
 type DSRegistrar interface {
 	// DelegationSigners returns the Signing Keys the registry holds for

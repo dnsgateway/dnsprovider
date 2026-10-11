@@ -7,21 +7,11 @@ import (
 	"slices"
 )
 
-// Apply applies a Changeset. It first re-reads the Records the Changeset
-// modifies or deletes and, when any no longer matches its Before, refuses
-// the whole Changeset with a *StaleError (ErrStale) and writes nothing.
-// The re-check is one read more than the Changeset's writes take, also
-// where a Batcher reads the Zone again itself (Namecheap's getHosts before
-// its setHosts): it is made the same way for every Provider, with a
-// Batcher or without, so every one refuses a stale Changeset alike.
-// It then applies the Changeset through the Provider's Batcher when it has
-// one, otherwise one CRUD call per change, deletions first, then
-// modifications, then additions, so a Record that takes another's place
-// does not collide with it. A failed change does not stop the others,
-// unless it failed with ErrNoTenant: that is the Provider's condition, not
-// the change's, so no other change would succeed, and Apply returns it as
-// the Changeset's error without trying the rest. The results are in
-// Changeset order; without a Batcher they carry no serial.
+// Apply rechecks Records modified or deleted by the Changeset and refuses
+// writes with *StaleError (ErrStale) if any differ from their Before. It
+// then uses the Provider's Batcher or applies changes in deletion,
+// modification, and addition order. Individual failures do not stop other
+// changes, except ErrNoTenant. Results follow Changeset order.
 func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
 	if err := recheck(ctx, p, cs); err != nil {
 		return ApplyResult{}, err

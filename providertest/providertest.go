@@ -301,12 +301,10 @@ func (p *Provider) SetSigningKeys(zoneID string, keys ...dnsprovider.SigningKey)
 	p.readKeys = true
 }
 
-// SetRegistration scripts a Zone as a Registration: the Account
-// registers its domain, and the registry holds keys as its DS records. It
-// makes the Providers New builds a dnsprovider.DSRegistrar, recorded as
-// OpDelegationSigners and OpSetDelegationSigners, which replaces keys;
-// another Zone is not registered by the Account, ErrNotFound. Unscripted,
-// they do not implement it, as a Provider that cannot write DS records.
+// SetRegistration scripts a Zone as a Registration and enables the
+// dnsprovider.DSRegistrar methods, recorded as OpDelegationSigners and
+// OpSetDelegationSigners. Other Zones return ErrNotFound; without this
+// script, the Provider does not implement DSRegistrar.
 func (p *Provider) SetRegistration(zoneID string, keys ...dnsprovider.SigningKey) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -381,15 +379,11 @@ func (p *Provider) SetBatcher(on bool) {
 	p.batcher = on
 }
 
-// SetZoneUpdater makes the Providers New builds implement
-// dnsprovider.ZoneUpdater, recorded as OpUpdateZone: UpdateZone turns
-// HSTS On or Off and sets the minimum TLS version as it is given, and
-// DNSSEC, either way, Pending, as
-// Cloudflare signs and unsigns a Zone over time, in the scripted Zone
-// Status, which a fake that reads Zone Status (see SetZoneStatus) then
-// reports, and returns that Zone Status; SetZoneStatus settles DNSSEC.
-// Unscripted, they do not implement it, unless another Zone write is
-// scripted, when it refuses with dnsprovider.ErrNotImplemented.
+// SetZoneUpdater enables dnsprovider.ZoneUpdater and records calls as
+// OpUpdateZone. Updates apply HSTS and MinTLS as given and set DNSSEC to
+// Pending; SetZoneStatus controls the reported DNSSEC state. Without this
+// script, the method is unavailable unless another Zone write is scripted,
+// in which case it returns dnsprovider.ErrNotImplemented.
 func (p *Provider) SetZoneUpdater(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -397,17 +391,11 @@ func (p *Provider) SetZoneUpdater(on bool) {
 	p.updater = on
 }
 
-// SetZoneCreator makes the Providers New builds implement
-// dnsprovider.ZoneCreator, recorded as OpCreateZone: CreateZone adds a
-// Zone of the name, without Records, Pending, with a new ID and the
-// scripted Account's nameservers, as Cloudflare Onboards a zone name, and
-// returns it. The fake's Zones are one Tenant's, the one a Provider is
-// built within: a name the fake holds in a Hosting State other than Moved
-// is dnsprovider.ErrConflict; a Moved Zone's name is Onboarded again
-// beside it. A Provider of a fake scripted with Tenants built without
-// one (see Factory) has nowhere to Onboard it: dnsprovider.ErrNoTenant,
-// recorded. Unscripted, they do not implement it, unless another Zone
-// write is scripted, when it refuses with dnsprovider.ErrNotImplemented.
+// SetZoneCreator enables dnsprovider.ZoneCreator and records calls as
+// OpCreateZone. It creates an empty Pending Zone with a new ID and the
+// scripted Account's nameservers. Existing non-Moved names conflict;
+// without a Tenant it returns ErrNoTenant. Without this script, creation
+// is unavailable unless another Zone write is scripted.
 func (p *Provider) SetZoneCreator(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -415,13 +403,10 @@ func (p *Provider) SetZoneCreator(on bool) {
 	p.creator = on
 }
 
-// SetZoneDeleter makes the Providers New builds implement
-// dnsprovider.ZoneDeleter, recorded as OpDeleteZone with the Zone: DeleteZone
-// removes the Zone of that ID with its Records, as RemoveZone does, as
-// Cloudflare Offboards a Zone; dnsprovider.ErrNotFound for an ID the fake
-// does not hold. Unscripted, they do not implement it, unless another
-// Zone write is scripted, when it refuses with
-// dnsprovider.ErrNotImplemented.
+// SetZoneDeleter enables dnsprovider.ZoneDeleter and records calls as
+// OpDeleteZone. DeleteZone removes the Zone and its Records, or returns
+// dnsprovider.ErrNotFound for an unknown ID. Without this script, deletion
+// is unavailable unless another Zone write is scripted.
 func (p *Provider) SetZoneDeleter(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -478,17 +463,11 @@ func (p *Provider) Calls() []Call {
 // FieldTenant is the Tenant field of a fake scripted with Tenants.
 const FieldTenant = "tenant"
 
-// Factory builds Providers from a field map with one required, secret
-// "token" field, for a consumer's dnsprovider.Registry, and, once Tenants
-// are scripted (SetTenants), an optional FieldTenant marked Tenant, as
-// Cloudflare takes one. As the Factory contract wants, a missing token or
-// a field it does not take is an error. It declares the Zone writes
-// scripted by then (SetZoneUpdater, SetZoneCreator, SetZoneDeleter) as
-// its Capabilities, the TTL range scripted by then (SetTTLRange,
-// SetAutoTTL) as its TTL, and the proxiable types scripted by then
-// (SetProxiableTypes) as its dnsprovider.ExtraProxied extra.
-// Every Provider it builds shares this fake's script; it records each
-// build of valid fields as OpNew with its fields.
+// Factory builds Providers from fields, requiring a secret "token" and
+// optionally accepting FieldTenant when Tenants are scripted. Its
+// Capabilities, TTL range, and ExtraProxied types reflect the scripts set
+// so far. Built Providers share the fake's script; valid builds are
+// recorded as OpNew.
 func (p *Provider) Factory() dnsprovider.Factory {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -681,13 +660,10 @@ func (p *Provider) scripted(z dnsprovider.Zone) dnsprovider.Zone {
 	return z
 }
 
-// SetPartialRecords makes Records of a Zone report a Partial View, as an
-// adapter in front of a Gateway does when the caller's access does not
-// cover every name and type in the Zone. The Records listed stay as
-// scripted. The script is kept by Zone ID, as SetSerial's is: it holds for
-// a Zone added later with that ID, until RemoveZone. Like SetPartialZones
-// and the other on/off toggles, it returns nothing. Unscripted, Records is
-// a Full View.
+// SetPartialRecords makes a Zone's Records report a Partial View while
+// returning the scripted Records. The setting is keyed by Zone ID and
+// remains effective for a later Zone with that ID until RemoveZone.
+// Without this setting, Records reports a Full View.
 func (p *Provider) SetPartialRecords(zoneID string, on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

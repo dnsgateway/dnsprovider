@@ -528,7 +528,7 @@ func listAll[T any](ctx context.Context, perPage int, list func(...option.Reques
 // takes and by name itself, the name "contains" ignoring case; the answer is
 // filtered again with dnsprovider.MatchRecord. The v4 API reports no SOA
 // serial short of a BIND export of the whole Zone, so the RecordSet has
-// none: A consumer asks the Zone's nameservers for it.
+// none: query the Zone's nameservers for it.
 func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	// ZoneID is a param.Field, which only cloudflare-go's root package can
 	// build with F(); importing that package compiles the whole SDK.

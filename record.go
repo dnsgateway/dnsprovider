@@ -236,12 +236,10 @@ func isAlnum(s string) bool {
 	return true
 }
 
-// SameRecord reports whether two Records are the same resource record, as
-// DNS tells them apart: the same type and name, ignoring case and a
-// trailing dot, and the same Value. Their IDs, TTLs and Extras do not
-// count. It is how a Provider that keys Records by content (GoDaddy,
-// Namecheap) finds a Record built without an ID, and how a duplicate is
-// told.
+// SameRecord reports whether two Records have the same DNS type, name
+// (ignoring case and a trailing dot), and Value. IDs, TTLs, and Extras do
+// not count. Providers with content-based IDs use it to find Records
+// without IDs and detect duplicates.
 func SameRecord(a, b Record) bool {
 	return sameRRset(a, b) && a.Value == b.Value
 }

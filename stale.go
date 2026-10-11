@@ -52,14 +52,11 @@ func describeRecord(r Record) string {
 	return fmt.Sprintf("%s %s %q (TTL %d)", r.Type, r.Name, r.Value, r.TTL)
 }
 
-// recheck re-reads the Records a Changeset modifies or deletes and
-// returns a *StaleError when any no longer matches its Before. Every
-// change but an addition is re-checked: a change of no known kind built
-// from a Record too, as it may still be made from it. An addition is
-// built from no Record, so a Changeset of additions alone is not read
-// for. When every Record re-read has one type, the read is filtered by
-// it, and the whole Zone is read again only when that read misses a
-// Before's ID, so the Changeset is stale, for a Record that changed type.
+// recheck re-reads Records modified or deleted by a Changeset and returns
+// a *StaleError if any no longer matches its Before. Additions need no
+// recheck; all other changes do, including changes of unknown kind. Reads
+// are filtered by type when possible, with a whole-Zone read only when a
+// missing ID may indicate that a Record changed type.
 func recheck(ctx context.Context, p Provider, cs Changeset) error {
 	var (
 		touched []Change
@@ -166,15 +163,11 @@ func readAs(before, r Record) bool {
 	return r.ID == before.ID
 }
 
-// current is what became of a Before that live holds no longer as read,
-// as where a Provider keys Records by content (GoDaddy, Namecheap) any
-// change to one changes its ID: among the Records no other change was
-// read from, the one same resource record (SameRecord), whose TTL or
-// Extras changed, or else the one Record of its RRset, whose Value
-// changed. When none or several are, which it became cannot be told: the
-// Record is taken as gone, and current is empty. On a Provider whose IDs
-// hold (Cloudflare) a Before whose ID is gone was deleted, and a lone
-// other Record of its RRset is named as what it became.
+// current identifies what replaced a Before that is no longer present.
+// For content-keyed IDs (GoDaddy, Namecheap), it matches the unique
+// SameRecord or the unique replacement in the RRset. Ambiguous or absent
+// matches are treated as deletion. With stable IDs (Cloudflare), a lone
+// other Record in the RRset is considered the replacement.
 func current(before Record, live []Record, claimed map[int]bool) Record {
 	for _, same := range []func(a, b Record) bool{SameRecord, sameRRset} {
 		var (

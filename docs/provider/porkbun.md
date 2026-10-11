@@ -3,8 +3,8 @@
 Import `providers/porkbun`, or select Registry key `porkbun`. Typed `Config`
 requires `Key` and `Secret`; the equivalent secret field map uses `key` and
 `secret`. Constructors validate locally. Enable API access for each domain
-(or opt in all domains), grant the key `read` and `dns` scopes or `full`, and
-allow the caller's source IP and intended domains in any key restrictions.
+(or opt in all domains), grant the key `read` and `dns` scopes or `full`,
+plus `domains` for DS writes, and allow the caller's source IP and intended domains in any key restrictions.
 `Account` uses authenticated `/ping`, requires confirmed valid credentials
 and these scopes even for an empty Account, and returns the account username
 as Tenant Name when supplied. It does not invent a Tenant ID or nameservers.
@@ -34,21 +34,24 @@ Creates and updates read the stored Record back. `dnsprovider.Apply` provides
 stale checking and ordered CRUD with per-change results; changes are not atomic.
 Mutations are never automatically retried, including after an uncertain reply.
 
-The Provider is a registrar adapter (`dnsprovider.DSRegistrar`), which
-needs the key's `domains` scope (or `full`) for DS writes; `Account` does not
-check for it. `DelegationSigners` reads the registry's DS records with
+The Provider is a registrar adapter (`dnsprovider.DSRegistrar`); its DS
+writes need the `domains` scope (or `full`), which `Account` does not check. `DelegationSigners` reads the registry's DS records with
 `getDnssecRecords`, one Signing Key per key tag, without the DNSKEY, which
 Porkbun does not return. `SetDelegationSigners` sends each key's SHA-256 DS
 (its first DS when it has none), the only form Porkbun takes: a key without
-a DS, or two keys of one key tag, is `ErrUnsupported` before any call. It
-reads the held set and writes only the difference, by key tag, as
-`deleteDnssecRecord` deletes: new key tags are added first, a changed one is
-deleted and added again, and a gone one is deleted last, so a rollover keeps
-a DS in place. The writes are not atomic, and a failure stops them, leaving
-those before it written. A domain not in the Account (`DOMAIN_NOT_FOUND`,
-`DOMAIN_NOT_REGISTERED`, or an `INVALID_DOMAIN` that names the account) is
-`ErrNotFound`; `DNSSEC_ALGORITHM_DEPRECATED` and `DNSSEC_CREATE_FAILED`, the
-registry refusing the DS, are `ErrUnsupported`. Algorithm 8 or 13 with
+a DS, or two keys of one key tag, is `ErrUnsupported` before any call, as
+the module does not compute a DS from a DNSKEY. It reads the held set and
+writes only the difference, by key tag: new key tags are added first, so a
+rollover keeps a DS in place, then changed and gone key tags are deleted.
+`deleteDnssecRecord` takes a key tag, but most registries delete every DS
+matching the key data, so the set is read again and each wanted DS it lacks
+is added back; a deleted DS the registry still holds is an error. The writes
+are not atomic, and a failure stops them, leaving those before it written.
+A domain not in the Account (`DOMAIN_NOT_FOUND`, `DOMAIN_NOT_REGISTERED`, or
+an `INVALID_DOMAIN` that names the account) is `ErrNotFound` on every
+endpoint; `DNSSEC_ALGORITHM_DEPRECATED`, the registry's policy refusing the
+algorithm or digest type, is `ErrUnsupported`. `DNSSEC_CREATE_FAILED`, the
+registry refusing the DS for any reason, stays a plain `APIError`. Algorithm 8 or 13 with
 digest type 2 is accepted by every registry Porkbun serves.
 
 The adapter accepts TTLs from 600 to 4,294,967,295 seconds, without an automatic

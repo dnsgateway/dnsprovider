@@ -291,7 +291,8 @@ then Pending, then the first listed Zone.
 ## Optional Zone operations and settings
 
 Cloudflare implements `ZoneCreator`, `ZoneDeleter`, `ZoneStatusReader`,
-`ZoneUpdater` and `KeyReader`. GoDaddy and Namecheap implement none of these.
+`ZoneUpdater` and `KeyReader`. Porkbun implements `DSRegistrar`. GoDaddy and
+Namecheap implement none of these.
 
 `CreateZone(ctx, name)` Onboards a name with `type: full` in the configured
 Tenant. It returns `ErrNoTenant` without a request when unscoped and

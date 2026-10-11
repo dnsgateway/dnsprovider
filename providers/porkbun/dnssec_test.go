@@ -25,6 +25,9 @@ type registry struct {
 	writes []string
 	// refuse answers a call to the named operation with this error body.
 	refuse map[string]string
+	// deleteAlike makes a delete remove every DS with the algorithm of
+	// the deleted key tag too, as registries that delete by key data do.
+	deleteAlike bool
 }
 
 func registryAPI(t *testing.T, domain string, ds ...map[string]string) (*registry, *porkbun.Provider) {
@@ -76,6 +79,13 @@ func registryAPI(t *testing.T, domain string, ds ...map[string]string) (*registr
 				t.Errorf("unexpected delete %s %s", r.Method, r.URL.Path)
 			}
 			reg.writes = append(reg.writes, "delete "+parts[3])
+			if d, ok := reg.ds[parts[3]]; ok && reg.deleteAlike {
+				for tag, other := range reg.ds {
+					if other["alg"] == d["alg"] {
+						delete(reg.ds, tag)
+					}
+				}
+			}
 			delete(reg.ds, parts[3])
 			w.Write([]byte(`{"status":"SUCCESS"}`))
 		default:
@@ -144,6 +154,28 @@ func TestDelegationSignersOfADomainTheAccountDoesNotRegisterAreNotFound(t *testi
 	}
 }
 
+func TestDelegationSignersNotFoundCodes(t *testing.T) {
+	for _, tc := range []struct {
+		body     string
+		notFound bool
+	}{
+		{`{"status":"ERROR","code":"DOMAIN_NOT_FOUND","message":"not in this account","account":"alice"}`, true},
+		{`{"status":"ERROR","code":"DOMAIN_NOT_REGISTERED","message":"not registered here","account":"alice"}`, true},
+		{`{"status":"ERROR","code":"INVALID_DOMAIN","message":"Invalid domain.","account":"alice"}`, true},
+		{`{"status":"ERROR","code":"INVALID_DOMAIN","message":"invalid domain syntax"}`, false},
+	} {
+		t.Run(tc.body, func(t *testing.T) {
+			reg, p := registryAPI(t, "example.com")
+			reg.refuse["getDnssecRecords"] = tc.body
+			_, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
+			var api *dnsprovider.APIError
+			if err == nil || !errors.As(err, &api) || errors.Is(err, dnsprovider.ErrNotFound) != tc.notFound {
+				t.Fatalf("DelegationSigners=%v, want not found %v", err, tc.notFound)
+			}
+		})
+	}
+}
+
 const (
 	digestA = "1F987CC6583E92DF0890718C42F1A9A3DA1E4F7A2B3C4D5E6F708192A3B4C5D6"
 	digestB = "AB12CD34EF56AB12CD34EF56AB12CD34EF56AB12CD34EF56AB12CD34EF56AB12"
@@ -179,7 +211,8 @@ func TestSetDelegationSignersWithNoKeysRemovesEveryDS(t *testing.T) {
 
 func TestSetDelegationSignersReplacesOnlyWhatDiffers(t *testing.T) {
 	// 2371 stays as it is, 40000 goes, 11111 is new, and 5555 changes
-	// its digest: it is deleted first, as Porkbun deletes by key tag.
+	// its digest: it is deleted, then added again once the deletes are
+	// done, as Porkbun deletes by key tag.
 	reg, p := registryAPI(t, "example.com", ds("2371", "13", "2", digestA), ds("40000", "8", "2", digestB), ds("5555", "13", "2", digestA))
 	keys := []dnsprovider.SigningKey{
 		{KeyTag: 2371, DS: []string{"2371 13 2 " + digestA}},
@@ -189,7 +222,7 @@ func TestSetDelegationSignersReplacesOnlyWhatDiffers(t *testing.T) {
 	if err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, keys); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"create 11111 13 2 " + digestB, "delete 5555", "create 5555 13 2 " + digestB, "delete 40000"}
+	want := []string{"create 11111 13 2 " + digestB, "delete 5555", "delete 40000", "create 5555 13 2 " + digestB}
 	if !slices.Equal(reg.writes, want) {
 		t.Fatalf("writes=%q, want %q", reg.writes, want)
 	}
@@ -227,10 +260,6 @@ func TestSetDelegationSignersErrors(t *testing.T) {
 			name: "an algorithm the registry no longer takes is unsupported", op: "createDnssecRecord", keys: []dnsprovider.SigningKey{key}, kind: dnsprovider.ErrUnsupported,
 			body: `{"status":"ERROR","code":"DNSSEC_ALGORITHM_DEPRECATED","message":"alg 5 is no longer accepted by this registry; use 13"}`,
 		},
-		{
-			name: "a DS the registry refuses is unsupported", op: "createDnssecRecord", keys: []dnsprovider.SigningKey{key}, kind: dnsprovider.ErrUnsupported,
-			body: `{"status":"ERROR","code":"DNSSEC_CREATE_FAILED","message":"2306 Parameter value policy error"}`,
-		},
 		{name: "a key without a DS is unsupported, as Porkbun takes only a DS", keys: []dnsprovider.SigningKey{{DNSKEY: "257 3 13 AAAA", KeyTag: 2371}}, kind: dnsprovider.ErrUnsupported},
 		{name: "two DS of one key tag are unsupported, as Porkbun holds one per key tag", keys: []dnsprovider.SigningKey{key, {KeyTag: 2371, DS: []string{"2371 13 2 " + digestB}}}, kind: dnsprovider.ErrUnsupported},
 	}
@@ -255,13 +284,45 @@ func TestSetDelegationSignersErrors(t *testing.T) {
 	}
 }
 
-func TestAFailedDSRemovalIsNotUnsupported(t *testing.T) {
-	reg, p := registryAPI(t, "example.com", ds("2371", "13", "2", digestA))
-	reg.refuse["deleteDnssecRecord"] = `{"status":"ERROR","code":"DNSSEC_DELETE_FAILED","message":"registry unavailable"}`
-	err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, nil)
-	var api *dnsprovider.APIError
-	if err == nil || !errors.As(err, &api) || errors.Is(err, dnsprovider.ErrUnsupported) || errors.Is(err, dnsprovider.ErrNotFound) {
-		t.Fatalf("SetDelegationSigners=%v", err)
+func TestARegistryFailureIsNotUnsupported(t *testing.T) {
+	// DNSSEC_CREATE_FAILED is the registry refusing the DS for any
+	// reason, not only its algorithm or digest type.
+	for op, body := range map[string]string{
+		"createDnssecRecord": `{"status":"ERROR","code":"DNSSEC_CREATE_FAILED","message":"2306 Parameter value policy error"}`,
+		"deleteDnssecRecord": `{"status":"ERROR","code":"DNSSEC_DELETE_FAILED","message":"registry unavailable"}`,
+	} {
+		t.Run(op, func(t *testing.T) {
+			reg, p := registryAPI(t, "example.com", ds("40000", "8", "2", digestB))
+			reg.refuse[op] = body
+			keys := []dnsprovider.SigningKey{{KeyTag: 2371, DS: []string{"2371 13 2 " + digestA}}}
+			if op == "deleteDnssecRecord" {
+				keys = nil
+			}
+			err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, keys)
+			var api *dnsprovider.APIError
+			if err == nil || !errors.As(err, &api) || errors.Is(err, dnsprovider.ErrUnsupported) || errors.Is(err, dnsprovider.ErrNotFound) {
+				t.Fatalf("SetDelegationSigners=%v", err)
+			}
+		})
+	}
+}
+
+func TestSetDelegationSignersRestoresAWantedDSADeleteTookWithIt(t *testing.T) {
+	// Deleting 40000 also takes 2371, which shares its algorithm, and
+	// changing 5555 takes 6666 along: each wanted DS is added back.
+	reg, p := registryAPI(t, "example.com", ds("2371", "8", "2", digestA), ds("40000", "8", "2", digestB), ds("5555", "13", "2", digestA), ds("6666", "13", "2", digestB))
+	reg.deleteAlike = true
+	keys := []dnsprovider.SigningKey{
+		{KeyTag: 2371, DS: []string{"2371 8 2 " + digestA}},
+		{KeyTag: 5555, DS: []string{"5555 13 2 " + digestB}},
+		{KeyTag: 6666, DS: []string{"6666 13 2 " + digestB}},
+	}
+	if err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, keys); err != nil {
+		t.Fatal(err)
+	}
+	got, err := p.DelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"})
+	if err != nil || !slices.EqualFunc(got, keys, sameKey) {
+		t.Fatalf("DelegationSigners=%+v,%v, want %+v", got, err, keys)
 	}
 }
 
@@ -270,6 +331,7 @@ func TestMalformedDNSSECRecordsFailExplicitly(t *testing.T) {
 		`{"status":"SUCCESS"}`, `{"status":"SUCCESS","records":null}`, `{"status":"SUCCESS","records":"none"}`,
 		`{"status":"SUCCESS","records":{"2371":{"keyTag":"2371","alg":"13","digestType":"2","digest":"not hex"}}}`,
 		`{"status":"SUCCESS","records":{"2371":{"keyTag":"70000","alg":"13","digestType":"2","digest":"AB"}}}`,
+		`{"status":"SUCCESS","records":{"2371":{"keyTag":"2372","alg":"13","digestType":"2","digest":"AB"}}}`,
 	} {
 		t.Run(body, func(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) }))
@@ -279,5 +341,13 @@ func TestMalformedDNSSECRecordsFailExplicitly(t *testing.T) {
 				t.Fatal("malformed response accepted")
 			}
 		})
+	}
+}
+
+func TestSetDelegationSignersFailsWhenADeletedDSStays(t *testing.T) {
+	reg, p := registryAPI(t, "example.com", ds("40000", "8", "2", digestB))
+	reg.refuse["deleteDnssecRecord"] = `{"status":"SUCCESS","message":"nothing to delete"}`
+	if err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, nil); err == nil || !strings.Contains(err.Error(), "40000") {
+		t.Fatalf("SetDelegationSigners=%v", err)
 	}
 }

@@ -39,8 +39,14 @@ const (
 	OpZoneStatus   Op = "ZoneStatus"
 	// OpSigningKeys is the KeyReader's SigningKeys; see SetSigningKeys.
 	OpSigningKeys Op = "SigningKeys"
-	OpAccount     Op = "Account"
-	OpTenants     Op = "Tenants"
+	// OpDelegationSigners is the DSRegistrar's DelegationSigners; see
+	// SetRegistration.
+	OpDelegationSigners Op = "DelegationSigners"
+	// OpSetDelegationSigners is the DSRegistrar's SetDelegationSigners;
+	// see SetRegistration.
+	OpSetDelegationSigners Op = "SetDelegationSigners"
+	OpAccount              Op = "Account"
+	OpTenants              Op = "Tenants"
 	// OpUpdateZone is the ZoneUpdater's UpdateZone; see SetZoneUpdater.
 	OpUpdateZone Op = "UpdateZone"
 	// OpCreateZone is the ZoneCreator's CreateZone; see SetZoneCreator.
@@ -67,6 +73,8 @@ type Call struct {
 	Change dnsprovider.Change
 	// ZoneUpdate is set for OpUpdateZone.
 	ZoneUpdate dnsprovider.ZoneUpdate
+	// Keys are the Signing Keys written, set for OpSetDelegationSigners.
+	Keys []dnsprovider.SigningKey
 }
 
 // Provider is the fake. Its zero value is not usable; call New.
@@ -80,6 +88,8 @@ type Provider struct {
 	readStatus     bool                                // whether Zone Status is scripted
 	keys           map[string][]dnsprovider.SigningKey // by Zone ID
 	readKeys       bool                                // whether signing keys are scripted
+	registryKeys   map[string][]dnsprovider.SigningKey // by Zone ID of each Registration: the keys its registry holds
+	dsRegistrar    bool                                // whether built Providers are DSRegistrars
 	account        dnsprovider.AccountInfo
 	tenants        []dnsprovider.Tenant // nil when not scripted
 	fail           map[Op]error
@@ -107,6 +117,7 @@ func New() *Provider {
 		hosting:        map[string]dnsprovider.HostingState{},
 		status:         map[string]dnsprovider.ZoneStatus{},
 		keys:           map[string][]dnsprovider.SigningKey{},
+		registryKeys:   map[string][]dnsprovider.SigningKey{},
 		fail:           map[Op]error{},
 		partialRecords: map[string]bool{},
 	}
@@ -153,7 +164,8 @@ func (p *Provider) SetSerial(zoneID string, serial uint32) *Provider {
 
 // RemoveZone drops a scripted Zone, as if it was deleted outside the
 // consumer, with its Records, serial, Hosting State, Zone Status, signing
-// keys and Partial View: a Zone added again with the same ID starts clean.
+// keys, Registration and Partial View: a Zone added again with the same ID
+// starts clean.
 func (p *Provider) RemoveZone(zoneID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -164,6 +176,7 @@ func (p *Provider) RemoveZone(zoneID string) {
 	delete(p.hosting, zoneID)
 	delete(p.status, zoneID)
 	delete(p.keys, zoneID)
+	delete(p.registryKeys, zoneID)
 	delete(p.partialRecords, zoneID)
 }
 
@@ -209,8 +222,8 @@ func (p *Provider) SetAutoTTL(on bool) {
 
 // The fake implements the optional interfaces whose absence the
 // dnsprovider helpers read as their unscripted answer, such as
-// TTLRangeOf's DefaultTTLRange. TenantLister, ZoneStatusReader and
-// KeyReader, which a consumer may branch on, and Batcher, which changes how
+// TTLRangeOf's DefaultTTLRange. TenantLister, ZoneStatusReader, KeyReader
+// and DSRegistrar, which a consumer may branch on, and Batcher, which changes how
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted: one type per combination, generated (see
 // gen_wrappers.go) and picked by build. So are ZoneUpdater, ZoneCreator
@@ -286,6 +299,20 @@ func (p *Provider) SetSigningKeys(zoneID string, keys ...dnsprovider.SigningKey)
 
 	p.keys[zoneID] = cloneKeys(keys)
 	p.readKeys = true
+}
+
+// SetRegistration scripts a Zone as a Registration: the Account
+// registers its domain, and the registry holds keys as its DS records. It
+// makes the Providers New builds a dnsprovider.DSRegistrar, recorded as
+// OpDelegationSigners and OpSetDelegationSigners, which replaces keys;
+// another Zone is not registered by the Account, ErrNotFound. Unscripted,
+// they do not implement it, as a Provider that cannot write DS records.
+func (p *Provider) SetRegistration(zoneID string, keys ...dnsprovider.SigningKey) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	p.registryKeys[zoneID] = cloneKeys(keys)
+	p.dsRegistrar = true
 }
 
 // cloneKeys is a deep copy of keys.
@@ -547,6 +574,10 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 
 	if p.readKeys {
 		set |= optKeyReader
+	}
+
+	if p.dsRegistrar {
+		set |= optDSRegistrar
 	}
 
 	if p.batcher {
@@ -854,6 +885,50 @@ func (p *Provider) signingKeys(_ context.Context, z dnsprovider.Zone) ([]dnsprov
 	defer p.mu.Unlock()
 
 	return cloneKeys(p.keys[z.ID]), nil
+}
+
+// delegationSigners is the DS the registry holds for a Registration, for
+// dnsprovider.DSRegistrar; ErrNotFound for a Zone not scripted as one.
+func (p *Provider) delegationSigners(_ context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	if err := p.record(Call{Op: OpDelegationSigners, Zone: z}); err != nil {
+		return nil, err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	keys, ok := p.registryKeys[z.ID]
+	if !ok {
+		return nil, notRegistered(z)
+	}
+
+	return cloneKeys(keys), nil
+}
+
+// setDelegationSigners replaces the DS the registry holds for a
+// Registration with keys, for dnsprovider.DSRegistrar; ErrNotFound for a
+// Zone not scripted as one.
+func (p *Provider) setDelegationSigners(_ context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+	if err := p.record(Call{Op: OpSetDelegationSigners, Zone: z, Keys: cloneKeys(keys)}); err != nil {
+		return err
+	}
+
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if _, ok := p.registryKeys[z.ID]; !ok {
+		return notRegistered(z)
+	}
+
+	p.registryKeys[z.ID] = cloneKeys(keys)
+
+	return nil
+}
+
+// notRegistered is the DSRegistrar's error for a Zone not scripted as a
+// Registration: the Account does not register its domain.
+func notRegistered(z dnsprovider.Zone) error {
+	return fmt.Errorf("providertest: %s is not registered by the Account: %w", z.Name, dnsprovider.ErrNotFound)
 }
 
 // updateZone is the fake's dnsprovider.ZoneUpdater: it turns HSTS On or

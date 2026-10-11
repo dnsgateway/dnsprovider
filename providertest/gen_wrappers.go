@@ -22,16 +22,16 @@ import (
 type option struct {
 	// Name names the option in the wrapper types and the opt constant.
 	Name string
-	// Methods are the option's interfaces' methods.
-	Methods []method
+	// Ifaces are the option's interfaces.
+	Ifaces []iface
 }
 
-// method is one dnsprovider interface's method, delegating to the fake.
-type method struct {
-	// Iface is the dnsprovider interface.
-	Iface string
-	// Method is the method, delegating to the fake.
-	Method string
+// iface is one dnsprovider interface the fake implements.
+type iface struct {
+	// Name is the dnsprovider interface.
+	Name string
+	// Methods are its methods, each delegating to the fake.
+	Methods []string
 }
 
 // options are each an option: the types are one per combination, so each
@@ -42,64 +42,74 @@ type method struct {
 var options = []option{
 	{
 		Name: "Tenants",
-		Methods: []method{{
-			Iface:  "TenantLister",
-			Method: "Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) { return p.tenantList(ctx) }",
+		Ifaces: []iface{{
+			Name:    "TenantLister",
+			Methods: []string{"Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) { return p.tenantList(ctx) }"},
 		}},
 	},
 	{
 		Name: "ZoneStatus",
-		Methods: []method{{
-			Iface:  "ZoneStatusReader",
-			Method: "ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) { return p.zoneStatus(ctx, z) }",
+		Ifaces: []iface{{
+			Name:    "ZoneStatusReader",
+			Methods: []string{"ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) { return p.zoneStatus(ctx, z) }"},
 		}},
 	},
 	{
 		Name: "KeyReader",
-		Methods: []method{{
-			Iface:  "KeyReader",
-			Method: "SigningKeys(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) { return p.signingKeys(ctx, z) }",
+		Ifaces: []iface{{
+			Name:    "KeyReader",
+			Methods: []string{"SigningKeys(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) { return p.signingKeys(ctx, z) }"},
+		}},
+	},
+	{
+		Name: "DSRegistrar",
+		Ifaces: []iface{{
+			Name: "DSRegistrar",
+			Methods: []string{
+				"DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) { return p.delegationSigners(ctx, z) }",
+				"SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error { return p.setDelegationSigners(ctx, z, keys) }",
+			},
 		}},
 	},
 	{
 		Name: "Batcher",
-		Methods: []method{{
-			Iface:  "Batcher",
-			Method: "ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) { return p.applyChangeset(ctx, cs) }",
+		Ifaces: []iface{{
+			Name:    "Batcher",
+			Methods: []string{"ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) { return p.applyChangeset(ctx, cs) }"},
 		}},
 	},
 	{
 		Name: "ZoneWrites",
-		Methods: []method{
+		Ifaces: []iface{
 			{
-				Iface: "ZoneUpdater",
-				Method: `UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
+				Name: "ZoneUpdater",
+				Methods: []string{`UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
 					if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
 						return dnsprovider.ZoneStatus{}, err
 					}
 
 					return p.updateZone(ctx, z, u)
-				}`,
+				}`},
 			},
 			{
-				Iface: "ZoneCreator",
-				Method: `CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+				Name: "ZoneCreator",
+				Methods: []string{`CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 					if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
 						return dnsprovider.Zone{}, err
 					}
 
 					return p.createZone(ctx, p.unscoped, name)
-				}`,
+				}`},
 			},
 			{
-				Iface: "ZoneDeleter",
-				Method: `DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
+				Name: "ZoneDeleter",
+				Methods: []string{`DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
 					if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
 						return err
 					}
 
 					return p.deleteZone(ctx, z)
-				}`,
+				}`},
 			},
 		},
 	},
@@ -155,10 +165,13 @@ const (
 		fmt.Fprintf(&b, "type %s struct {\n\t*Provider\n\tscope\n}\n\n", typ)
 
 		for _, o := range in {
-			for _, m := range o.Methods {
-				fmt.Fprintf(&b, "// %s implements dnsprovider.%s.\n", strings.SplitN(m.Method, "(", 2)[0], m.Iface)
-				fmt.Fprintf(&b, "func (p %s) %s\n\n", typ, m.Method)
-				fmt.Fprintf(&asserts, "\t_ dnsprovider.%s = %s{}\n", m.Iface, typ)
+			for _, f := range o.Ifaces {
+				for _, m := range f.Methods {
+					fmt.Fprintf(&b, "// %s implements dnsprovider.%s.\n", strings.SplitN(m, "(", 2)[0], f.Name)
+					fmt.Fprintf(&b, "func (p %s) %s\n\n", typ, m)
+				}
+
+				fmt.Fprintf(&asserts, "\t_ dnsprovider.%s = %s{}\n", f.Name, typ)
 			}
 		}
 
@@ -190,8 +203,8 @@ func wrap(p *Provider, set opts, sc scope) dnsprovider.Provider {
 func joinIfaces(in []option) string {
 	var names []string
 	for _, o := range in {
-		for _, m := range o.Methods {
-			names = append(names, "dnsprovider."+m.Iface)
+		for _, f := range o.Ifaces {
+			names = append(names, "dnsprovider."+f.Name)
 		}
 	}
 

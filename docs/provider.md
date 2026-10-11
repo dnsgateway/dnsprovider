@@ -10,7 +10,8 @@ credential storage, caches, UI, and Delegation checks.
 - One vocabulary across adapters for Accounts, Zones, Records, and Changesets.
 - A required core for account verification, Zone reads, and Record CRUD.
 - Optional interfaces for Tenant listing, Zone writes and settings, signing
-  key reads, batch writes, TTL limits, automatic TTLs, and proxy flags.
+  key reads, DS writes at a registrar, batch writes, TTL limits, automatic
+  TTLs, and proxy flags.
 - Exactly filtered lists for consumers without a cache.
 - Shared HTTP plumbing for GoDaddy and Namecheap; Cloudflare uses
   `cloudflare-go/v7`.
@@ -356,6 +357,25 @@ none reads the DNSKEY RRset from the Zone's nameservers. DS digests are in
 upper case. Cloudflare returns the key of its DNSSEC status while the Zone
 is signed, pending or pending-disabled.
 
+```go
+type DSRegistrar interface {
+    DelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
+    SetDelegationSigners(ctx context.Context, zone Zone, keys []SigningKey) error
+}
+```
+
+A registrar adapter, a Provider that registers domains and can replace the
+DS records the registry publishes for them, implements `DSRegistrar`;
+`CanRegisterDS(p)` detects it. `DelegationSigners` returns the Signing Keys
+the registry holds for the Zone's domain, none when it holds none, and
+`ErrNotFound` when the Account does not register the domain: a consumer
+looking for the registrar of a zone name skips that Account.
+`SetDelegationSigners` replaces the whole set; none removes DNSSEC from the
+Delegation. Each adapter sends every key in the form its registrar takes,
+the DNSKEY or the DS, and returns `ErrUnsupported` when the registry refuses
+the key's algorithm, digest type or form for the domain. No adapter
+implements it yet.
+
 ## Applying a Changeset
 
 ```go
@@ -435,10 +455,11 @@ constructed from the sent hosts; no post-write refresh is performed.
 ## Errors
 
 Use `errors.Is` for `ErrRateLimited`, `ErrUnauthorized`, `ErrNotFound`,
-`ErrNotServed`, `ErrConflict`, `ErrNoTenant`, `ErrStale`, and
-`ErrNotImplemented`. `ErrNotServed` is a domain the Account holds but the
+`ErrNotServed`, `ErrConflict`, `ErrNoTenant`, `ErrStale`, `ErrUnsupported`,
+and `ErrNotImplemented`. `ErrNotServed` is a domain the Account holds but the
 Provider serves no DNS for, such as one delegated elsewhere; it also matches
-`ErrNotFound`.
+`ErrNotFound`. `ErrUnsupported` is a DS write the registry refuses for the
+domain.
 `errors.As` exposes `*APIError` or `*StaleError` details.
 
 `APIError` holds Provider, StatusCode, Messages, RetryAfter, and optional
@@ -502,8 +523,11 @@ suite and `go vet ./...` for static checks.
 Records, account data, failures, withheld results or serials, and Partial
 Views (`SetPartialZones`, `SetPartialRecords`). Its
 `Factory` builds Providers sharing the script. Configure optional interfaces
-before building: `SetTenants`, `SetZoneStatus`, `SetSigningKeys`, `SetBatcher`,
-`SetZoneCreator`, `SetZoneUpdater`, and `SetZoneDeleter`. Unscripted Providers
+before building: `SetTenants`, `SetZoneStatus`, `SetSigningKeys`,
+`SetRegistration`, `SetBatcher`, `SetZoneCreator`, `SetZoneUpdater`, and
+`SetZoneDeleter`. `SetRegistration` makes a Zone one the Account registers,
+with the DS records the registry holds; any other Zone is `ErrNotFound` to
+the `DSRegistrar`. Unscripted Providers
 omit those optional interfaces. When any Zone write is scripted, built
 Providers expose all three Zone-write interfaces, but unscripted writes
 return `ErrNotImplemented`; Factory capabilities declare only scripted writes,

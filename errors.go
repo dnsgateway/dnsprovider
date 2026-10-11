@@ -32,6 +32,10 @@ var (
 	// longer holds as they were, so Apply refused it and wrote nothing.
 	// Apply returns it as a *StaleError naming the stale changes.
 	ErrStale = errors.New("the Changeset is stale: Records it was built from changed at the Provider")
+	// ErrUnsupported means the registry refuses a DS write for the
+	// domain: its TLD does not take the key's algorithm, digest type, or
+	// the form the registrar sends it in.
+	ErrUnsupported = errors.New("refused by the registry for this domain")
 	// ErrNotImplemented means the adapter does not support the operation yet.
 	ErrNotImplemented = errors.New("not implemented yet")
 )

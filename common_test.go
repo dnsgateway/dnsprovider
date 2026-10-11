@@ -63,67 +63,6 @@ func TestCanRegisterDSOnlyForADSRegistrar(t *testing.T) {
 	}
 }
 
-// keyHost is a Provider whose API returns the keys it signs a Zone with,
-// or err when set.
-type keyHost struct {
-	dnsprovider.Provider
-
-	err error
-}
-
-func (h keyHost) SigningKeys(context.Context, dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	if h.err != nil {
-		return nil, h.err
-	}
-
-	return []dnsprovider.SigningKey{{
-		DNSKEY: "257 3 13 mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAeF+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
-		KeyTag: 2371,
-		DS:     []string{"2371 13 2 1F987CC6583E92DF0890718C42A2BC8C04E5A60A1D3E1FC1D0C7826A4F47B4C1"},
-	}}, nil
-}
-
-func TestCanReadKeysOnlyForAKeyReader(t *testing.T) {
-	if dnsprovider.CanReadKeys(oneTenant{}) {
-		t.Error("a Provider whose API returns no keys reads them")
-	}
-
-	if !dnsprovider.CanReadKeys(keyHost{}) {
-		t.Error("a KeyReader does not read keys")
-	}
-}
-
-func TestSigningKeysOfAProviderWithoutAReaderAreNone(t *testing.T) {
-	got, err := dnsprovider.SigningKeysOf(context.Background(), oneTenant{}, dnsprovider.Zone{ID: "z1", Name: "example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got != nil {
-		t.Errorf("SigningKeysOf = %+v, want none", got)
-	}
-}
-
-func TestSigningKeysOfAReaderAreWhatItReads(t *testing.T) {
-	got, err := dnsprovider.SigningKeysOf(context.Background(), keyHost{}, dnsprovider.Zone{ID: "z1", Name: "example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	want := []dnsprovider.SigningKey{{
-		DNSKEY: "257 3 13 mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAeF+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
-		KeyTag: 2371,
-		DS:     []string{"2371 13 2 1F987CC6583E92DF0890718C42A2BC8C04E5A60A1D3E1FC1D0C7826A4F47B4C1"},
-	}}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("SigningKeysOf = %+v, want %+v", got, want)
-	}
-
-	if _, err := dnsprovider.SigningKeysOf(context.Background(), keyHost{err: dnsprovider.ErrUnauthorized}, dnsprovider.Zone{ID: "z1"}); !errors.Is(err, dnsprovider.ErrUnauthorized) {
-		t.Errorf("SigningKeysOf error = %v, want ErrUnauthorized", err)
-	}
-}
-
 func TestMatchZoneMatchesNamesHoldingTheTextIgnoringCase(t *testing.T) {
 	cases := []struct {
 		contains, name string
@@ -146,47 +85,6 @@ func TestMatchZoneMatchesNamesHoldingTheTextIgnoringCase(t *testing.T) {
 		if got := dnsprovider.MatchZone(dnsprovider.ZoneFilter{Contains: c.contains}, z); got != c.want {
 			t.Errorf("MatchZone(%q, %q) = %v, want %v", c.contains, c.name, got, c.want)
 		}
-	}
-}
-
-// statusReader is a Provider that reads Zone Status.
-type statusReader struct {
-	dnsprovider.Provider
-
-	status dnsprovider.ZoneStatus
-	err    error
-}
-
-func (r statusReader) ZoneStatus(context.Context, dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	return r.status, r.err
-}
-
-func TestZoneStatusOfAProviderWithoutAReaderIsUnknown(t *testing.T) {
-	got, err := dnsprovider.ZoneStatusOf(context.Background(), oneTenant{}, dnsprovider.Zone{ID: "z1", Name: "example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Unknown, HSTS: dnsprovider.Unknown}); got != want {
-		t.Errorf("ZoneStatusOf = %+v, want %+v", got, want)
-	}
-}
-
-func TestZoneStatusOfAReaderIsWhatItReads(t *testing.T) {
-	p := statusReader{status: dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.Off}}
-
-	got, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{ID: "z1", Name: "example.com"})
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if got != p.status {
-		t.Errorf("ZoneStatusOf = %+v, want %+v", got, p.status)
-	}
-
-	p.err = dnsprovider.ErrUnauthorized
-	if _, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{ID: "z1"}); !errors.Is(err, dnsprovider.ErrUnauthorized) {
-		t.Errorf("ZoneStatusOf error = %v, want ErrUnauthorized", err)
 	}
 }
 

@@ -3,32 +3,25 @@ package cloudflare
 import (
 	"context"
 	"errors"
-	"net/http"
 	"sync"
 
-	cfdns "github.com/cloudflare/cloudflare-go/v7/dns"
-	"github.com/cloudflare/cloudflare-go/v7/option"
 	"github.com/dnsgateway/dnsprovider"
 )
 
-var _ dnsprovider.ZoneDetailsReader = (*Provider)(nil)
-
-// ZoneDetails reads DNSSEC state and requested Signing Keys from one response.
-// HSTS and minimum TLS are independent reads, with individual diagnostics.
+// ZoneDetails implements dnsprovider.Provider: DNSSEC and the requested
+// Signing Keys come from one read of the Zone's DNSSEC status, HSTS and
+// minimum TLS from independent reads of its settings, made concurrently.
+// Each failed read is its property's error, a setting the API token may
+// not read (HTTP 403) among them, as ErrUnauthorized.
 func (p *Provider) ZoneDetails(ctx context.Context, zone dnsprovider.Zone, request dnsprovider.ZoneDetailRequest) (dnsprovider.ZoneDetails, error) {
 	details := dnsprovider.ZoneDetails{Zone: zone}
 	var hstsErr, tlsErr error
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); details.Status.HSTS, hstsErr = p.readHSTS(ctx, zone, true) }()
-	go func() { defer wg.Done(); details.Status.MinTLS, tlsErr = p.readMinTLS(ctx, zone, true) }()
-	var params cfdns.DNSSECGetParams
-	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
-	var raw *http.Response
-	res, err := p.dnssec.Get(ctx, params, option.WithResponseInto(&raw))
-	if err != nil {
-		err = apiError(err, raw, nil)
-	} else {
+	go func() { defer wg.Done(); details.Status.HSTS, hstsErr = p.readHSTS(ctx, zone) }()
+	go func() { defer wg.Done(); details.Status.MinTLS, tlsErr = p.readMinTLS(ctx, zone) }()
+	res, err := p.readDNSSEC(ctx, zone)
+	if err == nil {
 		details.Status.DNSSEC = dnssecSetting(res.Status)
 		if request.SigningKeys {
 			details.SigningKeys = dnssecSigningKeys(res)

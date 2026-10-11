@@ -73,6 +73,15 @@ the TTL range (with `Auto`) as `Traits.TTL` and the proxiable types as a
 Tenant listing, Zone Status reads, Signing Key reads, registrar DS writes,
 and batching continue to use their existing optional interfaces.
 
+`ZoneDetails(ctx, zone, request)` is now part of `Provider`; an adapter that
+reads no Zone property embeds `dnsprovider.UnimplementedZoneDetails`. The
+`ZoneStatusReader`, `KeyReader`, and `ZoneDetailsReader` interfaces and the
+`ZoneStatusOf`, `SigningKeysOf`, and `CanReadKeys` helpers are removed: read
+`ZoneDetailsOf(ctx, p, name, request)` and its `Status`, `SigningKeys`, and
+`Properties`. A setting the Provider fails to read is now its property
+failed, with its error, rather than a silent Unknown. In `providertest`,
+`OpZoneStatus` and `OpSigningKeys` are now `OpZoneDetails`.
+
 `DSRegistrar` now lists, sets, and deletes: rename `DelegationSigners` to
 `ListDelegationSigners`, and replace `SetDelegationSigners(ctx, zone, nil)`
 with `DeleteDelegationSigners(ctx, zone)`. `SetDelegationSigners` returns

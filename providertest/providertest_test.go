@@ -35,7 +35,7 @@ func TestReaddedZoneStartsClean(t *testing.T) {
 		t.Errorf("serial = %d after re-adding the Zone, want 0", rs.Serial)
 	}
 
-	st, err := dnsprovider.ZoneStatusOf(ctx, p, z)
+	st, err := zoneStatus(ctx, p, z)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -297,26 +297,26 @@ func TestZoneStatusIsReadOnlyOnceScripted(t *testing.T) {
 	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
 	fake := providertest.New().AddZone(z)
 
-	if _, ok := newFake(t, fake).(dnsprovider.ZoneStatusReader); ok {
+	if readsZoneStatus(newFake(t, fake)) {
 		t.Error("an unscripted fake reads Zone Status")
 	}
 
 	want := dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.Off}
 	fake.SetZoneStatus("z1", want)
 
-	got, err := dnsprovider.ZoneStatusOf(ctx, newFake(t, fake), z)
+	got, err := zoneStatus(ctx, newFake(t, fake), z)
 	if err != nil || got != want {
 		t.Errorf("Zone Status = %+v, %v; want %+v", got, err, want)
 	}
 
-	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZoneStatus {
-		t.Errorf("last call = %+v, want ZoneStatus", calls[len(calls)-1])
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZoneDetails {
+		t.Errorf("last call = %+v, want ZoneDetails", calls[len(calls)-1])
 	}
 
 	fake.SetTenants(dnsprovider.Tenant{ID: "t1"})
 	p := newFake(t, fake)
 
-	if _, ok := p.(dnsprovider.ZoneStatusReader); !ok || !dnsprovider.CanListTenants(p) {
+	if !readsZoneStatus(p) || !dnsprovider.CanListTenants(p) {
 		t.Error("a fake with scripted Zone Status and Tenants does not do both")
 	}
 }
@@ -327,7 +327,7 @@ func TestSigningKeysAreReadOnlyOnceScripted(t *testing.T) {
 	other := dnsprovider.Zone{ID: "z2", Name: "example.org"}
 	fake := providertest.New().AddZone(z).AddZone(other)
 
-	if dnsprovider.CanReadKeys(newFake(t, fake)) {
+	if readsSigningKeys(newFake(t, fake)) {
 		t.Error("an unscripted fake reads signing keys")
 	}
 
@@ -338,27 +338,27 @@ func TestSigningKeysAreReadOnlyOnceScripted(t *testing.T) {
 	}}
 	fake.SetSigningKeys("z1", want...)
 
-	r, ok := newFake(t, fake).(dnsprovider.KeyReader)
-	if !ok {
-		t.Fatal("a fake with scripted signing keys is no KeyReader")
+	r := newFake(t, fake)
+	if !readsSigningKeys(r) {
+		t.Fatal("a fake with scripted signing keys does not read them")
 	}
 
-	got, err := r.SigningKeys(ctx, z)
+	got, err := signingKeys(ctx, r, z)
 	if err != nil || !reflect.DeepEqual(got, want) {
 		t.Errorf("SigningKeys = %+v, %v; want %+v", got, err, want)
 	}
 
-	if got, err := r.SigningKeys(ctx, other); err != nil || len(got) != 0 {
+	if got, err := signingKeys(ctx, r, other); err != nil || len(got) != 0 {
 		t.Errorf("SigningKeys of a Zone without keys = %+v, %v; want none", got, err)
 	}
 
-	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpSigningKeys || calls[len(calls)-1].Zone.ID != other.ID {
-		t.Errorf("last call = %+v, want SigningKeys of %v", calls[len(calls)-1], other)
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpZoneDetails || calls[len(calls)-1].Zone.ID != other.ID {
+		t.Errorf("last call = %+v, want ZoneDetails of %v", calls[len(calls)-1], other)
 	}
 
-	fake.Fail(providertest.OpSigningKeys, dnsprovider.ErrUnauthorized)
+	fake.Fail(providertest.OpZoneDetails, dnsprovider.ErrUnauthorized)
 
-	if _, err := r.SigningKeys(ctx, z); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+	if _, err := signingKeys(ctx, r, z); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 		t.Errorf("failed SigningKeys error = %v, want ErrUnauthorized", err)
 	}
 
@@ -366,11 +366,11 @@ func TestSigningKeysAreReadOnlyOnceScripted(t *testing.T) {
 	fake.SetZoneUpdater(true)
 	p := newFake(t, fake)
 
-	if !dnsprovider.CanReadKeys(p) || !dnsprovider.Can(p, dnsprovider.CapZoneUpdater) {
+	if !readsSigningKeys(p) || !dnsprovider.Can(p, dnsprovider.CapZoneUpdater) {
 		t.Error("a fake with scripted signing keys and Zone writes does not do both")
 	}
 
-	if _, ok := p.(dnsprovider.ZoneStatusReader); !ok {
+	if !readsZoneStatus(p) {
 		t.Error("a fake with scripted signing keys and Zone Status does not read Zone Status")
 	}
 }
@@ -383,22 +383,22 @@ func TestSigningKeysAreCopiesAndGoWithTheZone(t *testing.T) {
 	fake.SetSigningKeys("z1", key)
 	key.DS[0] = "changed"
 
-	r, _ := newFake(t, fake).(dnsprovider.KeyReader)
+	r := newFake(t, fake)
 
-	got, _ := r.SigningKeys(ctx, z)
+	got, _ := signingKeys(ctx, r, z)
 	if got[0].DS[0] != "1 13 2 AA" {
 		t.Errorf("scripted DS = %q, changed by the caller", got[0].DS[0])
 	}
 
 	got[0].DS[0] = "changed"
-	if again, _ := r.SigningKeys(ctx, z); again[0].DS[0] != "1 13 2 AA" {
+	if again, _ := signingKeys(ctx, r, z); again[0].DS[0] != "1 13 2 AA" {
 		t.Errorf("read DS = %q, changed by an earlier reader", again[0].DS[0])
 	}
 
 	fake.RemoveZone("z1")
 	fake.AddZone(z)
 
-	if got, _ := r.SigningKeys(ctx, z); len(got) != 0 {
+	if got, _ := signingKeys(ctx, r, z); len(got) != 0 {
 		t.Errorf("a re-added Zone's keys = %+v, want none", got)
 	}
 }
@@ -490,7 +490,7 @@ func TestDelegationSignersAreRegisteredOnceScripted(t *testing.T) {
 	fake.SetZoneUpdater(true)
 	p := newFake(t, fake)
 
-	if !dnsprovider.CanRegisterDS(p) || !dnsprovider.CanReadKeys(p) || !dnsprovider.Can(p, dnsprovider.CapZoneUpdater) {
+	if !dnsprovider.CanRegisterDS(p) || !readsSigningKeys(p) || !dnsprovider.Can(p, dnsprovider.CapZoneUpdater) {
 		t.Error("a fake with a scripted Registration, signing keys and Zone writes does not do all three")
 	}
 }
@@ -642,7 +642,7 @@ func TestBatcherIsImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.T) {
 				p := newFake(t, fake)
 
 				_, isBatcher := p.(dnsprovider.Batcher)
-				_, readsStatus := p.(dnsprovider.ZoneStatusReader)
+				readsStatus := readsZoneStatus(p)
 
 				if isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
 					t.Errorf("tenants %v, status %v, batcher %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v",
@@ -793,7 +793,7 @@ func TestZoneWritersDeclareOnlyScriptedOperationsWithAnyOtherOption(t *testing.T
 		}
 
 		_, isBatcher := p.(dnsprovider.Batcher)
-		_, readsStatus := p.(dnsprovider.ZoneStatusReader)
+		readsStatus := readsZoneStatus(p)
 
 		if dnsprovider.Can(p, dnsprovider.CapZoneUpdater) != updater || dnsprovider.Can(p, dnsprovider.CapZoneCreator) != creator || dnsprovider.Can(p, dnsprovider.CapZoneDeleter) != deleter ||
 			isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
@@ -859,7 +859,7 @@ func TestUpdateZoneChangesTheSettingsItIsGivenAndRecordsTheUpdate(t *testing.T) 
 		t.Errorf("last call = %+v, want UpdateZone of %v with %+v", c, z, u)
 	}
 
-	if st, err := dnsprovider.ZoneStatusOf(ctx, p, z); err != nil || st != want {
+	if st, err := zoneStatus(ctx, p, z); err != nil || st != want {
 		t.Errorf("Zone Status after UpdateZone = %+v, %v; want %+v", st, err, want)
 	}
 }
@@ -904,7 +904,7 @@ func TestUpdateZoneLeavesDNSSECPendingAsCloudflareSignsOrUnsignsOverTime(t *test
 			t.Errorf("DNSSEC %v: UpdateZone = %+v, want %+v", on, got, want)
 		}
 
-		if st, err := dnsprovider.ZoneStatusOf(ctx, p, z); err != nil || st != want {
+		if st, err := zoneStatus(ctx, p, z); err != nil || st != want {
 			t.Errorf("DNSSEC %v: Zone Status after UpdateZone = %+v, %v; want %+v", on, st, err, want)
 		}
 	}
@@ -1136,4 +1136,30 @@ func TestCanonicalZoneReadsHonorCancellation(t *testing.T) {
 	if _, err := p.ListZones(ctx, dnsprovider.ZoneFilter{}); !errors.Is(err, context.Canceled) {
 		t.Errorf("ListZones error = %v, want context.Canceled", err)
 	}
+}
+
+// zoneStatus reads a Zone's Zone Status through ZoneDetails.
+func zoneStatus(ctx context.Context, p dnsprovider.Provider, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
+	d, err := p.ZoneDetails(ctx, z, dnsprovider.ZoneDetailRequest{})
+	return d.Status, err
+}
+
+// signingKeys reads a Zone's signing keys through ZoneDetails.
+func signingKeys(ctx context.Context, p dnsprovider.Provider, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	d, err := p.ZoneDetails(ctx, z, dnsprovider.ZoneDetailRequest{SigningKeys: true})
+	return d.SigningKeys, err
+}
+
+// readsZoneStatus reports whether p reads Zone Status rather than
+// reporting it unsupported.
+func readsZoneStatus(p dnsprovider.Provider) bool {
+	d, _ := p.ZoneDetails(context.Background(), dnsprovider.Zone{ID: "z1"}, dnsprovider.ZoneDetailRequest{})
+	return d.Properties.DNSSEC.State == dnsprovider.PropertyRead
+}
+
+// readsSigningKeys reports whether p reads signing keys rather than
+// reporting them unsupported.
+func readsSigningKeys(p dnsprovider.Provider) bool {
+	d, _ := p.ZoneDetails(context.Background(), dnsprovider.Zone{ID: "z1"}, dnsprovider.ZoneDetailRequest{SigningKeys: true})
+	return d.Properties.SigningKeys.State == dnsprovider.PropertyRead
 }

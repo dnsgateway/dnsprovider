@@ -873,28 +873,6 @@ func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
 	}
 }
 
-func TestZoneStatusIsUnknownWithoutAsking(t *testing.T) {
-	api := &ncAPI{}
-
-	p := newProvider(t, api)
-	if _, ok := p.(dnsprovider.ZoneStatusReader); ok {
-		t.Error("the Provider reads Zone Status it cannot know")
-	}
-
-	status, err := dnsprovider.ZoneStatusOf(context.Background(), p, example)
-	if err != nil {
-		t.Fatalf("ZoneStatus: %v", err)
-	}
-
-	if status != (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Unknown, HSTS: dnsprovider.Unknown}) {
-		t.Errorf("ZoneStatus = %+v, want DNSSEC and HSTS unknown", status)
-	}
-
-	if got := api.Commands(); len(got) != 0 {
-		t.Errorf("ZoneStatus sent %v: getHosts reports neither setting", got)
-	}
-}
-
 func TestNamecheapTakesTTLsFrom60To60000WithoutAutomaticOrProxy(t *testing.T) {
 	p := newProvider(t, &ncAPI{})
 

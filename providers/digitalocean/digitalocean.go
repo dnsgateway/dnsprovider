@@ -62,6 +62,7 @@ func (p *Provider) Traits() dnsprovider.Traits {
 // Provider is one DigitalOcean Account, reached with its token.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	token, baseURL string
 	client         *http.Client

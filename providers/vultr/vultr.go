@@ -59,6 +59,7 @@ func (p *Provider) Traits() dnsprovider.Traits {
 // Provider is one Vultr Account, reached with its API key.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	key, baseURL string
 	client       *http.Client

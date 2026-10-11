@@ -65,6 +65,7 @@ type Config struct {
 // Provider manages DNS Zone services of one OVHcloud account.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	creds   credentials
 	baseURL string

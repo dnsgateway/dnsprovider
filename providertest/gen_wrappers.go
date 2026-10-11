@@ -44,20 +44,6 @@ var options = []option{
 		}},
 	},
 	{
-		Name: "ZoneStatus",
-		Ifaces: []iface{{
-			Name:    "ZoneStatusReader",
-			Methods: []string{"ZoneStatus(ctx context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) { return p.zoneStatus(ctx, z) }"},
-		}},
-	},
-	{
-		Name: "KeyReader",
-		Ifaces: []iface{{
-			Name:    "KeyReader",
-			Methods: []string{"SigningKeys(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) { return p.signingKeys(ctx, z) }"},
-		}},
-	},
-	{
 		Name: "DSRegistrar",
 		Ifaces: []iface{{
 			Name: "DSRegistrar",
@@ -74,10 +60,6 @@ var options = []option{
 			Name:    "Batcher",
 			Methods: []string{"ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) { return p.applyChangeset(ctx, cs) }"},
 		}},
-	},
-	{
-		Name:   "ZoneDetails",
-		Ifaces: []iface{{Name: "ZoneDetailsReader", Methods: []string{"ZoneDetails(ctx context.Context, z dnsprovider.Zone, request dnsprovider.ZoneDetailRequest) (dnsprovider.ZoneDetails, error) { return p.zoneDetails(ctx, z, request) }"}}},
 	},
 }
 

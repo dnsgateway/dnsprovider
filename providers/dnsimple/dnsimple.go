@@ -53,6 +53,7 @@ func (p *Provider) Traits() dnsprovider.Traits {
 // Provider holds one Account's credentials, endpoint and consumer options.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	token, accountID, baseURL string
 	client                    *http.Client

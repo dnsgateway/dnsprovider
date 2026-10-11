@@ -19,8 +19,8 @@ set; a token that may not read accounts, such as a DNS-only one, gets an
 
 All adapters expose Zone CRUD through `dnsprovider.Provider`. Cloudflare is
 the only built-in adapter declaring support for creation, settings updates,
-and deletion in its `Traits`. It also implements the optional
-`ZoneStatusReader`, `KeyReader`, and `ZoneDetailsReader`.
+and deletion in its `Traits`, and the only one whose `ZoneDetails` reads
+Zone Status and Signing Keys.
 
 Cloudflare reports Hosting State Active, Pending (also for a Zone still
 initializing) and Moved (also for a deactivated Zone). Zone filtering uses
@@ -49,9 +49,7 @@ Zone is first read by its ID, one more request, and a Zone of another
 account is refused without the delete; without a Tenant, the caller owns
 that check. A Zone without an ID fails without a request.
 
-Zone Status (DNSSEC, HSTS, minimum TLS) uses the optional `ZoneStatusReader`.
-`dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and
-reports every setting Unknown, without a call, for a Provider without one.
+Zone Status (DNSSEC, HSTS, minimum TLS) is read with `ZoneDetails`, below.
 `UpdateZone`, whose support is declared through
 `dnsprovider.Can(p, dnsprovider.CapZoneUpdater)`, changes DNSSEC, HSTS, and minimum TLS:
 `UpdateZone(ctx, zone, dnsprovider.ZoneUpdate{DNSSEC: &on})` writes only the
@@ -60,17 +58,16 @@ setting it was not given as read, Unknown when it could not be. A write that
 fails comes with the Zone Status as far as it is known, the settings written
 before it as answered. Cloudflare signs and unsigns a Zone over time, so
 DNSSEC comes back Pending; HSTS keeps its max-age and other fields, and is
-turned on for six months when the Zone has no max-age.
+turned on for six months when the Zone has no max-age. An update that sets
+nothing reads the Zone Status, failing only when every read fails.
 
-The optional `KeyReader`, found with `dnsprovider.CanReadKeys(p)`, returns
-the Zone's key-signing keys: `SigningKeys(ctx, zone)` reads the key from the
-same `GET /zones/{id}/dnssec` as Zone Status, as a `SigningKey` with its
-DNSKEY, key tag and SHA-256 DS. A Zone signed, pending or pending-disabled
-has one key; a disabled Zone has none. A token that may not read DNSSEC is
-`ErrUnauthorized`.
-
-For an explicit detailed read, use
-`dnsprovider.ZoneDetailsOf(ctx, p, name, dnsprovider.ZoneDetailRequest{SigningKeys: true})`.
+Read Zone Status and Signing Keys with
+`dnsprovider.ZoneDetailsOf(ctx, p, name, dnsprovider.ZoneDetailRequest{SigningKeys: true})`,
+or `p.ZoneDetails(ctx, zone, request)` with a Zone already read. A Signing
+Key is a `SigningKey` with its DNSKEY, key tag and SHA-256 DS; a Zone signed,
+pending or pending-disabled has one key, a disabled Zone none. A setting the
+API token may not read (HTTP 403) is that property failed with
+`ErrUnauthorized`, its value Unknown.
 Cloudflare obtains DNSSEC state and requested Signing Keys from one
 `GET /zones/{id}/dnssec` response, preserving Unknown, Off, On, and Pending,
 including pending signing and pending unsigning. Without requested keys it

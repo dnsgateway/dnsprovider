@@ -35,7 +35,7 @@ func TestScriptedZoneDetailsReturnsPartialResults(t *testing.T) {
 	}
 }
 
-func TestScriptedZoneDetailsPreservesOptionalReaders(t *testing.T) {
+func TestScriptedZoneDetailsTakePrecedenceOverZoneStatusAndKeys(t *testing.T) {
 	z := dnsprovider.Zone{ID: "z1", Name: "example.org"}
 	fake := providertest.New().AddZone(z)
 	fake.SetZoneStatus(z.ID, dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Off})
@@ -43,16 +43,9 @@ func TestScriptedZoneDetailsPreservesOptionalReaders(t *testing.T) {
 	fake.SetRegistration(z.ID, dnsprovider.SigningKey{DS: []string{"1 13 2 AA"}})
 	fake.SetZoneDetails(z.ID, dnsprovider.ZoneDetails{Status: dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Pending}, Properties: dnsprovider.ZoneDetailProperties{DNSSEC: dnsprovider.PropertyResult{State: dnsprovider.PropertyRead}}})
 	p := newFake(t, fake)
-	if _, ok := p.(dnsprovider.ZoneDetailsReader); !ok {
-		t.Fatal("missing combined reader alongside legacy readers")
-	}
 	got, err := dnsprovider.ZoneDetailsOf(context.Background(), p, z.Name, dnsprovider.ZoneDetailRequest{})
 	if err != nil || got.Status.DNSSEC != dnsprovider.Pending || len(got.SigningKeys) != 0 || got.Properties.SigningKeys.State != dnsprovider.PropertyNotRequested {
 		t.Fatalf("details = %+v, %v", got, err)
-	}
-	status, err := dnsprovider.ZoneStatusOf(context.Background(), p, z)
-	if err != nil || status.DNSSEC != dnsprovider.Off {
-		t.Fatalf("legacy status = %+v, %v", status, err)
 	}
 	if _, ok := p.(dnsprovider.DSRegistrar); !ok {
 		t.Fatal("missing registrar reader")
@@ -97,21 +90,12 @@ func TestZoneDetailsSupportIsExplicitAndRegistrationIsSeparate(t *testing.T) {
 	fake := providertest.New().AddZone(z)
 	fake.SetRegistration(z.ID, dnsprovider.SigningKey{DS: []string{"1 13 2 AA"}})
 	p := newFake(t, fake)
-	if _, ok := p.(dnsprovider.ZoneDetailsReader); ok {
-		t.Fatal("unscripted combined reader exists")
-	}
 	got, err := dnsprovider.ZoneDetailsOf(context.Background(), p, z.Name, dnsprovider.ZoneDetailRequest{SigningKeys: true})
 	if err != nil || got.Properties.SigningKeys.State != dnsprovider.PropertyUnsupported || len(got.SigningKeys) != 0 {
 		t.Fatalf("provider details substituted Registration = %+v, %v", got, err)
 	}
 	fake.SetZoneDetails(z.ID, dnsprovider.ZoneDetails{Properties: dnsprovider.ZoneDetailProperties{SigningKeys: dnsprovider.PropertyResult{State: dnsprovider.PropertyRead}}})
 	p = newFake(t, fake)
-	if _, ok := p.(dnsprovider.KeyReader); ok {
-		t.Fatal("combined script enabled legacy keys")
-	}
-	if _, ok := p.(dnsprovider.ZoneStatusReader); ok {
-		t.Fatal("combined script enabled legacy status")
-	}
 	got, err = dnsprovider.ZoneDetailsOf(context.Background(), p, z.Name, dnsprovider.ZoneDetailRequest{SigningKeys: true})
 	if err != nil || got.Properties.SigningKeys.State != dnsprovider.PropertyRead || len(got.SigningKeys) != 0 {
 		t.Fatalf("unsigned keys = %+v, %v", got, err)

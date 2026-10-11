@@ -36,10 +36,7 @@ const (
 	OpCreateRecord Op = "CreateRecord"
 	OpUpdateRecord Op = "UpdateRecord"
 	OpDeleteRecord Op = "DeleteRecord"
-	OpZoneStatus   Op = "ZoneStatus"
 	OpZoneDetails  Op = "ZoneDetails"
-	// OpSigningKeys is the KeyReader's SigningKeys; see SetSigningKeys.
-	OpSigningKeys Op = "SigningKeys"
 	// OpListDelegationSigners is the DSRegistrar's ListDelegationSigners;
 	// see SetRegistration.
 	OpListDelegationSigners Op = "ListDelegationSigners"
@@ -92,7 +89,6 @@ type Provider struct {
 	hosting        map[string]dnsprovider.HostingState // by Zone ID, over the State added
 	status         map[string]dnsprovider.ZoneStatus
 	details        map[string]dnsprovider.ZoneDetails
-	readDetails    bool
 	readStatus     bool                                // whether Zone Status is scripted
 	keys           map[string][]dnsprovider.SigningKey // by Zone ID
 	readKeys       bool                                // whether signing keys are scripted
@@ -236,7 +232,7 @@ func (p *Provider) SetAutoTTL(on bool) {
 
 //go:generate go run gen_wrappers.go
 
-// TenantLister, ZoneStatusReader, KeyReader and DSRegistrar, which a
+// TenantLister and DSRegistrar, which a
 // consumer may branch on, and Batcher, which changes how
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted: one type per combination, generated (see
@@ -262,10 +258,10 @@ func (p *Provider) traits() dnsprovider.Traits {
 	return t
 }
 
-// SetZoneStatus scripts a Zone's Zone Status, and makes the Providers New
-// builds read it through dnsprovider.ZoneStatusReader; another Zone's
-// settings are then Unknown. Unscripted, they do not implement it, and
-// dnsprovider.ZoneStatusOf reports Unknown settings without a call.
+// SetZoneStatus scripts a Zone's Zone Status, which ZoneDetails then
+// reads for every Zone not scripted with SetZoneDetails: its DNSSEC, HSTS
+// and MinTLS read, another Zone's Unknown. Unscripted, they are
+// unsupported.
 func (p *Provider) SetZoneStatus(zoneID string, s dnsprovider.ZoneStatus) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -274,10 +270,10 @@ func (p *Provider) SetZoneStatus(zoneID string, s dnsprovider.ZoneStatus) {
 	p.readStatus = true
 }
 
-// SetSigningKeys scripts a Zone's signing keys, and makes the Providers
-// New builds read them through dnsprovider.KeyReader, recorded as
-// OpSigningKeys; another Zone has none, as an unsigned Zone. Unscripted,
-// they do not implement it, as a Provider whose API returns no keys.
+// SetSigningKeys scripts a Zone's signing keys, which ZoneDetails then
+// reads when requested for every Zone not scripted with SetZoneDetails;
+// another Zone has none, as an unsigned Zone. Unscripted, they are
+// unsupported, as for a Provider whose API returns no keys.
 func (p *Provider) SetSigningKeys(zoneID string, keys ...dnsprovider.SigningKey) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -523,20 +519,9 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 	defer p.mu.Unlock()
 
 	var set opts
-	if p.readDetails {
-		set |= optZoneDetails
-	}
 
 	if p.tenants != nil {
 		set |= optTenants
-	}
-
-	if p.readStatus {
-		set |= optZoneStatus
-	}
-
-	if p.readKeys {
-		set |= optKeyReader
 	}
 
 	if p.dsRegistrar {
@@ -821,33 +806,6 @@ func (p *Provider) applyChangeset(_ context.Context, cs dnsprovider.Changeset) (
 	}
 
 	return res, nil
-}
-
-// zoneStatus is the scripted Zone Status, for
-// dnsprovider.ZoneStatusReader, every setting Unknown for a
-// Zone without one.
-func (p *Provider) zoneStatus(_ context.Context, z dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	if err := p.record(Call{Op: OpZoneStatus, Zone: z}); err != nil {
-		return dnsprovider.ZoneStatus{}, err
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	return p.status[z.ID], nil
-}
-
-// signingKeys is the scripted signing keys, for dnsprovider.KeyReader;
-// none for a Zone without them.
-func (p *Provider) signingKeys(_ context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	if err := p.record(Call{Op: OpSigningKeys, Zone: z}); err != nil {
-		return nil, err
-	}
-
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	return cloneKeys(p.keys[z.ID]), nil
 }
 
 // listDelegationSigners is the DS the registry holds for a Registration, for

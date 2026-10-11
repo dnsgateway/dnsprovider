@@ -43,6 +43,7 @@ type Config struct {
 // Provider is one Internet.bs account.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	api  *rest.Client
 	auth url.Values

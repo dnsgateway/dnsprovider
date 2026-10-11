@@ -36,6 +36,7 @@ type Config struct {
 // Provider is one main API user or restricted sub-user.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	cfg     Config
 	baseURL string

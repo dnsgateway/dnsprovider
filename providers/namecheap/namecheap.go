@@ -133,6 +133,7 @@ const RequestsPerMinute = 20
 // Provider is one Namecheap Account.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	// api sends the Account's commands.
 	api *rest.Client

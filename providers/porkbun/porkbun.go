@@ -29,6 +29,7 @@ type (
 	// Provider manages the Porkbun DNS copy of accessible Zones.
 	Provider struct {
 		dnsprovider.UnimplementedZoneWrites
+		dnsprovider.UnimplementedZoneDetails
 
 		cfg Config
 		api rest.Client

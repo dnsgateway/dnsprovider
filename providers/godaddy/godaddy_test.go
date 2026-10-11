@@ -773,28 +773,6 @@ func TestGoDaddyTakesTTLsFrom600SecondsWithoutAutomatic(t *testing.T) {
 	}
 }
 
-func TestZoneStatusIsUnknownWithoutAsking(t *testing.T) {
-	api := &gdAPI{}
-
-	p := newProvider(t, api)
-	if _, ok := p.(dnsprovider.ZoneStatusReader); ok {
-		t.Error("the Provider reads Zone Status it cannot know")
-	}
-
-	status, err := dnsprovider.ZoneStatusOf(context.Background(), p, example)
-	if err != nil {
-		t.Fatalf("ZoneStatus: %v", err)
-	}
-
-	if status != (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Unknown, HSTS: dnsprovider.Unknown}) {
-		t.Errorf("ZoneStatus = %+v, want DNSSEC and HSTS unknown", status)
-	}
-
-	if reqs := api.Requests(); len(reqs) != 0 {
-		t.Errorf("ZoneStatus sent %v: the v1 API reports neither setting", reqs)
-	}
-}
-
 func TestErrorResponsesAreTypedErrors(t *testing.T) {
 	cases := []struct {
 		name   string

@@ -34,6 +34,7 @@ type Config struct{ Token string }
 // Provider manages the LiveDNS resources visible to its token.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	token, baseURL string
 	// domainURL is the Domain API, the sibling of the LiveDNS baseURL.

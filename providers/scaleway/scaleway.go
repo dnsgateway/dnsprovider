@@ -48,6 +48,7 @@ func (p *Provider) Traits() dnsprovider.Traits {
 // Provider manages the existing DNS Zones of one Project.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	key, project, baseURL string
 	client                *http.Client

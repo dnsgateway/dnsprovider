@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/cloudflare/cloudflare-go/v7/accounts"
@@ -204,9 +203,7 @@ type Provider struct {
 var (
 	_ dnsprovider.Provider = (*Provider)(nil)
 
-	_ dnsprovider.TenantLister     = (*Provider)(nil)
-	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
-	_ dnsprovider.KeyReader        = (*Provider)(nil)
+	_ dnsprovider.TenantLister = (*Provider)(nil)
 )
 
 // ListZones implements dnsprovider.Provider: the Zones of the configured
@@ -1014,76 +1011,9 @@ func unquote(s string) string {
 	return s
 }
 
-// ZoneStatus implements dnsprovider.ZoneStatusReader. DNSSEC comes from the Zone's
-// DNSSEC status, HSTS from its security_header setting and MinTLS from
-// its min_tls_version setting, read concurrently. A setting the API token
-// lacks the permission to read (HTTP 403), or that fails to read while
-// another one is read, is unknown. It fails only when every read fails.
-func (p *Provider) ZoneStatus(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.ZoneStatus, error) {
-	var (
-		status          dnsprovider.ZoneStatus
-		hstsErr, tlsErr error
-		wg              sync.WaitGroup
-	)
-
-	wg.Add(2)
-
-	go func() {
-		defer wg.Done()
-
-		status.HSTS, hstsErr = p.hstsStatus(ctx, zone)
-	}()
-
-	go func() {
-		defer wg.Done()
-
-		status.MinTLS, tlsErr = p.minTLSStatus(ctx, zone)
-	}()
-
-	dnssec, dnssecErr := p.dnssecStatus(ctx, zone)
-
-	wg.Wait()
-
-	if dnssecErr != nil && hstsErr != nil && tlsErr != nil {
-		return dnsprovider.ZoneStatus{}, errors.Join(dnssecErr, hstsErr, tlsErr)
-	}
-
-	status.DNSSEC = dnssec
-	if dnssecErr != nil {
-		status.DNSSEC = dnsprovider.Unknown
-	}
-
-	if hstsErr != nil {
-		status.HSTS = dnsprovider.Unknown
-	}
-
-	if tlsErr != nil {
-		status.MinTLS = dnsprovider.TLSUnknown
-	}
-
-	return status, nil
-}
-
-func (p *Provider) dnssecStatus(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.Setting, error) {
-	var params cfdns.DNSSECGetParams
-	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
-
-	var raw *http.Response
-
-	res, err := p.dnssec.Get(ctx, params, option.WithResponseInto(&raw))
-	if err != nil {
-		return settingError(err, raw)
-	}
-
-	return dnssecSetting(res.Status), nil
-}
-
-// SigningKeys implements dnsprovider.KeyReader. The key is the one the
-// Zone's DNSSEC status names, with the DS Cloudflare computed for it: one
-// while the Zone is signed or being signed or being unsigned, none while
-// it is unsigned. Unlike ZoneStatus, a token that may not read it is
-// ErrUnauthorized, not an unknown.
-func (p *Provider) SigningKeys(ctx context.Context, zone dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+// readDNSSEC reads the Zone's DNSSEC status, which names the key
+// Cloudflare signs it with.
+func (p *Provider) readDNSSEC(ctx context.Context, zone dnsprovider.Zone) (*cfdns.DNSSEC, error) {
 	var params cfdns.DNSSECGetParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
@@ -1094,9 +1024,12 @@ func (p *Provider) SigningKeys(ctx context.Context, zone dnsprovider.Zone) ([]dn
 		return nil, apiError(err, raw, nil)
 	}
 
-	return dnssecSigningKeys(res), nil
+	return res, nil
 }
 
+// dnssecSigningKeys is the key a DNSSEC status names, with the DS
+// Cloudflare computed for it: one while the Zone is signed or being
+// signed or being unsigned, none while it is unsigned.
 func dnssecSigningKeys(res *cfdns.DNSSEC) []dnsprovider.SigningKey {
 	if res.PublicKey == "" {
 		return nil
@@ -1141,11 +1074,8 @@ type securityHeader struct {
 	} `json:"value"`
 }
 
-func (p *Provider) hstsStatus(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.Setting, error) {
-	return p.readHSTS(ctx, zone, false)
-}
-
-func (p *Provider) readHSTS(ctx context.Context, zone dnsprovider.Zone, diagnostics bool) (dnsprovider.Setting, error) {
+// readHSTS reads the Zone's HSTS from its security_header setting.
+func (p *Provider) readHSTS(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.Setting, error) {
 	var params zones.SettingGetParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
@@ -1153,10 +1083,7 @@ func (p *Provider) readHSTS(ctx context.Context, zone dnsprovider.Zone, diagnost
 
 	res, err := p.settings.Get(ctx, "security_header", params, option.WithResponseInto(&raw))
 	if err != nil {
-		if diagnostics {
-			return dnsprovider.Unknown, apiError(err, raw, nil)
-		}
-		return settingError(err, raw)
+		return dnsprovider.Unknown, apiError(err, raw, nil)
 	}
 
 	var h securityHeader
@@ -1174,12 +1101,19 @@ func (p *Provider) readHSTS(ctx context.Context, zone dnsprovider.Zone, diagnost
 // UpdateZone implements dnsprovider.Provider: a PATCH of each setting
 // u sets, DNSSEC, then HSTS, then MinTLS, and a read of each it leaves
 // nil. A setting left nil that fails to read, or that the API token may
-// not read, is Unknown. A write that fails is the error, returned with
-// the Zone Status as far as it is known: the settings before it as
-// written or read, and the one that failed and those after it Unknown.
+// not read, is Unknown; with u setting none, it fails only when every
+// read fails. A write that fails is the error, returned with the Zone
+// Status as far as it is known: the settings before it as written or
+// read, and the one that failed and those after it Unknown.
 func (p *Provider) UpdateZone(ctx context.Context, zone dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
 	if u.DNSSEC == nil && u.HSTS == nil && u.MinTLS == nil {
-		return p.ZoneStatus(ctx, zone)
+		d, err := p.ZoneDetails(ctx, zone, dnsprovider.ZoneDetailRequest{})
+		if d.Properties.DNSSEC.State == dnsprovider.PropertyFailed && d.Properties.HSTS.State == dnsprovider.PropertyFailed &&
+			d.Properties.MinTLS.State == dnsprovider.PropertyFailed {
+			return dnsprovider.ZoneStatus{}, err
+		}
+
+		return d.Status, nil
 	}
 
 	var (
@@ -1191,8 +1125,8 @@ func (p *Provider) UpdateZone(ctx context.Context, zone dnsprovider.Zone, u dnsp
 		if status.DNSSEC, err = p.setDNSSEC(ctx, zone, *u.DNSSEC); err != nil {
 			return dnsprovider.ZoneStatus{DNSSEC: dnsprovider.Unknown, HSTS: dnsprovider.Unknown}, err
 		}
-	} else {
-		status.DNSSEC, _ = p.dnssecStatus(ctx, zone)
+	} else if res, err := p.readDNSSEC(ctx, zone); err == nil {
+		status.DNSSEC = dnssecSetting(res.Status)
 	}
 
 	if u.HSTS != nil {
@@ -1201,7 +1135,7 @@ func (p *Provider) UpdateZone(ctx context.Context, zone dnsprovider.Zone, u dnsp
 			return dnsprovider.ZoneStatus{DNSSEC: status.DNSSEC, HSTS: dnsprovider.Unknown}, err
 		}
 	} else {
-		status.HSTS, _ = p.hstsStatus(ctx, zone)
+		status.HSTS, _ = p.readHSTS(ctx, zone)
 	}
 
 	if u.MinTLS != nil {
@@ -1210,7 +1144,7 @@ func (p *Provider) UpdateZone(ctx context.Context, zone dnsprovider.Zone, u dnsp
 			return dnsprovider.ZoneStatus{DNSSEC: status.DNSSEC, HSTS: status.HSTS}, err
 		}
 	} else {
-		status.MinTLS, _ = p.minTLSStatus(ctx, zone)
+		status.MinTLS, _ = p.readMinTLS(ctx, zone)
 	}
 
 	return status, nil
@@ -1232,11 +1166,9 @@ func tlsVersion(s string) dnsprovider.TLSVersion {
 	return dnsprovider.TLSUnknown
 }
 
-func (p *Provider) minTLSStatus(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.TLSVersion, error) {
-	return p.readMinTLS(ctx, zone, false)
-}
-
-func (p *Provider) readMinTLS(ctx context.Context, zone dnsprovider.Zone, diagnostics bool) (dnsprovider.TLSVersion, error) {
+// readMinTLS reads the Zone's minimum TLS version from its
+// min_tls_version setting.
+func (p *Provider) readMinTLS(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.TLSVersion, error) {
 	var params zones.SettingGetParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
@@ -1244,12 +1176,7 @@ func (p *Provider) readMinTLS(ctx context.Context, zone dnsprovider.Zone, diagno
 
 	res, err := p.settings.Get(ctx, "min_tls_version", params, option.WithResponseInto(&raw))
 	if err != nil {
-		if diagnostics {
-			return dnsprovider.TLSUnknown, apiError(err, raw, nil)
-		}
-		_, err = settingError(err, raw)
-
-		return dnsprovider.TLSUnknown, err
+		return dnsprovider.TLSUnknown, apiError(err, raw, nil)
 	}
 
 	var s minTLSSetting
@@ -1404,16 +1331,6 @@ func (p *Provider) setHSTS(ctx context.Context, zone dnsprovider.Zone, on bool) 
 	}
 
 	return dnsprovider.Off, nil
-}
-
-// settingError makes a setting the API token may not read unknown, and
-// any other failure an error.
-func settingError(err error, res *http.Response) (dnsprovider.Setting, error) {
-	if res != nil && res.StatusCode == http.StatusForbidden {
-		return dnsprovider.Unknown, nil
-	}
-
-	return dnsprovider.Unknown, apiError(err, res, nil)
 }
 
 // Account implements dnsprovider.Provider. It verifies the API token

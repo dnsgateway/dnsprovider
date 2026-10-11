@@ -360,7 +360,7 @@ func TestZoneCallsWorkWithoutATenant(t *testing.T) {
 		t.Errorf("DeleteRecord: %v", err)
 	}
 
-	if _, err := p.ZoneStatus(ctx, zone); err != nil {
-		t.Errorf("ZoneStatus: %v", err)
+	if _, err := p.ZoneDetails(ctx, zone, dnsprovider.ZoneDetailRequest{SigningKeys: true}); err != nil {
+		t.Errorf("ZoneDetails: %v", err)
 	}
 }

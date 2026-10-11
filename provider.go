@@ -59,6 +59,18 @@ type Provider interface { //nolint:interfacebloat // Zone and Record CRUD form t
 	// leaves that check to the caller.
 	// Unsupported adapters return ErrNotImplemented without network traffic.
 	DeleteZone(ctx context.Context, zone Zone) error
+	// ZoneDetails reads a Zone's Provider-side properties, its Zone Status
+	// and, when request asks, the Signing Keys the Provider signs it with
+	// (never those a registrar holds), as GetZone or ListZones read it.
+	// Each property's outcome is in Properties: read (possibly Unknown or
+	// empty), unsupported by the Provider (without an error or a call),
+	// or failed, with its error; an unrequested one is not requested. The
+	// error joins the failed properties' errors, and the details come
+	// with it as far as they are known. Independent properties need not
+	// be an atomic snapshot. A consumer of a Provider whose Signing Keys
+	// are unsupported reads the DNSKEY RRset from the Zone's nameservers.
+	// Adapters that read no property embed UnimplementedZoneDetails.
+	ZoneDetails(ctx context.Context, zone Zone, request ZoneDetailRequest) (ZoneDetails, error)
 	// ListRecords lists a Zone's Records that match the filter, exactly
 	// filtered, with the SOA serial when the Provider reports it. The
 	// RecordSet's Partial follows the same rule as ListZones' ZoneSet.
@@ -83,25 +95,6 @@ type Batcher interface {
 	// ApplyChangeset applies a Changeset and reports the result of each
 	// change, or an error when the Changeset failed as a whole.
 	ApplyChangeset(ctx context.Context, cs Changeset) (ApplyResult, error)
-}
-
-// ZoneStatusReader is implemented by a Provider that reads the
-// Provider-side Zone Status, such as Cloudflare. A Provider without it has
-// every setting Unknown.
-type ZoneStatusReader interface {
-	// ZoneStatus reads a Zone's Zone Status.
-	ZoneStatus(ctx context.Context, zone Zone) (ZoneStatus, error)
-}
-
-// ZoneStatusOf reads a Zone's Zone Status through the Provider's
-// ZoneStatusReader, without a call when it has none: then every setting
-// is Unknown.
-func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error) {
-	if r, ok := p.(ZoneStatusReader); ok {
-		return r.ZoneStatus(ctx, zone)
-	}
-
-	return ZoneStatus{DNSSEC: Unknown, HSTS: Unknown}, nil
 }
 
 // Can reports whether a Provider declares support for c in its Traits, as
@@ -143,34 +136,6 @@ func CanListTenants(p Provider) bool {
 	_, ok := p.(TenantLister)
 
 	return ok
-}
-
-// KeyReader is implemented by a Provider whose API returns the keys it
-// signs a Zone with, such as Cloudflare. A consumer of a Provider without
-// it reads the DNSKEY RRset from the Zone's nameservers.
-type KeyReader interface {
-	// SigningKeys returns the Zone's key-signing keys, each with its DS
-	// records; none when the Zone is not signed.
-	SigningKeys(ctx context.Context, zone Zone) ([]SigningKey, error)
-}
-
-// CanReadKeys reports whether a Provider implements KeyReader.
-func CanReadKeys(p Provider) bool {
-	_, ok := p.(KeyReader)
-
-	return ok
-}
-
-// SigningKeysOf reads a Zone's key-signing keys through the Provider's
-// KeyReader, without a call when it has none: then there are none, as
-// when the Zone is not signed, and a consumer reads the DNSKEY RRset from
-// the Zone's nameservers instead.
-func SigningKeysOf(ctx context.Context, p Provider, zone Zone) ([]SigningKey, error) {
-	if r, ok := p.(KeyReader); ok {
-		return r.SigningKeys(ctx, zone)
-	}
-
-	return nil, nil
 }
 
 // DSRegistrar is implemented by a Provider that registers domains and

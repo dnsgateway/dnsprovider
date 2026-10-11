@@ -126,3 +126,35 @@ func TestDSRegistrarsRefuseSettingNoKeysWithoutNetworkTraffic(t *testing.T) {
 		t.Errorf("found %d DSRegistrars, want porkbun, gandi and internetbs", registrars)
 	}
 }
+
+func TestProvidersWithoutZonePropertiesReportThemUnsupportedWithoutNetworkTraffic(t *testing.T) {
+	for typ, factory := range providers.Registry() {
+		if typ == "cloudflare" {
+			continue
+		}
+		t.Run(typ, func(t *testing.T) {
+			var requests atomic.Int32
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				requests.Add(1)
+				w.WriteHeader(http.StatusUnauthorized)
+			}))
+			t.Cleanup(s.Close)
+			p, err := factory.New(validFields[typ], dnsprovider.WithBaseURL(s.URL), dnsprovider.WithHTTPClient(s.Client()))
+			if err != nil {
+				t.Fatal(err)
+			}
+			zone := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+			got, err := p.ZoneDetails(context.Background(), zone, dnsprovider.ZoneDetailRequest{SigningKeys: true})
+			if err != nil || !reflect.DeepEqual(got.Zone, zone) || got.Status != (dnsprovider.ZoneStatus{}) || got.SigningKeys != nil {
+				t.Fatalf("ZoneDetails = %+v, %v", got, err)
+			}
+			unsupported := dnsprovider.PropertyResult{State: dnsprovider.PropertyUnsupported}
+			if got.Properties != (dnsprovider.ZoneDetailProperties{DNSSEC: unsupported, HSTS: unsupported, MinTLS: unsupported, SigningKeys: unsupported}) {
+				t.Errorf("Properties = %+v, want every one unsupported", got.Properties)
+			}
+			if n := requests.Load(); n != 0 {
+				t.Errorf("ZoneDetails issued %d HTTP requests", n)
+			}
+		})
+	}
+}

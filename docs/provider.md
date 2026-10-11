@@ -231,6 +231,7 @@ type Provider interface {
     ListZones(context.Context, ZoneFilter) (ZoneSet, error)
     UpdateZone(context.Context, Zone, ZoneUpdate) (ZoneStatus, error)
     DeleteZone(context.Context, Zone) error
+    ZoneDetails(context.Context, Zone, ZoneDetailRequest) (ZoneDetails, error)
     ListRecords(context.Context, Zone, RecordFilter) (RecordSet, error)
     CreateRecord(context.Context, Zone, Record) (Record, error)
     UpdateRecord(ctx context.Context, zone Zone, before, after Record) (Record, error)
@@ -309,9 +310,10 @@ Provider.
 `ZoneCreator`, `ZoneUpdater`, and `ZoneDeleter` have been removed; use
 `Provider` instead.
 
-Cloudflare implements the optional `ZoneStatusReader` and `KeyReader`.
-Porkbun, Gandi, and Internet.bs implement `DSRegistrar`.
-GoDaddy and Namecheap implement none of these optional interfaces.
+Cloudflare's `ZoneDetails` reads Zone Status and Signing Keys; every other
+built-in adapter embeds `dnsprovider.UnimplementedZoneDetails`, which reports
+each property unsupported without a request. Porkbun, Gandi, and Internet.bs
+implement `DSRegistrar`.
 
 `CreateZone(ctx, name)` Onboards a name with `type: full` in the configured
 Tenant. It returns `ErrNoTenant` without a request when unscoped and
@@ -345,15 +347,15 @@ Cloudflare signs or unsigns the Zone. `TLSVersion` is a string;
 `TLSVersions` lists TLS10, TLS11, TLS12, and TLS13 in order. TLSUnknown is
 the empty string. Unknown settings and TLS versions display as `?`.
 
-`ZoneStatusOf(ctx, p, zone)` returns Unknown settings without a call when
-there is no reader. Cloudflare reads DNSSEC, HSTS, and minimum TLS
-concurrently. A failed setting read is Unknown; the operation fails only
-when all three reads fail. Permission-denied setting reads yield Unknown.
+Zone Status is read with `ZoneDetails` (see Detailed Zone reads).
+Cloudflare reads DNSSEC, HSTS, and minimum TLS concurrently; a failed read is
+its property failed, with its error, and its value Unknown.
 
 `UpdateZone` processes DNSSEC, HSTS, then MinTLS. Nil fields are read and
 left unchanged. A failed write stops the operation, returning earlier
 settings as known and the failed and subsequent settings Unknown; earlier
-writes remain applied. An empty update delegates to `ZoneStatus`.
+writes remain applied. An empty update reads the Zone Status, failing only
+when every read fails.
 HSTS writes preserve existing security-header fields, supplying a six-month
 max-age when enabling it without one. MinTLS accepts only `TLSVersions`.
 
@@ -363,19 +365,14 @@ type SigningKey struct {
     KeyTag uint16
     DS     []string // "2371 13 2 1F98…", SHA-256 first
 }
-
-type KeyReader interface {
-    SigningKeys(ctx context.Context, zone Zone) ([]SigningKey, error)
-}
 ```
 
-A Provider whose API returns the keys it signs a Zone with implements
-`KeyReader`; `CanReadKeys(p)` detects it. `SigningKeys` returns the Zone's
-key-signing keys, none when it is unsigned. `SigningKeysOf(ctx, p, zone)`
-returns none without a call when there is no reader. A consumer that gets
-none reads the DNSKEY RRset from the Zone's nameservers. DS digests are in
-upper case. Cloudflare returns the key of its DNSSEC status while the Zone
-is signed, pending or pending-disabled.
+A Provider whose API returns the keys it signs a Zone with reads them in
+`ZoneDetails` when `ZoneDetailRequest.SigningKeys` asks: none when the Zone is
+unsigned. Where `Properties.SigningKeys` is `PropertyUnsupported`, a consumer
+reads the DNSKEY RRset from the Zone's nameservers. DS digests are in upper
+case. Cloudflare returns the key of its DNSSEC status while the Zone is
+signed, pending or pending-disabled.
 
 ```go
 type DSRegistrar interface {
@@ -440,15 +437,10 @@ alone do not fail the read. Context cancellation remains visible in the
 returned error, including when some details were obtained; inspect the result
 and error together rather than treating cancellation as complete success.
 
-Adapters can implement the optional `ZoneDetailsReader` to assemble combined
-properties. `ZoneDetailsOf` passes the successfully read Zone to that reader,
-then restores that identity in the result. Adapters without it fall back to
-`ZoneStatusReader` and `KeyReader`. Missing readers report unsupported properties.
-A legacy status reader supplies only one error for all settings: known values
-are retained as successful, while Unknown values carry that error. A legacy
-reader that suppresses a failure cannot supply its diagnostic; its Unknown
-value becomes a successful observation. Direct `ZoneStatusOf` and `SigningKeysOf`
-retain their existing behavior, including the distinctions they collapse.
+`ZoneDetails` is part of `Provider`. `ZoneDetailsOf` passes the successfully
+read Zone to it, then restores that identity in the result. An adapter that
+reads no property embeds `dnsprovider.UnimplementedZoneDetails`, reporting
+each requested property unsupported without a request.
 
 Related properties can share one response, but independent Provider resources
 are not an atomic snapshot. Signing Keys here describe Provider signing only:
@@ -619,11 +611,12 @@ Factory and constructing Providers; obtain a fresh Factory after changing
 capability scripts. `DeleteZone` removes hosting while retaining Registration
 and its Delegation Signers. The explicit `RemoveZone` scripting helper clears
 all associated state, including Registration, so re-adding its ID starts clean.
-`SetZoneDetails(zoneID, details)` enables the optional combined reader independently
-of the legacy readers. Script `Properties` to distinguish successful, unsupported,
-and failed reads; property errors are joined automatically. `Fail(OpZoneDetails, err)`
-adds a whole-read failure while retaining scripted details. Unrequested keys are
-omitted, and an unscripted Zone reports unsupported properties. Combined reads
+`SetZoneDetails(zoneID, details)` scripts a Zone's whole `ZoneDetails` answer.
+Script `Properties` to distinguish successful, unsupported, and failed reads;
+property errors are joined automatically. A Zone without it answers from
+`SetZoneStatus` and `SetSigningKeys`, each property unsupported until scripted.
+`Fail(OpZoneDetails, err)` adds a whole-read failure while retaining scripted
+details. Unrequested keys are omitted. Combined reads
 record `OpGetZone` then `OpZoneDetails`, with the requested flags in
 `Call.ZoneDetailRequest`. Inputs and returned detail slices are independent copies.
 

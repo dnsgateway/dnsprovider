@@ -39,6 +39,7 @@ type Config struct{ Token string }
 // Provider manages DNS through a project API token.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	token, baseURL string
 	client         *http.Client

@@ -1240,7 +1240,7 @@ func assertResults(t *testing.T, res dnsprovider.ApplyResult, want []dnsprovider
 	}
 }
 
-func TestZoneStatusReadsDNSSECAndHSTSFromTheZoneSettings(t *testing.T) {
+func TestZoneDetailsReadDNSSECAndHSTSFromTheZoneSettings(t *testing.T) {
 	tests := []struct {
 		dnssec string
 		hsts   bool
@@ -1260,13 +1260,13 @@ func TestZoneStatusReadsDNSSECAndHSTSFromTheZoneSettings(t *testing.T) {
 			api := &cfAPI{dnssec: map[string]string{"z1": tt.dnssec}, hsts: map[string]bool{"z1": tt.hsts}}
 			p := newProvider(t, api)
 
-			got, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			d, err := p.ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{})
 			if err != nil {
-				t.Fatalf("ZoneStatus: %v", err)
+				t.Fatalf("ZoneDetails: %v", err)
 			}
 
-			if got != tt.want {
-				t.Errorf("ZoneStatus = %+v, want %+v", got, tt.want)
+			if d.Status != tt.want {
+				t.Errorf("Status = %+v, want %+v", d.Status, tt.want)
 			}
 
 			// The settings are read concurrently, in any order.
@@ -1282,7 +1282,7 @@ func TestZoneStatusReadsDNSSECAndHSTSFromTheZoneSettings(t *testing.T) {
 	}
 }
 
-func TestZoneStatusSettingsTheTokenMayNotReadAreUnknown(t *testing.T) {
+func TestZoneDetailsSettingsTheTokenMayNotReadAreUnknownAndUnauthorized(t *testing.T) {
 	tests := []struct {
 		name      string
 		forbidden []string
@@ -1302,19 +1302,19 @@ func TestZoneStatusSettingsTheTokenMayNotReadAreUnknown(t *testing.T) {
 			}
 			p := newProvider(t, api)
 
-			got, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
-			if err != nil {
-				t.Fatalf("ZoneStatus: %v", err)
+			d, err := p.ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{})
+			if !errors.Is(err, dnsprovider.ErrUnauthorized) {
+				t.Fatalf("ZoneDetails error = %v, want ErrUnauthorized", err)
 			}
 
-			if got != tt.want {
-				t.Errorf("ZoneStatus = %+v, want %+v", got, tt.want)
+			if d.Status.DNSSEC != tt.want.DNSSEC || d.Status.HSTS != tt.want.HSTS {
+				t.Errorf("Status = %+v, want %+v", d.Status, tt.want)
 			}
 		})
 	}
 }
 
-func TestZoneStatusReadsDNSSECAndHSTSConcurrently(t *testing.T) {
+func TestZoneDetailsReadDNSSECAndHSTSConcurrently(t *testing.T) {
 	// The DNSSEC read is answered only once the HSTS read has arrived.
 	hstsAsked := make(chan struct{})
 
@@ -1344,17 +1344,17 @@ func TestZoneStatusReadsDNSSECAndHSTSConcurrently(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	got, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	d, err := p.ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{})
 	if err != nil {
-		t.Fatalf("ZoneStatus: %v", err)
+		t.Fatalf("ZoneDetails: %v", err)
 	}
 
-	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On}); got != want {
-		t.Errorf("ZoneStatus = %+v, want %+v", got, want)
+	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On}); d.Status.DNSSEC != want.DNSSEC || d.Status.HSTS != want.HSTS {
+		t.Errorf("Status = %+v, want %+v", d.Status, want)
 	}
 }
 
-func TestAZoneStatusSettingThatFailsToReadIsUnknownOnItsOwn(t *testing.T) {
+func TestAZoneDetailsSettingThatFailsToReadIsUnknownOnItsOwn(t *testing.T) {
 	tests := []struct {
 		name    string
 		failing string
@@ -1385,13 +1385,13 @@ func TestAZoneStatusSettingThatFailsToReadIsUnknownOnItsOwn(t *testing.T) {
 				t.Fatalf("New: %v", err)
 			}
 
-			got, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
-			if err != nil {
-				t.Fatalf("ZoneStatus: %v, want the other setting read", err)
+			d, err := p.ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{})
+			if err == nil {
+				t.Fatal("ZoneDetails succeeded with a setting failing to read")
 			}
 
-			if got != tt.want {
-				t.Errorf("ZoneStatus = %+v, want %+v", got, tt.want)
+			if d.Status.DNSSEC != tt.want.DNSSEC || d.Status.HSTS != tt.want.HSTS {
+				t.Errorf("Status = %+v, want %+v, the other setting read", d.Status, tt.want)
 			}
 		})
 	}
@@ -1421,22 +1421,17 @@ func TestSigningKeysAreTheKeyCloudflareSignsTheZoneWith(t *testing.T) {
 			api := &cfAPI{dnssec: map[string]string{"z1": tt.dnssec}}
 			p := newProvider(t, api)
 
-			r, ok := p.(dnsprovider.KeyReader)
-			if !ok {
-				t.Fatal("the Cloudflare Provider is no KeyReader")
-			}
-
-			got, err := r.SigningKeys(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			d, err := p.ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{SigningKeys: true})
 			if err != nil {
-				t.Fatalf("SigningKeys: %v", err)
+				t.Fatalf("ZoneDetails: %v", err)
 			}
 
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("SigningKeys = %+v, want %+v", got, tt.want)
+			if !reflect.DeepEqual(d.SigningKeys, tt.want) {
+				t.Errorf("SigningKeys = %+v, want %+v", d.SigningKeys, tt.want)
 			}
 
-			if reqs := api.Requests(); !slices.Equal(reqs, []string{"/client/v4/zones/z1/dnssec?page="}) {
-				t.Errorf("requests = %q, want the DNSSEC read alone", reqs)
+			if n := countRequests(api.Requests(), "/client/v4/zones/z1/dnssec?page="); n != 1 {
+				t.Errorf("DNSSEC read %d times, want once for status and keys", n)
 			}
 		})
 	}
@@ -1469,14 +1464,14 @@ func TestSigningKeysCarryTheDSDigestInUpperCase(t *testing.T) {
 			}}
 			p := newProvider(t, api)
 
-			got, err := p.(dnsprovider.KeyReader).SigningKeys(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			d, err := p.ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{SigningKeys: true})
 			if err != nil {
-				t.Fatalf("SigningKeys: %v", err)
+				t.Fatalf("ZoneDetails: %v", err)
 			}
 
 			want := []dnsprovider.SigningKey{{DNSKEY: "257 3 13 " + testPublicKey, KeyTag: 16953, DS: tt.wantDS}}
-			if !reflect.DeepEqual(got, want) {
-				t.Errorf("SigningKeys = %+v, want %+v", got, want)
+			if !reflect.DeepEqual(d.SigningKeys, want) {
+				t.Errorf("SigningKeys = %+v, want %+v", d.SigningKeys, want)
 			}
 		})
 	}
@@ -1486,25 +1481,20 @@ func TestSigningKeysTheTokenMayNotReadAreATypedError(t *testing.T) {
 	api := &cfAPI{dnssec: map[string]string{"z1": "active"}, forbidden: []string{"/client/v4/zones/z1/dnssec"}}
 	p := newProvider(t, api)
 
-	r, ok := p.(dnsprovider.KeyReader)
-	if !ok {
-		t.Fatal("the Cloudflare Provider is no KeyReader")
-	}
-
-	_, err := r.SigningKeys(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"})
-	if !errors.Is(err, dnsprovider.ErrUnauthorized) {
-		t.Fatalf("err = %v, want dnsprovider.ErrUnauthorized", err)
+	d, _ := p.ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{SigningKeys: true})
+	if d.Properties.SigningKeys.State != dnsprovider.PropertyFailed || !errors.Is(d.Properties.SigningKeys.Err, dnsprovider.ErrUnauthorized) {
+		t.Fatalf("SigningKeys = %+v, want failed with dnsprovider.ErrUnauthorized", d.Properties.SigningKeys)
 	}
 }
 
-func TestZoneStatusErrorsOtherThanAMissingPermissionAreTypedErrors(t *testing.T) {
+func TestZoneDetailsErrorsAreTypedErrors(t *testing.T) {
 	api := &cfAPI{fail: func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Retry-After", "60")
 		writeErrors(w, http.StatusTooManyRequests, 971, "Please wait and consider throttling your request speed")
 	}}
 	p := newProvider(t, api)
 
-	_, err := dnsprovider.ZoneStatusOf(context.Background(), p, dnsprovider.Zone{Name: "example.com", ID: "z1"})
+	_, err := p.ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{})
 
 	if !errors.Is(err, dnsprovider.ErrRateLimited) {
 		t.Fatalf("err = %v, want dnsprovider.ErrRateLimited", err)
@@ -1893,12 +1883,6 @@ func TestCloudflareProxiesAAAAAAndCNAMERecords(t *testing.T) {
 	}
 }
 
-func TestCloudflareReadsZoneStatus(t *testing.T) {
-	if _, ok := newProvider(t, &cfAPI{}).(dnsprovider.ZoneStatusReader); !ok {
-		t.Error("Cloudflare is not a ZoneStatusReader")
-	}
-}
-
 func TestZoneOfANameSeveralZonesShareIsTheOneCloudflareServes(t *testing.T) {
 	zone := func(id, status string) map[string]any {
 		z := cfZone(id, "example.com")
@@ -2068,7 +2052,7 @@ func recordIDs(records []dnsprovider.Record) []string {
 	return ids
 }
 
-func TestZoneStatusReadsTheMinimumTLSVersion(t *testing.T) {
+func TestZoneDetailsReadTheMinimumTLSVersion(t *testing.T) {
 	tests := []struct {
 		value string
 		want  dnsprovider.TLSVersion
@@ -2084,19 +2068,19 @@ func TestZoneStatusReadsTheMinimumTLSVersion(t *testing.T) {
 		t.Run(tt.value, func(t *testing.T) {
 			api := &cfAPI{dnssec: map[string]string{"z1": "active"}, hsts: map[string]bool{"z1": true}, minTLS: map[string]string{"z1": tt.value}}
 
-			got, err := dnsprovider.ZoneStatusOf(context.Background(), newProvider(t, api), dnsprovider.Zone{Name: "example.com", ID: "z1"})
+			d, err := newProvider(t, api).ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{})
 			if err != nil {
-				t.Fatalf("ZoneStatus: %v", err)
+				t.Fatalf("ZoneDetails: %v", err)
 			}
 
-			if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On, MinTLS: tt.want}); got != want {
-				t.Errorf("ZoneStatus = %+v, want %+v", got, want)
+			if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On, MinTLS: tt.want}); d.Status != want {
+				t.Errorf("Status = %+v, want %+v", d.Status, want)
 			}
 		})
 	}
 }
 
-func TestZoneStatusMinimumTLSVersionTheTokenMayNotReadIsUnknown(t *testing.T) {
+func TestZoneDetailsMinimumTLSVersionTheTokenMayNotReadIsUnknownAndUnauthorized(t *testing.T) {
 	api := &cfAPI{
 		dnssec:    map[string]string{"z1": "active"},
 		hsts:      map[string]bool{"z1": true},
@@ -2104,13 +2088,13 @@ func TestZoneStatusMinimumTLSVersionTheTokenMayNotReadIsUnknown(t *testing.T) {
 		forbidden: []string{"/client/v4/zones/z1/settings/min_tls_version"},
 	}
 
-	got, err := dnsprovider.ZoneStatusOf(context.Background(), newProvider(t, api), dnsprovider.Zone{Name: "example.com", ID: "z1"})
-	if err != nil {
-		t.Fatalf("ZoneStatus: %v", err)
+	d, err := newProvider(t, api).ZoneDetails(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.ZoneDetailRequest{})
+	if !errors.Is(err, dnsprovider.ErrUnauthorized) || !errors.Is(d.Properties.MinTLS.Err, dnsprovider.ErrUnauthorized) {
+		t.Fatalf("ZoneDetails error = %v, MinTLS %+v; want ErrUnauthorized", err, d.Properties.MinTLS)
 	}
 
-	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On}); got != want {
-		t.Errorf("ZoneStatus = %+v, want %+v", got, want)
+	if want := (dnsprovider.ZoneStatus{DNSSEC: dnsprovider.On, HSTS: dnsprovider.On}); d.Status != want {
+		t.Errorf("Status = %+v, want %+v", d.Status, want)
 	}
 }
 
@@ -2141,4 +2125,17 @@ func TestRecordsCarryTheirCommentAndTags(t *testing.T) {
 		{ID: "r2", Type: "TXT", Name: "example.com", Value: "\"v=spf1 -all\"", TTL: 3600},
 	}
 	assertRecords(t, rs.Records, want)
+}
+
+// countRequests is how many of reqs are req.
+func countRequests(reqs []string, req string) int {
+	n := 0
+
+	for _, r := range reqs {
+		if r == req {
+			n++
+		}
+	}
+
+	return n
 }

@@ -113,6 +113,7 @@ const RequestsPerMinute = 60
 // Provider is one GoDaddy Account.
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
+	dnsprovider.UnimplementedZoneDetails
 
 	baseURL string
 	auth    string

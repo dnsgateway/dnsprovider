@@ -74,6 +74,10 @@ var options = []option{
 			Methods: []string{"ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) { return p.applyChangeset(ctx, cs) }"},
 		}},
 	},
+	{
+		Name:   "ZoneDetails",
+		Ifaces: []iface{{Name: "ZoneDetailsReader", Methods: []string{"ZoneDetails(ctx context.Context, z dnsprovider.Zone, request dnsprovider.ZoneDetailRequest) (dnsprovider.ZoneDetails, error) { return p.zoneDetails(ctx, z, request) }"}}},
+	},
 }
 
 func main() {

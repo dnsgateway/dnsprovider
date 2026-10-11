@@ -39,6 +39,7 @@ const (
 	OpUpdateRecord Op = "UpdateRecord"
 	OpDeleteRecord Op = "DeleteRecord"
 	OpZoneStatus   Op = "ZoneStatus"
+	OpZoneDetails  Op = "ZoneDetails"
 	// OpSigningKeys is the KeyReader's SigningKeys; see SetSigningKeys.
 	OpSigningKeys Op = "SigningKeys"
 	// OpDelegationSigners is the DSRegistrar's DelegationSigners; see
@@ -75,6 +76,8 @@ type Call struct {
 	Change dnsprovider.Change
 	// ZoneUpdate is set for OpUpdateZone.
 	ZoneUpdate dnsprovider.ZoneUpdate
+	// ZoneDetailRequest is set for OpZoneDetails.
+	ZoneDetailRequest dnsprovider.ZoneDetailRequest
 	// Keys are the Signing Keys written, set for OpSetDelegationSigners.
 	Keys []dnsprovider.SigningKey
 }
@@ -87,6 +90,8 @@ type Provider struct {
 	serials        map[string]uint32
 	hosting        map[string]dnsprovider.HostingState // by Zone ID, over the State added
 	status         map[string]dnsprovider.ZoneStatus
+	details        map[string]dnsprovider.ZoneDetails
+	readDetails    bool
 	readStatus     bool                                // whether Zone Status is scripted
 	keys           map[string][]dnsprovider.SigningKey // by Zone ID
 	readKeys       bool                                // whether signing keys are scripted
@@ -118,6 +123,7 @@ func New() *Provider {
 		serials:        map[string]uint32{},
 		hosting:        map[string]dnsprovider.HostingState{},
 		status:         map[string]dnsprovider.ZoneStatus{},
+		details:        map[string]dnsprovider.ZoneDetails{},
 		keys:           map[string][]dnsprovider.SigningKey{},
 		registryKeys:   map[string][]dnsprovider.SigningKey{},
 		fail:           map[Op]error{},
@@ -184,6 +190,7 @@ func (p *Provider) removeHosting(zoneID string) {
 	delete(p.serials, zoneID)
 	delete(p.hosting, zoneID)
 	delete(p.status, zoneID)
+	delete(p.details, zoneID)
 	delete(p.keys, zoneID)
 	delete(p.partialRecords, zoneID)
 }
@@ -463,7 +470,11 @@ func (p *Provider) Calls() []Call {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return slices.Clone(p.calls)
+	out := slices.Clone(p.calls)
+	for i := range out {
+		out[i].Zone = cloneZone(out[i].Zone)
+	}
+	return out
 }
 
 // FieldTenant is the Tenant field of a fake scripted with Tenants.
@@ -547,6 +558,9 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 	defer p.mu.Unlock()
 
 	var set opts
+	if p.readDetails {
+		set |= optZoneDetails
+	}
 
 	if p.tenants != nil {
 		set |= optTenants

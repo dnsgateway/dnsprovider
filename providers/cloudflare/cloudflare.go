@@ -1108,8 +1108,12 @@ func (p *Provider) SigningKeys(ctx context.Context, zone dnsprovider.Zone) ([]dn
 		return nil, apiError(err, raw, nil)
 	}
 
+	return dnssecSigningKeys(res), nil
+}
+
+func dnssecSigningKeys(res *cfdns.DNSSEC) []dnsprovider.SigningKey {
 	if res.PublicKey == "" {
-		return nil, nil
+		return nil
 	}
 
 	key := dnsprovider.SigningKey{
@@ -1121,7 +1125,7 @@ func (p *Provider) SigningKeys(ctx context.Context, zone dnsprovider.Zone) ([]dn
 		key.DS = []string{fmt.Sprintf("%d %s %s %s", key.KeyTag, res.Algorithm, res.DigestType, strings.ToUpper(res.Digest))}
 	}
 
-	return []dnsprovider.SigningKey{key}, nil
+	return []dnsprovider.SigningKey{key}
 }
 
 // dnssecSetting is a DNSSEC status as a Setting. Pending and
@@ -1152,6 +1156,10 @@ type securityHeader struct {
 }
 
 func (p *Provider) hstsStatus(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.Setting, error) {
+	return p.readHSTS(ctx, zone, false)
+}
+
+func (p *Provider) readHSTS(ctx context.Context, zone dnsprovider.Zone, diagnostics bool) (dnsprovider.Setting, error) {
 	var params zones.SettingGetParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
@@ -1159,6 +1167,9 @@ func (p *Provider) hstsStatus(ctx context.Context, zone dnsprovider.Zone) (dnspr
 
 	res, err := p.settings.Get(ctx, "security_header", params, option.WithResponseInto(&raw))
 	if err != nil {
+		if diagnostics {
+			return dnsprovider.Unknown, apiError(err, raw, nil)
+		}
 		return settingError(err, raw)
 	}
 
@@ -1236,6 +1247,10 @@ func tlsVersion(s string) dnsprovider.TLSVersion {
 }
 
 func (p *Provider) minTLSStatus(ctx context.Context, zone dnsprovider.Zone) (dnsprovider.TLSVersion, error) {
+	return p.readMinTLS(ctx, zone, false)
+}
+
+func (p *Provider) readMinTLS(ctx context.Context, zone dnsprovider.Zone, diagnostics bool) (dnsprovider.TLSVersion, error) {
 	var params zones.SettingGetParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
@@ -1243,6 +1258,9 @@ func (p *Provider) minTLSStatus(ctx context.Context, zone dnsprovider.Zone) (dns
 
 	res, err := p.settings.Get(ctx, "min_tls_version", params, option.WithResponseInto(&raw))
 	if err != nil {
+		if diagnostics {
+			return dnsprovider.TLSUnknown, apiError(err, raw, nil)
+		}
 		_, err = settingError(err, raw)
 
 		return dnsprovider.TLSUnknown, err

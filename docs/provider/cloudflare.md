@@ -20,7 +20,7 @@ set; a token that may not read accounts, such as a DNS-only one, gets an
 All adapters expose Zone CRUD through `dnsprovider.Provider`. Cloudflare is
 the only built-in adapter declaring support for creation, settings updates,
 and deletion in `Capabilities()`. It also implements the optional
-`ZoneStatusReader` and `KeyReader`.
+`ZoneStatusReader`, `KeyReader`, and `ZoneDetailsReader`.
 
 Cloudflare reports Hosting State Active, Pending (also for a Zone still
 initializing) and Moved (also for a deactivated Zone). Zone filtering uses
@@ -68,6 +68,25 @@ same `GET /zones/{id}/dnssec` as Zone Status, as a `SigningKey` with its
 DNSKEY, key tag and SHA-256 DS. A Zone signed, pending or pending-disabled
 has one key; a disabled Zone has none. A token that may not read DNSSEC is
 `ErrUnauthorized`.
+
+For an explicit detailed read, use
+`dnsprovider.ZoneDetailsOf(ctx, p, name, dnsprovider.ZoneDetailRequest{SigningKeys: true})`.
+Cloudflare obtains DNSSEC state and requested Signing Keys from one
+`GET /zones/{id}/dnssec` response, preserving Unknown, Off, On, and Pending,
+including pending signing and pending unsigning. Without requested keys it
+still reads DNSSEC state but leaves the key outcome `PropertyNotRequested`.
+HSTS and minimum TLS are independent setting reads; the assembled result does
+not promise an atomic snapshot across these resources or the Zone identity.
+
+A DNSSEC authorization failure marks DNSSEC and requested Signing Keys failed,
+retains the diagnostic and `ErrUnauthorized` classification, and leaves any
+successful HSTS and minimum TLS values available. An independent setting
+failure likewise preserves the other values. The aggregate error joins failed
+reads and keeps cancellation observable. A disabled Zone has a successfully
+read empty key list, rather than an unsupported or failed outcome. DS digests
+use upper-case presentation. These are Provider Signing Keys, independent of
+registrar-held Delegation Signers; reading them does not establish DNSSEC
+validity through the parent Zone.
 
 Use canonical `GetZone` and `ListZones` reads. Deprecated concrete `Zone`
 and `Zones` aliases forward to them during migration; see the

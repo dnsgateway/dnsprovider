@@ -117,7 +117,7 @@ registry holds for the domain, `ErrNotFound` when the Account does not
 register it, and `SetDelegationSigners(ctx, zone, keys)` replaces them, none
 removing DNSSEC from the Delegation. `ErrUnsupported` is a registry that
 refuses the key's algorithm or form for the domain. A DS write changes the
-Delegation: a consumer asks the user first. Porkbun implements it.
+Delegation: a consumer asks the user first. Porkbun and Gandi implement it.
 
 ## Providers
 

@@ -17,8 +17,8 @@ nameservers are not available from this collection and are left empty.
 Zones are domains handled by LiveDNS, identified by their normalized domain
 name. Hosting State is Unknown: the API's list does not prove that public
 Delegation points at LiveDNS. List and exact lookup use the same identity and
-state. Domain registration, renewal, transfer, Delegation and Zone lifecycle or
-settings changes are outside this adapter. SOA serials are reported when the
+state. Domain registration, renewal, transfer, the Delegation's NS records and
+Zone lifecycle or settings changes are outside this adapter. SOA serials are reported when the
 record collection contains a valid apex SOA. Unknown record types remain visible.
 
 Writes support A, AAAA, CNAME, MX, TXT, NS, SRV and CAA. URI writes are unsupported
@@ -58,6 +58,25 @@ succeeded. Concurrent edits between the read and replacement can overwrite each
 other: LiveDNS has no conditional write used by this adapter. Coordinate external
 writers. Mutations are never automatically retried, including RRset PUTs.
 
+The Provider is a registrar adapter (`dnsprovider.DSRegistrar`) through the
+Domain API's `dnskeys` routes, at the sibling of the LiveDNS endpoint
+(`/v5/domain` next to `/v5/livedns`, or `/domain` appended to a base URL
+without `/livedns`). Its token needs permission to manage the domain's
+technical configuration, which `Account` does not check. `DelegationSigners`
+lists the keys Gandi holds at the registry, ordered by key tag, each with the
+DS Gandi computed and its DNSKEY when Gandi returns the public key (flags 257
+for a KSK, 256 otherwise). Gandi takes only key data and computes the DS
+itself, so `SetDelegationSigners` sends each key's DNSKEY algorithm and public
+key as a KSK; a key without a DNSKEY is `ErrUnsupported` before any call. It
+reads the held keys and writes nothing when they already match; otherwise it
+replaces the whole set with one `PUT`. No keys deletes each held key by its
+id, as the docs do not say a replace may hold none. Gandi answers writes with
+202 Accepted and applies them at the registry asynchronously, so a read right
+after may still show the old set. A domain not in the Account (404) is
+`ErrNotFound`; a 400 to the replace, Gandi or the registry refusing the key's
+algorithm or form, is `ErrUnsupported`, its validation details kept in the
+error.
+
 The client respects context cancellation, supplied HTTP client timeouts,
 `WithBaseURL` and `WithLogger`. Its default timeout is 30 seconds. The documented
 quota is 1,000 requests per minute per IP; adapter instances share an endpoint
@@ -73,5 +92,7 @@ writes live DNS.
 References checked for this implementation:
 
 - [LiveDNS contracts](https://api.gandi.net/docs/livedns/)
+- [Domain API DNSSEC keys](https://api.gandi.net/docs/domains/)
+- [DNSSEC at Gandi](https://docs.gandi.net/en/domain_names/advanced_users/dnssec.html)
 - [Personal access token authentication](https://api.gandi.net/docs/authentication/)
 - [API quotas and sharing](https://api.gandi.net/docs/reference/)

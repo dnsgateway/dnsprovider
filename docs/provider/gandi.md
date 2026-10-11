@@ -63,20 +63,28 @@ The Provider is a registrar adapter (`dnsprovider.DSRegistrar`) through the
 Domain API's `dnskeys` routes, at the sibling of the LiveDNS endpoint
 (`/v5/domain` next to `/v5/livedns`, or `/domain` appended to a base URL
 without `/livedns`). Its token needs permission to manage the domain's
-technical configuration, which `Account` does not check. `DelegationSigners`
-lists the keys Gandi holds at the registry, ordered by key tag, each with the
-DS Gandi computed and its DNSKEY when Gandi returns the public key (flags 257
-for a signing key of type `ksk`, 256 otherwise). Gandi takes only key data and computes the DS
-itself, so `SetDelegationSigners` sends each key's DNSKEY algorithm and public
-key as a signing key of type `ksk`; a key without a DNSKEY is `ErrUnsupported` before any call. It
-reads the held keys and writes nothing when they already match; otherwise it
-replaces the whole set with one `PUT`. No keys deletes each held key by its
-id, as the docs do not say a replace may hold none. Gandi answers writes with
-202 Accepted and applies them at the registry asynchronously, so a read right
-after may still show the old set. A domain not in the Account (404) is
-`ErrNotFound`; a 400 to the replace, Gandi or the registry refusing the key's
-algorithm or form, is `ErrUnsupported`, its validation details kept in the
-error.
+technical configuration, which `Account` does not check.
+
+`DelegationSigners` lists every signing key Gandi holds at the registry,
+ordered by key tag, each with the DS Gandi computed and its DNSKEY when Gandi
+returns the public key: flags 257 for a key of type `ksk`, and 256 for any
+other, so a key of type `zsk` or none reads too. Gandi takes only key data and
+computes the DS itself, so `SetDelegationSigners` sends each key's DNSKEY
+algorithm and public key with type `ksk`; a key without a DNSKEY is
+`ErrUnsupported` before any call. It always reads the held keys first, and
+writes nothing when they already match; otherwise it replaces the whole set
+with one `PUT`. No keys deletes the held keys one by one by id, as the docs do
+not say a replace may hold none, so a delete failing partway through leaves
+the keys not yet deleted in place. Gandi answers writes with 202 Accepted and
+applies them at the registry asynchronously, so a read right after may still
+show the old set.
+
+Gandi documents no 404 or 400 on the `dnskeys` routes, so their mapping is an
+assumption: a 404 is `ErrNotFound`, taken as a domain not in the Account, and
+a 400 to the replace is `ErrUnsupported`, taken as Gandi or the registry
+refusing the key's algorithm or form. Either error keeps Gandi's own
+description. A domain another organization holds may come back as 403, which
+is `ErrUnauthorized`, rather than `ErrNotFound`.
 
 The client respects context cancellation, supplied HTTP client timeouts,
 `WithBaseURL` and `WithLogger`. Its default timeout is 30 seconds. The documented

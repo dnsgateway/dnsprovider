@@ -110,7 +110,13 @@ func (p *Provider) heldKeys(ctx context.Context, z dnsprovider.Zone) ([]heldKey,
 
 // DelegationSigners implements dnsprovider.DSRegistrar: the keys Gandi
 // holds at the registry for the Zone's domain, ordered by key tag, each
-// with the DS Gandi computed for it.
+// with the DS Gandi computed for it. The list holds every key Gandi has,
+// so a key of type "zsk" or none reads too, its DNSKEY with flags 256.
+//
+// Gandi documents no 404 on the dnskeys routes: a 404 taken as
+// ErrNotFound, a domain the Account does not hold, is an assumption, and
+// a domain another organization holds may come back as 403,
+// ErrUnauthorized, instead. Either error keeps Gandi's description.
 func (p *Provider) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
 	held, err := p.heldKeys(ctx, z)
 	if err != nil {
@@ -171,11 +177,15 @@ func byComparedKey(a, b comparedKey) int {
 }
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar: it reads the
-// keys Gandi holds, and when they differ from the keys' DNSKEYs it sends
-// those, in their order, as gandiKSK keys in one replace, Gandi computing
-// their DS for the registry. No keys deletes each held key instead, as the docs do
-// not say a replace may hold none. A key with no DNSKEY is ErrUnsupported,
-// and so is a replace Gandi answers with 400.
+// keys Gandi holds, a read even when nothing is to be written, and when
+// they differ from the keys' DNSKEYs it sends those, in their order, as
+// gandiKSK keys in one replace, Gandi computing their DS for the registry.
+// No keys deletes each held key one by one instead, as the docs do not
+// say a replace may hold none, so a delete failing partway leaves the
+// keys not yet deleted held. Gandi answers each write with 202 and applies
+// it at the registry asynchronously, so a read right after may still show
+// the old set. A key with no DNSKEY is ErrUnsupported, and so is a replace
+// Gandi answers with 400.
 func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	want := make([]comparedKey, 0, len(keys))
 	for _, k := range keys {
@@ -211,8 +221,10 @@ func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone,
 }
 
 // refusedAsUnsupported is err with Gandi's 400 to a key write typed
-// ErrUnsupported: the keys were well formed when sent, so it is the
-// registry or Gandi refusing their algorithm or form.
+// ErrUnsupported: the keys were well formed when sent, so it is taken as
+// the registry or Gandi refusing their algorithm or form. Gandi documents
+// no 400 on the dnskeys routes, so this is an assumption; the error keeps
+// Gandi's description of the refusal.
 func refusedAsUnsupported(err error) error {
 	var api *dnsprovider.APIError
 	if errors.As(err, &api) && api.StatusCode == http.StatusBadRequest && api.Kind == nil {

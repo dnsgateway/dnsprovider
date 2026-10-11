@@ -339,3 +339,44 @@ func TestTheDomainAPIIsTheSiblingOfLiveDNS(t *testing.T) {
 		t.Fatalf("DelegationSigners read %s, %v", path, err)
 	}
 }
+
+// Gandi documents no 404 or 400 on the dnskeys routes, so the mapping of
+// each is an assumption: the error keeps Gandi's own words for it.
+func TestSigningKeyErrorsKeepGandisDescription(t *testing.T) {
+	key := dnsprovider.SigningKey{DNSKEY: "257 3 13 " + pubA, KeyTag: 2371}
+	cases := []struct {
+		name   string
+		method string
+		refuse refusal
+		kind   error
+		says   string
+	}{
+		{
+			name: "a domain Gandi does not find", method: http.MethodGet, kind: dnsprovider.ErrNotFound, says: "Domain example.com not found",
+			refuse: refusal{http.StatusNotFound, `{"code":404,"message":"The resource could not be found.","errors":[{"location":"path","name":"domain","description":"Domain example.com not found"}]}`},
+		},
+		{
+			name: "a replace Gandi refuses", method: http.MethodPut, kind: dnsprovider.ErrUnsupported, says: "public_key: invalid key",
+			refuse: refusal{http.StatusBadRequest, `{"code":400,"message":"Bad Request","errors":[{"location":"body","name":"keys","description":"public_key: invalid key"}]}`},
+		},
+		{
+			// A domain another organization holds may be forbidden, not
+			// missing.
+			name: "a domain held by another organization", method: http.MethodGet, kind: dnsprovider.ErrUnauthorized, says: "Access was denied to this resource.",
+			refuse: refusal{http.StatusForbidden, `{"code":403,"message":"Access was denied to this resource.","object":"HTTPForbidden","cause":"Forbidden"}`},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reg, p := registryAPI(t, "example.com")
+			reg.refuse[tc.method] = tc.refuse
+			err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, []dnsprovider.SigningKey{key})
+			if !errors.Is(err, tc.kind) || !strings.Contains(err.Error(), tc.says) {
+				t.Fatalf("SetDelegationSigners=%v, want %v saying %q", err, tc.kind, tc.says)
+			}
+			if tc.kind != dnsprovider.ErrNotFound && errors.Is(err, dnsprovider.ErrNotFound) {
+				t.Fatalf("SetDelegationSigners=%v is also not found", err)
+			}
+		})
+	}
+}

@@ -291,7 +291,7 @@ then Pending, then the first listed Zone.
 ## Optional Zone operations and settings
 
 Cloudflare implements `ZoneCreator`, `ZoneDeleter`, `ZoneStatusReader`,
-`ZoneUpdater` and `KeyReader`. Porkbun implements `DSRegistrar`. GoDaddy and
+`ZoneUpdater` and `KeyReader`. Porkbun and Gandi implement `DSRegistrar`. GoDaddy and
 Namecheap implement none of these.
 
 `CreateZone(ctx, name)` Onboards a name with `type: full` in the configured
@@ -375,7 +375,7 @@ looking for the registrar of a zone name skips that Account.
 Delegation. Each adapter sends every key in the form its registrar takes,
 the DNSKEY or the DS, and returns `ErrUnsupported` when the registry refuses
 the key's algorithm, digest type or form for the domain. Porkbun implements
-it, sending the DS.
+it, sending the DS, and Gandi, sending the DNSKEY.
 
 ## Applying a Changeset
 

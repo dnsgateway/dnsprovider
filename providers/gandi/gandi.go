@@ -33,9 +33,11 @@ type Config struct{ Token string }
 // Provider manages the LiveDNS resources visible to its token.
 type Provider struct {
 	token, baseURL string
-	client         *http.Client
-	log            *slog.Logger
-	limit          *rest.Window
+	// domainURL is the Domain API, the sibling of the LiveDNS baseURL.
+	domainURL string
+	client    *http.Client
+	log       *slog.Logger
+	limit     *rest.Window
 }
 
 // New validates local configuration without contacting Gandi.
@@ -53,7 +55,7 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		client = &http.Client{Timeout: DefaultRequestTimeout}
 	}
 	// Gandi's quota is per IP, so all credentials using an endpoint share it.
-	return &Provider{token: cfg.Token, baseURL: endpoint, client: client, log: o.Logger, limit: rest.AccountPerMinute("gandi "+endpoint, 1000)}, nil
+	return &Provider{token: cfg.Token, baseURL: endpoint, domainURL: domainAPI(endpoint), client: client, log: o.Logger, limit: rest.AccountPerMinute("gandi "+endpoint, 1000)}, nil
 }
 
 // Factory declares the token field and constructs the same Provider as New.
@@ -66,9 +68,16 @@ func Factory() dnsprovider.Factory {
 	return f
 }
 
-func (p *Provider) api() *rest.Client {
+// domainAPI is the Domain API next to a LiveDNS endpoint: its "livedns"
+// path element replaced by "domain", or "/domain" appended when it has
+// none, as for a test server.
+func domainAPI(endpoint string) string {
+	return strings.TrimSuffix(endpoint, "/livedns") + "/domain"
+}
+
+func (p *Provider) api(base string) *rest.Client {
 	return &rest.Client{
-		Provider: "gandi", BaseURL: p.baseURL, HTTP: p.client, Log: p.log, Limit: p.limit,
+		Provider: "gandi", BaseURL: base, HTTP: p.client, Log: p.log, Limit: p.limit,
 		Auth: func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+p.token) }, Decode: p.apiError, Attempts: 1,
 	}
 }
@@ -77,11 +86,20 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 	var payload struct {
 		Message string `json:"message"`
 		Code    int    `json:"code"`
+		// Errors detail a validation error, such as a refused DNSSEC key.
+		Errors []struct {
+			Description string `json:"description"`
+		} `json:"errors"`
 	}
 	_ = json.Unmarshal(body, &payload)
 	e := &dnsprovider.APIError{Provider: "gandi", StatusCode: res.StatusCode}
 	if payload.Message != "" {
 		e.Messages = []string{strings.ReplaceAll(payload.Message, p.token, "[redacted]")}
+	}
+	for _, d := range payload.Errors {
+		if d.Description != "" {
+			e.Messages = append(e.Messages, strings.ReplaceAll(d.Description, p.token, "[redacted]"))
+		}
 	}
 	code := res.StatusCode
 	if code == 0 {
@@ -104,8 +122,13 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 }
 
 func (p *Provider) request(ctx context.Context, method, path string, q url.Values, body, out any) error {
+	return p.requestAt(ctx, p.baseURL, method, path, q, body, out)
+}
+
+// requestAt is request to the API at base, LiveDNS or the Domain API.
+func (p *Provider) requestAt(ctx context.Context, base, method, path string, q url.Values, body, out any) error {
 	var raw []byte
-	client := p.api()
+	client := p.api(base)
 	if method == http.MethodGet {
 		client.Attempts = rest.DefaultAttempts
 	}
@@ -137,9 +160,14 @@ func (p *Provider) request(ctx context.Context, method, path string, q url.Value
 // list deliberately requests until the documented empty page. The server may
 // cap page length below per_page; the shared pager guards repeated pages.
 func list[T any](ctx context.Context, p *Provider, path string) ([]T, error) {
+	return listAt[T](ctx, p, p.baseURL, path)
+}
+
+// listAt is list from the API at base, LiveDNS or the Domain API.
+func listAt[T any](ctx context.Context, p *Provider, base, path string) ([]T, error) {
 	pages, err := rest.Pages(1, nil, func(pg rest.Page) ([][]T, error) {
 		var items []T
-		err := p.request(ctx, http.MethodGet, path, url.Values{"page": {strconv.Itoa(pg.Number)}, "per_page": {"100"}}, nil, &items)
+		err := p.requestAt(ctx, base, http.MethodGet, path, url.Values{"page": {strconv.Itoa(pg.Number)}, "per_page": {"100"}}, nil, &items)
 		if err != nil {
 			return nil, err
 		}

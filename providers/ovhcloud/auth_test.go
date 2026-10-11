@@ -23,7 +23,7 @@ func TestSignsExactURLQueryAndBody(t *testing.T) {
 
 	// The fake answers 400 INVALID_SIGNATURE unless the signature covers
 	// the URL with its prefix and encoded query, and the exact body.
-	if _, err := p.Records(context.Background(), dnsprovider.Zone{ID: "example.com", Name: "example.com"}, dnsprovider.RecordFilter{Type: "a"}); err != nil {
+	if _, err := p.ListRecords(context.Background(), dnsprovider.Zone{ID: "example.com", Name: "example.com"}, dnsprovider.RecordFilter{Type: "a"}); err != nil {
 		t.Fatalf("Records = %v", err)
 	}
 

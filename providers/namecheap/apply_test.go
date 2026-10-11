@@ -91,7 +91,7 @@ func applyOK(t *testing.T, api *ncAPI, changes ...dnsprovider.Change) dnsprovide
 
 // wantSetHosts checks that one setHosts was sent for example.com, after a
 // getHosts, with these hosts and EmailType. A getHosts before them is
-// dnsprovider.Apply's re-check of a Changeset built from Records.
+// dnsprovider.Apply's re-check of a Changeset built from ListRecords.
 func wantSetHosts(t *testing.T, api *ncAPI, emailType string, hosts []sentHost) {
 	t.Helper()
 
@@ -443,7 +443,7 @@ func TestApplySendsRelativeNamesTheMXPriorityApartAndQualifiedTargets(t *testing
 func records(t *testing.T, p dnsprovider.Provider) []dnsprovider.Record {
 	t.Helper()
 
-	set, err := p.Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}

@@ -216,7 +216,7 @@ func TestRecordsConvertStructuredFields(t *testing.T) {
 		}
 		fmt.Fprintf(w, `{"records":%s,%s}`, recordsFixture, meta(12, "", ""))
 	})
-	set, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), exampleZone, dnsprovider.RecordFilter{})
 	if err != nil || !reflect.DeepEqual(set.Records, wantRecords) || set.Serial != 0 {
 		t.Fatalf("Records: %+v %v", set, err)
 	}
@@ -241,15 +241,15 @@ func TestRecordsExhaustPagesAndFilterExactly(t *testing.T) {
 		s.handler(w, r)
 	})
 	ctx := context.Background()
-	set, err := p.Records(ctx, exampleZone, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(ctx, exampleZone, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 1104 || lists != 3 {
 		t.Fatalf("Records: %d %v lists=%d", len(set.Records), err, lists)
 	}
-	set, err = p.Records(ctx, exampleZone, dnsprovider.RecordFilter{Type: "a", Contains: "WWW.EXAMPLE.COM."})
+	set, err = p.ListRecords(ctx, exampleZone, dnsprovider.RecordFilter{Type: "a", Contains: "WWW.EXAMPLE.COM."})
 	if err != nil || len(set.Records) != 2 || set.Records[0].Value != "192.0.2.2" || set.Records[1].Value != "192.0.2.4" {
 		t.Fatalf("filtered Records: %+v %v", set.Records, err)
 	}
-	set, err = p.Records(ctx, exampleZone, dnsprovider.RecordFilter{Type: "URI"})
+	set, err = p.ListRecords(ctx, exampleZone, dnsprovider.RecordFilter{Type: "URI"})
 	if err != nil || len(set.Records) != 0 {
 		t.Fatalf("unsupported type: %+v %v", set, err)
 	}
@@ -259,7 +259,7 @@ func TestRecordsOfAZoneNamedOnlyByID(t *testing.T) {
 	s := newRecords(t)
 	s.add(map[string]any{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 300})
 	p := provider(t, s.handler)
-	set, err := p.Records(context.Background(), dnsprovider.Zone{ID: "Example.com."}, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), dnsprovider.Zone{ID: "Example.com."}, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 1 || set.Records[0].Name != "www.example.com" {
 		t.Fatalf("Records: %+v %v", set, err)
 	}
@@ -268,7 +268,7 @@ func TestRecordsOfAZoneNamedOnlyByID(t *testing.T) {
 func TestRecordsOfMissingZoneAndRecordsMissingFieldsFail(t *testing.T) {
 	s := newRecords(t)
 	p := provider(t, s.handler)
-	if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "missing.com"}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "missing.com"}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("missing: %v", err)
 	}
 	for _, row := range []string{
@@ -283,7 +283,7 @@ func TestRecordsOfMissingZoneAndRecordsMissingFieldsFail(t *testing.T) {
 			p := provider(t, func(w http.ResponseWriter, _ *http.Request) {
 				fmt.Fprintf(w, `{"records":[%s],%s}`, row, meta(1, "", ""))
 			})
-			if _, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{}); err == nil {
+			if _, err := p.ListRecords(context.Background(), exampleZone, dnsprovider.RecordFilter{}); err == nil {
 				t.Fatal("malformed Record accepted")
 			}
 		})
@@ -303,7 +303,7 @@ func TestCAAValuesRoundTripDecimalEscapesAndControlCharacters(t *testing.T) {
 				row, _ := json.Marshal(map[string]any{"id": "x", "type": "CAA", "name": "", "data": data, "priority": 0, "ttl": 300})
 				fmt.Fprintf(w, `{"records":[%s],%s}`, row, meta(1, "", ""))
 			})
-			set, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{})
+			set, err := p.ListRecords(context.Background(), exampleZone, dnsprovider.RecordFilter{})
 			if err != nil || len(set.Records) != 1 || set.Records[0].Value != want {
 				t.Fatalf("Records: %+v %v", set, err)
 			}

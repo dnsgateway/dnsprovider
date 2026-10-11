@@ -89,7 +89,7 @@ func TestRecordsPreserveValuesFiltersAndContentIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	zone := dnsprovider.Zone{ID: "example.com", Name: "Example.Com."}
-	all, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	all, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,11 +112,11 @@ func TestRecordsPreserveValuesFiltersAndContentIdentity(t *testing.T) {
 	if all.Records[1].Value != `a "quote" and \ escape` || all.Records[1].Name != "*.example.com" {
 		t.Fatalf("TXT changed: %+v", all.Records[1])
 	}
-	filtered, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{Type: "mX", Contains: "EXAMPLE.COM."})
+	filtered, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{Type: "mX", Contains: "EXAMPLE.COM."})
 	if err != nil || len(filtered.Records) != 2 {
 		t.Fatalf("filter: %+v %v", filtered, err)
 	}
-	unknown, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{Type: "unsupported"})
+	unknown, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{Type: "unsupported"})
 	if err != nil || len(unknown.Records) != 0 {
 		t.Fatalf("unknown filter: %+v %v", unknown, err)
 	}
@@ -128,7 +128,7 @@ func TestEmptyRecordsAcceptDocumentedMissingList(t *testing.T) {
 	}))
 	defer s.Close()
 	p, _ := internetbs.New(internetbs.Config{Key: "key", Password: "password"}, dnsprovider.WithBaseURL(s.URL))
-	got, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	got, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil || len(got.Records) != 0 {
 		t.Fatalf("empty records: %+v %v", got, err)
 	}
@@ -148,7 +148,7 @@ func TestMalformedStoredRecordsRejectReadsAndMutations(t *testing.T) {
 		t.Run(record["type"].(string)+"/"+record["value"].(string)+"/"+record["name"].(string), func(t *testing.T) {
 			p, fixture := newDNSFixture(t, record)
 			zone := dnsprovider.Zone{Name: "example.com"}
-			if _, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{}); err == nil {
+			if _, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{}); err == nil {
 				t.Fatal("malformed record accepted")
 			}
 			if err := p.DeleteRecord(context.Background(), zone, dnsprovider.Record{Name: "example.com", Type: "MX", Value: "10 mail.example.com", TTL: 300}); err == nil {
@@ -163,7 +163,7 @@ func TestMalformedStoredRecordsRejectReadsAndMutations(t *testing.T) {
 
 func TestNullMXAndStoredTTLRemainReadable(t *testing.T) {
 	p, _ := newDNSFixture(t, map[string]any{"name": "@", "type": "MX", "value": ".", "priority": 0, "ttl": 2})
-	got, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	got, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil || len(got.Records) != 1 || got.Records[0].Value != "0 ." || got.Records[0].TTL != 2 {
 		t.Fatalf("null MX or stored TTL lost: %+v %v", got, err)
 	}
@@ -171,7 +171,7 @@ func TestNullMXAndStoredTTLRemainReadable(t *testing.T) {
 
 func TestAPIFieldsCannotOverwriteRawRecordSelector(t *testing.T) {
 	p, fixture := newDNSFixture(t, map[string]any{"name": "example.com", "type": "MX", "value": "mail.example.com.", "priority": 10, "ttl": 300, internetbs.ExtraWireValue: "other.example.com"})
-	if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); err == nil {
+	if _, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); err == nil {
 		t.Fatal("reserved selector field accepted")
 	}
 	if len(fixture.writes) != 0 {
@@ -181,7 +181,7 @@ func TestAPIFieldsCannotOverwriteRawRecordSelector(t *testing.T) {
 
 func TestEmptyStoredTXTAndUnknownValuesRemainReadable(t *testing.T) {
 	p, _ := newDNSFixture(t, map[string]any{"name": "example.com", "type": "TXT", "value": "", "ttl": 0}, map[string]any{"name": "example.com", "type": "FUTURE", "value": "", "ttl": 300})
-	got, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	got, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil || len(got.Records) != 2 || got.Records[0].Value != "" || got.Records[0].TTL != 0 || got.Records[1].Type != "FUTURE" {
 		t.Fatalf("stored data lost: %+v %v", got, err)
 	}
@@ -189,7 +189,7 @@ func TestEmptyStoredTXTAndUnknownValuesRemainReadable(t *testing.T) {
 
 func TestMalformedRecordErrorsRedactServerCredentialEcho(t *testing.T) {
 	p, _ := newDNSFixture(t, map[string]any{"name": "example.com", "type": "A", "value": "test-password", "ttl": 300})
-	_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	_, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err == nil || strings.Contains(err.Error(), "test-password") {
 		t.Fatalf("unsafe malformed record error: %v", err)
 	}

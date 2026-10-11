@@ -96,7 +96,7 @@ func TestUpdateReturnsAuthoritativeNormalizedAddress(t *testing.T) {
 	f, p := newFixture(t)
 	f.records = []map[string]any{{"id": "old-id", "type": "AAAA", "name": "www", "data": "2001:db8::1", "priority": 0, "ttl": 600}}
 	ctx := context.Background()
-	before, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	before, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestNormalizedUnchangedTTLModificationIsUnconfirmed(t *testing.T) {
 	f, p := newFixture(t)
 	f.records = []map[string]any{{"id": "old-id", "type": "AAAA", "name": "www", "data": "2001:0db8:0:0:0:0:0:1", "priority": 0, "ttl": 300}}
 	ctx := context.Background()
-	before, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	before, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

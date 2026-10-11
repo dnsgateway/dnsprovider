@@ -77,7 +77,7 @@ func TestRecordsRetainNativeIDsAndPresentation(t *testing.T) {
 	}))
 	defer s.Close()
 	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-	set, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 5 {
 		t.Fatalf("Records=%+v,%v", set, err)
 	}
@@ -97,7 +97,7 @@ func TestRecordsRetainNativeIDsAndPresentation(t *testing.T) {
 	if set.Records[1].Value != "20 5 443 sip.example.net." || set.Records[2].Value != `hello "world"` || set.Records[4].Value != "1 . alpn=h2" {
 		t.Errorf("values=%+v", set.Records)
 	}
-	filtered, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{Type: "https", Contains: "EXAMPLE.COM."})
+	filtered, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{Type: "https", Contains: "EXAMPLE.COM."})
 	if err != nil || len(filtered.Records) != 1 {
 		t.Fatalf("filtered=%+v,%v", filtered, err)
 	}
@@ -109,11 +109,11 @@ func TestRecordFiltersCombineTypeAndTrailingDotBoundary(t *testing.T) {
 	}))
 	defer s.Close()
 	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-	set, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{Type: "a", Contains: "EXAMPLE.COM."})
+	set, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{Type: "a", Contains: "EXAMPLE.COM."})
 	if err != nil || len(set.Records) != 1 || set.Records[0].ID != "1" {
 		t.Fatalf("combined filters=%+v,%v", set, err)
 	}
-	set, err = p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{Type: "URI"})
+	set, err = p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{Type: "URI"})
 	if err != nil || len(set.Records) != 0 {
 		t.Fatalf("unsupported type filter=%+v,%v", set, err)
 	}

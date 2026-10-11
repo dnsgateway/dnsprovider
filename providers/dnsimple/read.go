@@ -288,7 +288,7 @@ func (p *Provider) recordPath(z dnsprovider.Zone) string {
 	return "/" + p.accountID + "/zones/" + url.PathEscape(names.ZoneName(z.Name)) + "/records"
 }
 
-func (p *Provider) Records(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	all, err := list[wireRecord](ctx, p, p.recordPath(z), false)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

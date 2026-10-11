@@ -360,7 +360,7 @@ func TestEveryRequestCarriesTheConfigsAuthParameters(t *testing.T) {
 		t.Fatalf("Zones: %v", err)
 	}
 
-	if _, err := p.Records(context.Background(), example, dnsprovider.RecordFilter{}); err != nil {
+	if _, err := p.ListRecords(context.Background(), example, dnsprovider.RecordFilter{}); err != nil {
 		t.Fatalf("Records: %v", err)
 	}
 
@@ -631,13 +631,13 @@ func TestRecordsAddressTheDomainBySLDAndTLD(t *testing.T) {
 	} {
 		api := &ncAPI{hosts: map[string][]ncHost{c.zone: nil}}
 
-		if _, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: c.zone, ID: c.zone}, dnsprovider.RecordFilter{}); err != nil {
-			t.Fatalf("Records(%s): %v", c.zone, err)
+		if _, err := newProvider(t, api).ListRecords(context.Background(), dnsprovider.Zone{Name: c.zone, ID: c.zone}, dnsprovider.RecordFilter{}); err != nil {
+			t.Fatalf("ListRecords(%s): %v", c.zone, err)
 		}
 
 		r := api.Requests()[0]
 		if r.Get("Command") != "namecheap.domains.dns.getHosts" || r.Get("SLD") != c.sld || r.Get("TLD") != c.tld {
-			t.Errorf("Records(%s) sent %s SLD=%q TLD=%q, want getHosts SLD=%q TLD=%q",
+			t.Errorf("ListRecords(%s) sent %s SLD=%q TLD=%q, want getHosts SLD=%q TLD=%q",
 				c.zone, r.Get("Command"), r.Get("SLD"), r.Get("TLD"), c.sld, c.tld)
 		}
 	}
@@ -660,7 +660,7 @@ func TestRecordsHaveAbsoluteNamesThePriorityFirstAndTheirContentAsID(t *testing.
 		{ID: "23", Name: "Shop", Type: "A", Address: "192.0.2.3", TTL: 300},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -701,7 +701,7 @@ func TestRecordsKeepTheRootTargetAsADot(t *testing.T) {
 		{ID: "34", Name: "alias", Type: "ALIAS", Address: ".", TTL: 300},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -723,7 +723,7 @@ func TestSRVRecordsPutTheMXPrefPriorityFirst(t *testing.T) {
 		{ID: "43", Name: "_none._tcp", Type: "SRV", Address: "0 0 .", MXPref: 0, TTL: 1800},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -744,7 +744,7 @@ func TestRecordsRefuseAnAnswerOverTheSizeLimit(t *testing.T) {
 		{ID: "51", Name: "@", Type: "TXT", Address: huge, TTL: 1800},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err == nil {
 		t.Fatalf("Records = %d records, want an error: the answer is over 4 MiB", len(set.Records))
 	}
@@ -783,7 +783,7 @@ func TestErrorAnswersAreTypedErrorsWithTheirNumbers(t *testing.T) {
 				fail:  func(string) []ncError { return c.errs },
 			}
 
-			_, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+			_, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 
 			var apiErr *dnsprovider.APIError
 			if !errors.As(err, &apiErr) {
@@ -1000,7 +1000,7 @@ func TestRecordsAreFilteredByTypeAndNameAfterOneGetHosts(t *testing.T) {
 				{ID: "15", Name: "shopping", Type: "A", Address: "192.0.2.4", TTL: 300},
 			}}}
 
-			set, err := newProvider(t, api).Records(context.Background(), example, c.filter)
+			set, err := newProvider(t, api).ListRecords(context.Background(), example, c.filter)
 			if err != nil {
 				t.Fatalf("Records: %v", err)
 			}

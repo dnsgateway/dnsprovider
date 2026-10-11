@@ -64,7 +64,7 @@ func TestRecordsExhaustPagesRetainIDsAndFilterCombinedNames(t *testing.T) {
 		}
 	})
 	for _, typ := range []string{"a", "NOSUCHTYPE"} {
-		set, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{Type: typ, Contains: "EXAMPLE.COM."})
+		set, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{Type: typ, Contains: "EXAMPLE.COM."})
 		if err != nil {
 			t.Fatal(err)
 		}

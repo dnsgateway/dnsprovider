@@ -116,7 +116,7 @@ func TestMalformedModeledRecordFieldsFailWithoutLeakingCredentials(t *testing.T)
 			rec[field] = map[string]string{"secret-password": "12345"}
 			_ = json.NewEncoder(w).Encode(map[string]any{"1": rec})
 		})
-		if _, err := p.Records(context.Background(), testZone, dnsprovider.RecordFilter{}); err == nil {
+		if _, err := p.ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{}); err == nil {
 			t.Fatalf("accepted malformed %s", field)
 		} else if strings.Contains(err.Error(), "secret-password") || strings.Contains(err.Error(), "12345") {
 			t.Fatal("credential leak")

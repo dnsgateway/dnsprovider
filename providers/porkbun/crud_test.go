@@ -138,7 +138,7 @@ func TestCRUDPreservesSiblingsAndMetadataAcrossNameAndTypeMoves(t *testing.T) {
 	api, p := fixtureAPI(t)
 	ctx := context.Background()
 	z := dnsprovider.Zone{Name: "example.com"}
-	set, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +160,7 @@ func TestCRUDPreservesSiblingsAndMetadataAcrossNameAndTypeMoves(t *testing.T) {
 	if err = p.DeleteRecord(ctx, z, updated); err != nil {
 		t.Fatal(err)
 	}
-	remaining, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	remaining, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil || len(remaining.Records) != 2 || remaining.Records[0].ID != "102" || remaining.Records[1].Type != "HTTPS" {
 		t.Fatalf("remaining=%+v,%v", remaining, err)
 	}
@@ -222,7 +222,7 @@ func TestUpdateCollisionLeavesEveryRecordUntouched(t *testing.T) {
 	api, p := fixtureAPI(t)
 	ctx := context.Background()
 	z := dnsprovider.Zone{Name: "example.com"}
-	rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,7 +241,7 @@ func TestUpdateCollisionLeavesEveryRecordUntouched(t *testing.T) {
 	if err := p.DeleteRecord(ctx, z, rs.Records[1]); err != nil {
 		t.Fatal(err)
 	}
-	remaining, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	remaining, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil || len(remaining.Records) != 1 || remaining.Records[0].ID != "103" {
 		t.Fatalf("last sibling delete=%+v,%v", remaining, err)
 	}
@@ -253,7 +253,7 @@ func TestCompletedWritesReportReadbackFailureWithoutResubmitting(t *testing.T) {
 			api, p := fixtureAPI(t)
 			ctx := context.Background()
 			z := dnsprovider.Zone{Name: "example.com"}
-			rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+			rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -274,7 +274,7 @@ func TestCompletedWritesReportReadbackFailureWithoutResubmitting(t *testing.T) {
 				t.Errorf("mutation resubmitted %v", api.writes)
 			}
 			api.mu.Unlock()
-			final, err := p.Records(ctx, z, dnsprovider.RecordFilter{Type: "AAAA"})
+			final, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{Type: "AAAA"})
 			if err != nil || len(final.Records) != 1 || final.Records[0].Value != desired.Value {
 				t.Fatalf("completed DNS state=%+v,%v", final, err)
 			}

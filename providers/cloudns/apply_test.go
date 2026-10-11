@@ -13,7 +13,7 @@ func TestApplyRejectsStaleModificationsAndDeletionsWithoutWrites(t *testing.T) {
 	for _, kind := range []dnsprovider.ChangeKind{dnsprovider.ChangeModify, dnsprovider.ChangeDelete} {
 		state, p := fixture(t)
 		ctx := context.Background()
-		rs, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+		rs, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -35,7 +35,7 @@ func TestApplyUsesCRUDOrderAndKeepsOriginalResultOrder(t *testing.T) {
 	for _, fail := range []bool{false, true} {
 		state, p := fixture(t)
 		ctx := context.Background()
-		rs, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+		rs, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}

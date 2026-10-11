@@ -95,7 +95,7 @@ func TestRecordsWithUnparseableDataAreListedWithTheirRawData(t *testing.T) {
 		want[s.add(row)] = data
 	}
 	p := provider(t, s.handler)
-	set, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), exampleZone, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != len(want) {
 		t.Fatalf("Records: %+v %v", set, err)
 	}
@@ -113,7 +113,7 @@ func TestMultiStringTXTDataReadsAsItsTextAndWritesBack(t *testing.T) {
 	id := s.add(map[string]any{"type": "TXT", "name": "", "data": `"v=DKIM1; p=part1" "part2"`, "ttl": 300})
 	p := provider(t, s.handler)
 	ctx := context.Background()
-	set, err := p.Records(ctx, exampleZone, dnsprovider.RecordFilter{Type: "TXT"})
+	set, err := p.ListRecords(ctx, exampleZone, dnsprovider.RecordFilter{Type: "TXT"})
 	if err != nil || len(set.Records) != 1 || set.Records[0].Value != "v=DKIM1; p=part1part2" {
 		t.Fatalf("Records: %+v %v", set, err)
 	}

@@ -187,7 +187,7 @@ func (p *Provider) read(ctx context.Context, z dnsprovider.Zone) ([]wireRecord, 
 	return list[wireRecord](ctx, p, recordsPath(owned), "records")
 }
 
-func (p *Provider) Records(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	all, err := p.read(ctx, z)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

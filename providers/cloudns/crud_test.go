@@ -103,7 +103,7 @@ func TestCreateReturnsStoredRecordAndRejectsDuplicatesRegardlessOfTTL(t *testing
 func TestUpdateRetainsNativeIDMetadataAndSiblingThenDeletesOnlySelection(t *testing.T) {
 	state, p := fixture(t)
 	ctx := context.Background()
-	rs, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestUpdateRetainsNativeIDMetadataAndSiblingThenDeletesOnlySelection(t *test
 	if err = p.DeleteRecord(ctx, testZone, got); err != nil {
 		t.Fatal(err)
 	}
-	rs, err = p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	rs, err = p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	if err != nil || len(rs.Records) != 1 || rs.Records[0].ID != "2" {
 		t.Fatalf("remaining = %+v, %v", rs, err)
 	}
@@ -138,7 +138,7 @@ func TestTypeMovePreservesMetadataAndReportsPartialDeletionFailure(t *testing.T)
 		t.Run(fmt.Sprint(fail), func(t *testing.T) {
 			state, p := fixture(t)
 			ctx := context.Background()
-			rs, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+			rs, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -157,7 +157,7 @@ func TestTypeMovePreservesMetadataAndReportsPartialDeletionFailure(t *testing.T)
 			} else if err != nil || got.ID != "3" || got.Type != "AAAA" || got.Extras["note"] != "retain" || got.Extras["status"] != "0" {
 				t.Fatalf("move = %+v, %v", got, err)
 			}
-			rs, readErr := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+			rs, readErr := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 			if readErr != nil {
 				t.Fatal(readErr)
 			}

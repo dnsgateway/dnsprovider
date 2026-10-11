@@ -348,12 +348,12 @@ type wireRecord struct {
 // answers 422 for any other.
 var recordTypes = []string{"A", "AAAA", "CAA", "CNAME", "MX", "NS", "SOA", "SRV", "TXT"}
 
-// Records implements dnsprovider.Provider. GoDaddy lists the Records of
+// ListRecords implements dnsprovider.Provider. GoDaddy lists the Records of
 // one type it holds itself; a type it does not hold is filtered here, from
 // the whole list, so it finds none rather than failing. The name filter,
 // and the type again, are applied with dnsprovider.MatchRecord. GoDaddy
 // reports no SOA serial: query the Zone's nameservers for it.
-func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	typ := strings.ToUpper(f.Type)
 	if !slices.Contains(recordTypes, typ) {
 		typ = ""
@@ -616,7 +616,7 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 	return res, nil
 }
 
-// stored is a Record as GoDaddy stores it, so as Records reads it back:
+// stored is a Record as GoDaddy stores it, so as ListRecords reads it back:
 // the RRset replace sends it, under its RRset's name, as toWire has it.
 // It is worked out from what is sent rather than read back, which would
 // cost a request per RRset against GoDaddy's rate limit. A Record toWire

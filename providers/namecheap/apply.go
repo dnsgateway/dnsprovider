@@ -37,7 +37,7 @@ type sendHost struct {
 // The Changeset succeeds or fails as a whole. When it fails, nothing was
 // applied (or, when the write's answer was lost, Namecheap may have taken
 // it), so it returns an error of its own rather than per-change errors. On
-// success, each added or modified Record is returned as Records reads it
+// success, each added or modified Record is returned as ListRecords reads it
 // back, with its content ID, so a consumer need not read the Zone again.
 func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
@@ -254,7 +254,7 @@ func mailWritable(cs dnsprovider.Changeset, emailType string) error {
 	return nil
 }
 
-// read is a host as sent, as Records reads it back.
+// read is a host as sent, as ListRecords reads it back.
 func (h sendHost) read(zone string) dnsprovider.Record {
 	pref, _ := strconv.ParseUint(h.MXPref, 10, 16)
 
@@ -262,7 +262,7 @@ func (h sendHost) read(zone string) dnsprovider.Record {
 }
 
 // key tells a host apart from another resource record: its type, name
-// and value as Records reads it back, the type and name ignoring case.
+// and value as ListRecords reads it back, the type and name ignoring case.
 func (h sendHost) key(zone string) string {
 	r := h.read(zone)
 

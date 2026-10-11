@@ -518,7 +518,7 @@ func TestRecordsListsEveryPageWithAbsoluteNamesAndThePriorityFirst(t *testing.T)
 		{"type": "CAA", "name": "@", "data": "0 issue \"letsencrypt.org\"", "ttl": 3600},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "example.com"}, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -751,7 +751,7 @@ func TestApplySplitsThePriorityAndSRVFieldsOutOfTheValue(t *testing.T) {
 	}
 
 	// The records read back as they were written.
-	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -944,7 +944,7 @@ func TestApplyDeletesTheSRVRecordOfItsOwnService(t *testing.T) {
 		t.Fatalf("Apply: %v, %+v", err, res.Results)
 	}
 
-	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -980,14 +980,14 @@ func TestApplyKeepsTheServiceOfSRVRecordsNamedWithoutServiceFields(t *testing.T)
 func TestRecordsOfADomainWithoutAZoneFileAreNotServed(t *testing.T) {
 	api := &gdAPI{domains: []map[string]any{domain("example.com", "ns1.elsewhere.example")}}
 
-	_, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	_, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if !errors.Is(err, dnsprovider.ErrNotServed) || !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Errorf("Records of a held domain: err = %v, want ErrNotServed", err)
 	}
 
 	api.domains = nil
 
-	_, err = newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	_, err = newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if !errors.Is(err, dnsprovider.ErrNotFound) || errors.Is(err, dnsprovider.ErrNotServed) {
 		t.Errorf("Records of a domain gone: err = %v, want ErrNotFound alone", err)
 	}
@@ -999,7 +999,7 @@ func TestRecordsTurnAnAtTargetIntoTheZoneName(t *testing.T) {
 		{"type": "SRV", "name": "@", "service": "_sip", "protocol": "_tcp", "data": "@", "priority": 1, "weight": 2, "port": 5060, "ttl": 3600},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -1021,7 +1021,7 @@ func TestRecordsStopAtAShortPage(t *testing.T) {
 
 	api := &gdAPI{pageSize: 2, records: map[string][]map[string]any{"example.com": recs}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 3 {
 		t.Fatalf("Records = %v, %v; want 3 Records", set.Records, err)
 	}
@@ -1052,7 +1052,7 @@ func TestListsThatIgnorePagingFailInsteadOfLoopingForever(t *testing.T) {
 		t.Errorf("Zones = %v, want an error about paging", err)
 	}
 
-	if _, err := p.Records(ctx, example, dnsprovider.RecordFilter{}); err == nil || errors.Is(err, context.DeadlineExceeded) {
+	if _, err := p.ListRecords(ctx, example, dnsprovider.RecordFilter{}); err == nil || errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Records = %v, want an error about paging", err)
 	}
 }
@@ -1107,7 +1107,7 @@ func TestRecordsCarryAProviderIDThatTellsThemApartInTheirRRset(t *testing.T) {
 		{"type": "A", "name": "WWW", "data": "192.0.2.1", "ttl": 600},
 	}}}
 
-	set, err := newProvider(t, api).Records(context.Background(), example, dnsprovider.RecordFilter{})
+	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -1151,7 +1151,7 @@ func TestRecordsFilteredByTypeAskGoDaddyForTheTypeAndByNameFilterHere(t *testing
 				{"type": "A", "name": "@", "data": "192.0.2.3", "ttl": 600},
 			}}}
 
-			set, err := newProvider(t, api).Records(context.Background(), example, c.filter)
+			set, err := newProvider(t, api).ListRecords(context.Background(), example, c.filter)
 			if err != nil {
 				t.Fatalf("Records: %v", err)
 			}
@@ -1416,13 +1416,13 @@ func TestCreateRecordReturnsTheRecordAsRecordsReadsItBack(t *testing.T) {
 			t.Fatalf("CreateRecord %s: %v", add.Name, err)
 		}
 
-		set, err := p.Records(context.Background(), example, dnsprovider.RecordFilter{Type: add.Type})
+		set, err := p.ListRecords(context.Background(), example, dnsprovider.RecordFilter{Type: add.Type})
 		if err != nil {
 			t.Fatalf("Records: %v", err)
 		}
 
 		if len(set.Records) != 1 || !reflect.DeepEqual(got, set.Records[0]) {
-			t.Errorf("CreateRecord = %+v, want it as Records reads it: %+v", got, set.Records)
+			t.Errorf("CreateRecord = %+v, want it as ListRecords reads it: %+v", got, set.Records)
 		}
 	}
 }

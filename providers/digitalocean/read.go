@@ -375,10 +375,10 @@ func recordsPath(z dnsprovider.Zone) string {
 	return "/domains/" + url.PathEscape(zoneName(z)) + "/records"
 }
 
-// Records reads the Domain, for its SOA serial and to tell a missing Zone,
+// ListRecords reads the Domain, for its SOA serial and to tell a missing Zone,
 // then every page of its Domain Records. A type filter DigitalOcean holds
 // is pushed down; the rest is filtered locally.
-func (p *Provider) Records(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	d, err := p.domain(ctx, zoneName(z))
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

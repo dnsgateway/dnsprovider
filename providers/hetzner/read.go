@@ -256,8 +256,8 @@ func (p *Provider) snapshot(ctx context.Context, z dnsprovider.Zone) (wireZone, 
 	return wz, sets, nil
 }
 
-// Records expands RRset values, including unfamiliar types, into Records.
-func (p *Provider) Records(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+// ListRecords expands RRset values, including unfamiliar types, into Records.
+func (p *Provider) ListRecords(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	wz, sets, err := p.snapshot(ctx, z)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

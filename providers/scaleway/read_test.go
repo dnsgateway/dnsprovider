@@ -58,7 +58,7 @@ func TestProjectDiscoveryAndOwnership(t *testing.T) {
 		if _, err = p.GetZone(ctx, name); !errors.Is(err, dnsprovider.ErrNotFound) {
 			t.Fatalf("lookup %s: %v", name, err)
 		}
-		if _, err = p.Records(ctx, dnsprovider.Zone{ID: name, Name: name}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
+		if _, err = p.ListRecords(ctx, dnsprovider.Zone{ID: name, Name: name}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
 			t.Fatalf("records %s: %v", name, err)
 		}
 		z := dnsprovider.Zone{ID: name, Name: name}
@@ -154,7 +154,7 @@ func TestFiltersAndStructuredRecordRoundTrips(t *testing.T) {
 			t.Fatalf("%s stored %+v", r.Type, stored)
 		}
 	}
-	set, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{Type: "aaaa", Contains: "*.DEV.EXAMPLE.COM."})
+	set, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{Type: "aaaa", Contains: "*.DEV.EXAMPLE.COM."})
 	if err != nil || len(set.Records) != 1 {
 		t.Fatalf("filter %+v %v", set, err)
 	}
@@ -163,7 +163,7 @@ func TestFiltersAndStructuredRecordRoundTrips(t *testing.T) {
 		t.Error("Records is a Partial View, want a Full View")
 	}
 
-	unsupported, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{Type: "unsupported"})
+	unsupported, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{Type: "unsupported"})
 	if err != nil || len(unsupported.Records) != 0 {
 		t.Fatalf("unsupported: %+v %v", unsupported, err)
 	}
@@ -195,7 +195,7 @@ func TestRecordsExhaustPagesAndRejectInvalidPagination(t *testing.T) {
 			}))
 			defer srv.Close()
 			p, _ := scaleway.New(scaleway.Config{SecretKey: "secret", ProjectID: project}, dnsprovider.WithBaseURL(srv.URL))
-			rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+			rs, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 			if invalid {
 				if err == nil {
 					t.Fatal("accepted premature empty page")

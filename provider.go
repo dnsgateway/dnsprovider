@@ -59,10 +59,10 @@ type Provider interface { //nolint:interfacebloat // Zone and Record CRUD form t
 	// leaves that check to the caller.
 	// Unsupported adapters return ErrNotImplemented without network traffic.
 	DeleteZone(ctx context.Context, zone Zone) error
-	// Records lists a Zone's Records that match the filter, exactly
+	// ListRecords lists a Zone's Records that match the filter, exactly
 	// filtered, with the SOA serial when the Provider reports it. The
 	// RecordSet's Partial follows the same rule as ListZones' ZoneSet.
-	Records(ctx context.Context, zone Zone, f RecordFilter) (RecordSet, error)
+	ListRecords(ctx context.Context, zone Zone, f RecordFilter) (RecordSet, error)
 	// CreateRecord adds a Record and returns it as the Provider stored
 	// it, with its ID: ErrConflict when the Zone holds a Record identical
 	// to it.

@@ -347,7 +347,7 @@ func (p *Provider) completeGroup(ctx context.Context, z dnsprovider.Zone, plan *
 	}
 	var records []dnsprovider.Record
 	if failure == nil && wrote {
-		stored, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+		stored, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 		if err != nil {
 			failure = uncertain("read-back", err)
 		} else {

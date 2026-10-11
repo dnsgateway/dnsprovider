@@ -125,7 +125,7 @@ func TestEmptyAccountVerifiesAccessAndRepeatedPagesFail(t *testing.T) {
 func TestRecordFiltersAndSOASerial(t *testing.T) {
 	_, p := newService(t, aSet("*", 300, "192.0.2.1"), map[string]any{"rrset_name": "@", "rrset_type": "SOA", "rrset_ttl": 300, "rrset_values": []string{"ns.example.org. hostmaster.example.org. 123 10800 3600 604800 300"}})
 	for _, filter := range []dnsprovider.RecordFilter{{Type: "a", Contains: "EXAMPLE.ORG."}, {Type: "a"}, {Contains: "*.EXAMPLE.ORG."}, {Type: "NOSUCHTYPE"}} {
-		rs, err := p.Records(context.Background(), testZone, filter)
+		rs, err := p.ListRecords(context.Background(), testZone, filter)
 		if err != nil {
 			t.Fatal(err)
 		}

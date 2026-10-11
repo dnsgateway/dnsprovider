@@ -97,13 +97,13 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		t.Errorf("Zone(%s) = %+v, want %+v as Zones listed it", zones[0].Name, z, zones[0])
 	}
 
-	rs, err := p.Records(ctx, zones[0], dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, zones[0], dnsprovider.RecordFilter{})
 	if err != nil {
-		t.Fatalf("Records(%s): %v", zones[0].Name, err)
+		t.Fatalf("ListRecords(%s): %v", zones[0].Name, err)
 	}
 
 	if rs.Partial {
-		t.Errorf("Records(%s) is a Partial View, want a Full View", zones[0].Name)
+		t.Errorf("ListRecords(%s) is a Partial View, want a Full View", zones[0].Name)
 	}
 
 	if len(rs.Records) == 0 {
@@ -120,9 +120,9 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		{Contains: first.Name},
 		{Type: "NOSUCHTYPE"},
 	} {
-		filtered, err := p.Records(ctx, zones[0], rf)
+		filtered, err := p.ListRecords(ctx, zones[0], rf)
 		if err != nil {
-			t.Fatalf("Records(%s, %+v): %v", zones[0].Name, rf, err)
+			t.Fatalf("ListRecords(%s, %+v): %v", zones[0].Name, rf, err)
 		}
 
 		var want []string
@@ -133,7 +133,7 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		}
 
 		if got := recordIDs(filtered.Records); !slices.Equal(got, sorted(want)) {
-			t.Errorf("Records(%s, %+v) = %v, want %v from the whole read", zones[0].Name, rf, got, sorted(want))
+			t.Errorf("ListRecords(%s, %+v) = %v, want %v from the whole read", zones[0].Name, rf, got, sorted(want))
 		}
 	}
 }

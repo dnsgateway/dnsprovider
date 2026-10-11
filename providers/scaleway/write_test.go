@@ -150,7 +150,7 @@ var testZone = dnsprovider.Zone{ID: "dev.example.com", Name: "dev.example.com"}
 func TestTargetedEditsRetainSiblingsAndDynamicMetadata(t *testing.T) {
 	f, p := newFixture(t)
 	ctx := context.Background()
-	set, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +166,7 @@ func TestTargetedEditsRetainSiblingsAndDynamicMetadata(t *testing.T) {
 	if stored.ID == "a" || stored.ID == "" || stored.Name != after.Name || stored.TTL != 600 {
 		t.Fatalf("stored: %+v", stored)
 	}
-	got, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	got, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +186,7 @@ func TestTargetedEditsRetainSiblingsAndDynamicMetadata(t *testing.T) {
 	if err = p.DeleteRecord(ctx, testZone, got.Records[0]); err != nil {
 		t.Fatal(err)
 	}
-	remaining, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	remaining, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	if err != nil || len(remaining.Records) != 0 {
 		t.Fatalf("last sibling: %+v %v", remaining, err)
 	}
@@ -199,7 +199,7 @@ func TestDuplicateAndUnsafeMetadataFailBeforeWrites(t *testing.T) {
 	if !errors.Is(err, dnsprovider.ErrConflict) || f.writes != 0 {
 		t.Fatalf("duplicate: %v writes %d", err, f.writes)
 	}
-	set, _ := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	before := set.Records[0]
 	after := before
 	after.Type = "TXT"
@@ -222,7 +222,7 @@ func TestDuplicateAndUnsafeMetadataFailBeforeWrites(t *testing.T) {
 func TestApplyOrderResultsReadbackAndStaleness(t *testing.T) {
 	f, p := newFixture(t)
 	ctx := context.Background()
-	set, _ := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	modified := set.Records[0]
 	modified.TTL = 600
 	added := dnsprovider.Record{Type: "A", Name: "added", Value: "192.0.2.10", TTL: 600}
@@ -267,7 +267,7 @@ func TestUnchangedPartialBatchDoesNotConfirmTTLModification(t *testing.T) {
 	f, p := newFixture(t)
 	ctx := context.Background()
 	f.partial = true
-	set, _ := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	after := set.Records[0]
 	after.TTL = 600
 	res, err := dnsprovider.Apply(ctx, p, dnsprovider.Changeset{Zone: testZone, Changes: []dnsprovider.Change{{Kind: dnsprovider.ChangeModify, Before: set.Records[0], After: after}}})
@@ -280,7 +280,7 @@ func TestTypeEditDropsOldPriorityAndKeepsComment(t *testing.T) {
 	f, p := newFixture(t)
 	f.records = []map[string]any{{"id": "mx", "type": "MX", "name": "mail", "data": "mail.example.net.", "priority": 10, "ttl": 600, "comment": "preserve"}}
 	ctx := context.Background()
-	set, err := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestStoredNormalizedTTLIsAuthoritative(t *testing.T) {
 	if err != nil || added.TTL != 900 {
 		t.Fatalf("normalized create: %+v %v", added, err)
 	}
-	set, _ := p.Records(ctx, testZone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(ctx, testZone, dnsprovider.RecordFilter{})
 	after := set.Records[0]
 	after.TTL = 600
 	modified, err := p.UpdateRecord(ctx, testZone, set.Records[0], after)

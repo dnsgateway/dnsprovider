@@ -29,7 +29,7 @@ permissions; DNS needs the user's DNS permission (`dns` in the Account's
 | Operation | Endpoint | Permission |
 | --- | --- | --- |
 | `Account` | `GET /v2/account` | a valid key from an allowed address |
-| `Zones`, `Zone`, `Records` | `GET /v2/domains`, `/v2/domains/{domain}`, `/v2/domains/{domain}/records` | DNS |
+| `Zones`, `Zone`, `ListRecords` | `GET /v2/domains`, `/v2/domains/{domain}`, `/v2/domains/{domain}/records` | DNS |
 | `CreateRecord` | `GET` the Records, `POST /v2/domains/{domain}/records` | DNS |
 | `UpdateRecord` | `GET` the Records, `PATCH /v2/domains/{domain}/records/{id}`, `GET` it back; a type change POSTs and DELETEs | DNS |
 | `DeleteRecord` | `DELETE /v2/domains/{domain}/records/{id}` | DNS |
@@ -62,7 +62,7 @@ shorter result.
 
 ## Records
 
-`Records` reads every page of the Zone's Records; Vultr's list takes no
+`ListRecords` reads every page of the Zone's Records; Vultr's list takes no
 filter, so type and name filters are applied locally. A missing Zone is
 `ErrNotFound`. Vultr reports no SOA serial, so `RecordSet.Serial` is zero.
 

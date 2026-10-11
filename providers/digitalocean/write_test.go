@@ -45,7 +45,7 @@ func TestCreateRoundTripsStructuredRecords(t *testing.T) {
 					t.Errorf("sent %s = %#v, want %#v (body %v)", k, body[k], v, body)
 				}
 			}
-			set, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{Type: tc.typ})
+			set, err := p.ListRecords(context.Background(), exampleZone, dnsprovider.RecordFilter{Type: tc.typ})
 			if err != nil || len(set.Records) != 1 || !reflect.DeepEqual(set.Records[0], r) {
 				t.Fatalf("read back: %+v %v", set, err)
 			}
@@ -263,7 +263,7 @@ func TestSameOwnerCNAMETypeMoveRestoresTheOriginalWhenTheReplacementFails(t *tes
 	if !reflect.DeepEqual(s.writes, []string{"DELETE " + before.ID, "POST 28448502"}) {
 		t.Fatalf("writes: %v", s.writes)
 	}
-	set, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{Contains: "www.example.com"})
+	set, err := p.ListRecords(context.Background(), exampleZone, dnsprovider.RecordFilter{Contains: "www.example.com"})
 	want := before
 	want.ID = "28448502"
 	if err != nil || len(set.Records) != 1 || !reflect.DeepEqual(set.Records[0], want) {
@@ -341,7 +341,7 @@ func TestMissingRecordsAreNotFoundAndDeleteRemovesOnlyTheSelectedRecord(t *testi
 		if err := p.DeleteRecord(ctx, exampleZone, dnsprovider.Record{ID: strconv.Itoa(id), Type: "TXT", Name: "www.example.com"}); err != nil {
 			t.Fatal(err)
 		}
-		set, err := p.Records(ctx, exampleZone, dnsprovider.RecordFilter{Type: "TXT"})
+		set, err := p.ListRecords(ctx, exampleZone, dnsprovider.RecordFilter{Type: "TXT"})
 		if err != nil || (id == a && (len(set.Records) != 1 || set.Records[0].ID != strconv.Itoa(b))) || (id == b && len(set.Records) != 0) {
 			t.Fatalf("after deleting %d: %+v %v", id, set, err)
 		}
@@ -354,7 +354,7 @@ func TestRecordsPageThroughTheFixture(t *testing.T) {
 		s.add(map[string]any{"type": "A", "name": fmt.Sprintf("h%d", i), "data": "192.0.2.1", "ttl": 300})
 	}
 	p := provider(t, s.handler)
-	set, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), exampleZone, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 451 {
 		t.Fatalf("Records: %d %v", len(set.Records), err)
 	}
@@ -454,7 +454,7 @@ func TestCAAIssuerDomainsAreWrittenWithTheirTrailingDotAndReadInEitherForm(t *te
 	s.add(map[string]any{"type": "CAA", "name": "@", "data": "letsencrypt.org", "ttl": 300, "flags": 0, "tag": "issue"})
 	p := provider(t, s.handler)
 	ctx := context.Background()
-	set, err := p.Records(ctx, exampleZone, dnsprovider.RecordFilter{Type: "CAA"})
+	set, err := p.ListRecords(ctx, exampleZone, dnsprovider.RecordFilter{Type: "CAA"})
 	if err != nil || len(set.Records) != 2 || set.Records[0].Value != `0 issuewild "pki.goog"` || set.Records[1].Value != `0 issue "letsencrypt.org"` {
 		t.Fatalf("read: %+v %v", set, err)
 	}
@@ -482,7 +482,7 @@ func TestCAAValuesRoundTripDecimalEscapesAndControlCharacters(t *testing.T) {
 	ctl := s.add(map[string]any{"type": "CAA", "name": "@", "data": "mailto:a\x01b@example.com", "ttl": 300, "flags": 0, "tag": "iodef"})
 	p := provider(t, s.handler)
 	ctx := context.Background()
-	set, err := p.Records(ctx, exampleZone, dnsprovider.RecordFilter{Type: "CAA"})
+	set, err := p.ListRecords(ctx, exampleZone, dnsprovider.RecordFilter{Type: "CAA"})
 	if err != nil || len(set.Records) != 1 || set.Records[0].ID != strconv.Itoa(ctl) || set.Records[0].Value != `0 iodef "mailto:a\001b@example.com"` {
 		t.Fatalf("read: %+v %v", set, err)
 	}

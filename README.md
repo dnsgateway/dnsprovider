@@ -102,7 +102,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	records, err := p.Records(ctx, zone, dnsprovider.RecordFilter{})
+	records, err := p.ListRecords(ctx, zone, dnsprovider.RecordFilter{})
 	if err != nil {
 		log.Fatal(err)
 	}

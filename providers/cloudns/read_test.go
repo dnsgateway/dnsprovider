@@ -97,7 +97,7 @@ func TestRecordsConvertStructuredValuesAndNativeIDs(t *testing.T) {
 		fmt.Fprint(w, `{"11":{"id":"11","type":"A","host":"","record":"192.0.2.1","ttl":"300","status":"1"},"12":{"id":"12","type":"MX","host":"","record":"mail.example.net.","priority":"10","ttl":"3600"},"13":{"id":"13","type":"SRV","host":"_sip._tcp","record":"sip.example.net.","priority":"5","weight":"20","port":"5060","ttl":"300"},"14":{"id":"14","type":"CAA","host":"*","caa_flag":"128","caa_type":"issue","caa_value":"letsencrypt.org","ttl":"300"},"15":{"id":"15","type":"TXT","host":"txt","record":"v=spf1 include:example.net -all","ttl":"300","note":"keep"},"16":{"id":"16","type":"TLSA","host":"_443._tcp","record":"abcd","ttl":300,"tlsa_usage":"3"}}`)
 	})
 	zone := dnsprovider.Zone{ID: "example.com", Name: "example.com"}
-	rs, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -124,7 +124,7 @@ func TestRecordsConvertStructuredValuesAndNativeIDs(t *testing.T) {
 		}
 	}
 	for _, f := range []dnsprovider.RecordFilter{{Type: "NOSUCHTYPE"}, {Type: "mx"}, {Contains: "EXAMPLE.COM."}, {Type: "txt", Contains: "TXT"}} {
-		got, err := p.Records(context.Background(), zone, f)
+		got, err := p.ListRecords(context.Background(), zone, f)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -155,7 +155,7 @@ func TestRecordsExhaustPagesAndRejectRepeatedPages(t *testing.T) {
 			}
 			_ = json.NewEncoder(w).Encode(raw)
 		})
-		rs, err := p.Records(context.Background(), testZone, dnsprovider.RecordFilter{})
+		rs, err := p.ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{})
 		if repeat {
 			if !errors.Is(err, rest.ErrSamePage) {
 				t.Fatal(err)
@@ -180,7 +180,7 @@ func TestEmptyRecordsAndDNSPermissionFailuresRemainDistinct(t *testing.T) {
 	if _, err := p.Account(context.Background()); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 		t.Fatal(err)
 	}
-	if rs, err := p.Records(context.Background(), testZone, dnsprovider.RecordFilter{}); err != nil || len(rs.Records) != 0 {
+	if rs, err := p.ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{}); err != nil || len(rs.Records) != 0 {
 		t.Fatalf("empty records %+v, %v", rs, err)
 	}
 	if _, err := p.GetZone(context.Background(), "absent.com"); !errors.Is(err, dnsprovider.ErrUnauthorized) {

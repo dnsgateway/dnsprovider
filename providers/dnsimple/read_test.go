@@ -79,7 +79,7 @@ func TestFrozenRecordsPreservePresentationUnknownTypesAndSOASerial(t *testing.T)
  {"id":6,"zone_id":"example.com","name":"","type":"ALIAS","content":"unknown.example.net","ttl":60,"priority":null}
  ],"pagination":{"current_page":1,"per_page":100,"total_pages":1}}`)
 	})
-	set, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 6 || set.Serial != 1458642070 {
 		t.Fatalf("Records: %+v %v", set, err)
 	}
@@ -124,7 +124,7 @@ func TestRecordsRejectMissingNullAndWronglyTypedRequiredFields(t *testing.T) {
 				p := provider(t, func(w http.ResponseWriter, _ *http.Request) {
 					json.NewEncoder(w).Encode(map[string]any{"data": []any{row}, "pagination": map[string]any{"current_page": 1, "per_page": 100, "total_pages": 1}})
 				})
-				if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); err == nil {
+				if _, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); err == nil {
 					t.Fatal("malformed Record accepted")
 				}
 			})
@@ -136,7 +136,7 @@ func TestRecordsKeepExplicitApexEmptyContentAndZeroTTL(t *testing.T) {
 	p := provider(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"data":[{"id":1,"zone_id":"example.com","name":"","type":"TXT","content":"","ttl":0}],"pagination":{"current_page":1,"per_page":100,"total_pages":1}}`)
 	})
-	set, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 1 || set.Records[0].Name != "example.com" || set.Records[0].Value != "" || set.Records[0].TTL != 0 {
 		t.Fatalf("explicit empty fields: %+v %v", set, err)
 	}

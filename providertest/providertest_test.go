@@ -26,7 +26,7 @@ func TestReaddedZoneStartsClean(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -563,13 +563,13 @@ func TestRecordsAreFilteredAndRecordTheFilter(t *testing.T) {
 	}
 
 	for _, c := range cases {
-		rs, err := p.Records(context.Background(), z, c.filter)
+		rs, err := p.ListRecords(context.Background(), z, c.filter)
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		if !reflect.DeepEqual(rs.Records, c.want) || rs.Serial != 7 {
-			t.Errorf("Records(%+v) = %+v serial %d, want %+v serial 7", c.filter, rs.Records, rs.Serial, c.want)
+			t.Errorf("ListRecords(%+v) = %+v serial %d, want %+v serial 7", c.filter, rs.Records, rs.Serial, c.want)
 		}
 
 		if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpRecords || calls[len(calls)-1].RecordFilter != c.filter {
@@ -591,26 +591,26 @@ func TestRecordsAreAPartialViewOnlyForTheZoneScriptedUntilItIsRemoved(t *testing
 		zone    dnsprovider.Zone
 		partial bool
 	}{{z1, true}, {z2, false}} {
-		rs, err := p.Records(context.Background(), c.zone, dnsprovider.RecordFilter{})
+		rs, err := p.ListRecords(context.Background(), c.zone, dnsprovider.RecordFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}
 
 		if rs.Partial != c.partial {
-			t.Errorf("Records(%s) Partial = %v, want %v", c.zone.Name, rs.Partial, c.partial)
+			t.Errorf("ListRecords(%s) Partial = %v, want %v", c.zone.Name, rs.Partial, c.partial)
 		}
 	}
 
 	fake.RemoveZone("z1")
 	fake.AddZone(z1, a)
 
-	rs, err := p.Records(context.Background(), z1, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), z1, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if rs.Partial || !reflect.DeepEqual(rs.Records, []dnsprovider.Record{a}) {
-		t.Errorf("Records(%s) after re-adding the Zone = %+v, want its Record as a Full View", z1.Name, rs)
+		t.Errorf("ListRecords(%s) after re-adding the Zone = %+v, want its Record as a Full View", z1.Name, rs)
 	}
 }
 
@@ -929,7 +929,7 @@ func TestCreateZoneAddsTheZonePendingWithTheAccountsNameserversAndRecordsTheName
 		t.Errorf("Zone after CreateZone = %+v, %v; want %+v", listed, err, got)
 	}
 
-	rs, err := p.Records(ctx, got, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, got, dnsprovider.RecordFilter{})
 	if err != nil || len(rs.Records) != 0 {
 		t.Errorf("Records of the new Zone = %+v, %v; want none", rs, err)
 	}
@@ -1078,7 +1078,7 @@ func TestDeleteZoneRemovesTheZoneAndItsRecordsAndRecordsTheZone(t *testing.T) {
 		t.Errorf("Zones after DeleteZone = %+v, %v; want example.org alone", zs, err)
 	}
 
-	if _, err := p.Records(ctx, gone, dnsprovider.RecordFilter{}); err == nil {
+	if _, err := p.ListRecords(ctx, gone, dnsprovider.RecordFilter{}); err == nil {
 		t.Error("Records of the Offboarded Zone succeeded, want its Records gone with it")
 	}
 

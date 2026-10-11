@@ -37,7 +37,7 @@ func TestFailedEnvelopesHaveTypedRedactedErrors(t *testing.T) {
 			}))
 			defer s.Close()
 			p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-			_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+			_, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 			var ae *dnsprovider.APIError
 			if !errors.Is(err, tc.kind) || !errors.As(err, &ae) || ae.StatusCode != 0 || ae.RetryAfter != 12*time.Second {
 				t.Fatalf("error=%v", err)
@@ -55,7 +55,7 @@ func TestMalformedResponsesFailExplicitly(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) }))
 			defer s.Close()
 			p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-			if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); err == nil {
+			if _, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); err == nil {
 				t.Fatal("malformed response accepted")
 			}
 		})
@@ -98,7 +98,7 @@ func TestInvalidDomainInputIsNotReportedAsAbsent(t *testing.T) {
 	}))
 	defer s.Close()
 	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-	_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "invalid/name"}, dnsprovider.RecordFilter{})
+	_, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "invalid/name"}, dnsprovider.RecordFilter{})
 	var api *dnsprovider.APIError
 	if err == nil || !errors.As(err, &api) || errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("invalid domain=%v", err)
@@ -115,7 +115,7 @@ func TestADomainNotInTheAccountIsNotFoundOnEveryEndpoint(t *testing.T) {
 	}))
 	defer s.Close()
 	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-	if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Errorf("Records=%v", err)
 	}
 	if _, err := p.GetZone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
@@ -137,7 +137,7 @@ func TestHTTPFailuresRetainStatusAndRetryAfter(t *testing.T) {
 			}))
 			defer s.Close()
 			p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-			_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+			_, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 			var api *dnsprovider.APIError
 			if !errors.Is(err, tc.kind) || !errors.As(err, &api) || api.StatusCode != tc.status || api.RetryAfter != 12*time.Second || strings.Contains(err.Error(), "test-secret") {
 				t.Fatalf("HTTP failure=%v", err)

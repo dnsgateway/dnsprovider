@@ -123,7 +123,7 @@ func TestCRUDReturnsStoredIDsAndPreservesMetadataAndSiblings(t *testing.T) {
 	if err := p.DeleteRecord(ctx, z, got); err != nil {
 		t.Fatal(err)
 	}
-	set, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 1 || set.Records[0].ID != "102" {
 		t.Fatalf("delete: %+v %v", set, err)
 	}
@@ -149,7 +149,7 @@ func TestRoundTripsSupportedRecordPresentation(t *testing.T) {
 			if err != nil || r.Value != tc.value || r.Name != tc.name || r.ID == "" {
 				t.Fatalf("create: %+v %v", r, err)
 			}
-			set, err := p.Records(context.Background(), z, dnsprovider.RecordFilter{})
+			set, err := p.ListRecords(context.Background(), z, dnsprovider.RecordFilter{})
 			if err != nil || len(set.Records) != 1 || set.Records[0].Value != tc.value {
 				t.Fatalf("read: %+v %v", set, err)
 			}
@@ -175,7 +175,7 @@ func TestTypeMoveUsesReplacementAndPreservesRegionalPlacement(t *testing.T) {
 	if err != nil || got.ID == before.ID || got.Extras["regions"] != `["IAD","SV1"]` || got.Name != "moved.example.com" {
 		t.Fatalf("move: %+v %v", got, err)
 	}
-	set, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil || len(set.Records) != 1 || set.Records[0].ID != got.ID {
 		t.Fatalf("move state: %+v %v", set, err)
 	}
@@ -198,7 +198,7 @@ func TestTypeMoveReportsReplacementWhenOriginalDeletionFails(t *testing.T) {
 	if err == nil || got.ID == "" || !strings.Contains(err.Error(), "replacement Record "+got.ID) || !strings.Contains(err.Error(), "original "+before.ID) {
 		t.Fatalf("partial move: %+v %v", got, err)
 	}
-	set, readErr := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	set, readErr := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if readErr != nil || len(set.Records) != 2 {
 		t.Fatalf("partial state: %+v %v", set, readErr)
 	}
@@ -350,7 +350,7 @@ func TestCNAMETypeMoveExposesOriginalDeletionWhenReplacementFails(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "original Record "+before.ID+" was deleted") {
 		t.Fatalf("partial move: %v", err)
 	}
-	set, readErr := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	set, readErr := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if readErr != nil || len(set.Records) != 0 {
 		t.Fatalf("partial state: %+v %v", set, readErr)
 	}

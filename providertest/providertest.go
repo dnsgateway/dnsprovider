@@ -693,10 +693,10 @@ func (p *Provider) SetPartialRecords(zoneID string, on bool) {
 	p.partialRecords[zoneID] = on
 }
 
-// Records implements dnsprovider.Provider: the scripted Records that
+// ListRecords implements dnsprovider.Provider: the scripted Records that
 // match the filter, by dnsprovider.MatchRecord, as a Partial View once
 // SetPartialRecords scripts one for the Zone.
-func (p *Provider) Records(_ context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(_ context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	if err := p.record(Call{Op: OpRecords, Zone: z, RecordFilter: f}); err != nil {
 		return dnsprovider.RecordSet{}, err
 	}

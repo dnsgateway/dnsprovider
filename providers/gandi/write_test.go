@@ -105,7 +105,7 @@ func aSet(name string, ttl uint32, values ...string) map[string]any {
 
 func read(t *testing.T, p *gandi.Provider) []dnsprovider.Record {
 	t.Helper()
-	rs, err := p.Records(context.Background(), testZone, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -105,7 +105,7 @@ func TestRecordsExpandIDsIntoRecords(t *testing.T) {
 	f := discoveryFake(t)
 	p := f.provider(t)
 
-	rs, err := p.Records(context.Background(), testZone, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestRecordFiltersKeepSharedSemantics(t *testing.T) {
 		{dnsprovider.RecordFilter{Type: "NOSUCHTYPE"}, nil},
 		{dnsprovider.RecordFilter{Type: "URI"}, nil},
 	} {
-		rs, err := p.Records(context.Background(), testZone, tc.filter)
+		rs, err := p.ListRecords(context.Background(), testZone, tc.filter)
 		if err != nil {
 			t.Fatalf("%+v: %v", tc.filter, err)
 		}
@@ -226,7 +226,7 @@ func TestRecordReadsRejectMalformedOrRepeatedAnswers(t *testing.T) {
 				f.serve(w, r)
 			})
 
-			if rs, err := f.provider(t).Records(context.Background(), testZone, dnsprovider.RecordFilter{}); err == nil {
+			if rs, err := f.provider(t).ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{}); err == nil {
 				t.Fatalf("accepted %+v", rs)
 			}
 		})
@@ -236,7 +236,7 @@ func TestRecordReadsRejectMalformedOrRepeatedAnswers(t *testing.T) {
 func TestRecordsOfAbsentZoneAreNotFound(t *testing.T) {
 	f := discoveryFake(t)
 
-	_, err := f.provider(t).Records(context.Background(), dnsprovider.Zone{Name: "absent.example"}, dnsprovider.RecordFilter{})
+	_, err := f.provider(t).ListRecords(context.Background(), dnsprovider.Zone{Name: "absent.example"}, dnsprovider.RecordFilter{})
 	if !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("Records = %v", err)
 	}

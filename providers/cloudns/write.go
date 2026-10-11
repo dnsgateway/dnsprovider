@@ -78,7 +78,7 @@ func (p *Provider) writeParams(ctx context.Context, z dnsprovider.Zone, r dnspro
 }
 
 func (p *Provider) collision(ctx context.Context, z dnsprovider.Zone, q url.Values, except string) error {
-	rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		return err
 	}
@@ -95,7 +95,7 @@ func (p *Provider) collision(ctx context.Context, z dnsprovider.Zone, q url.Valu
 }
 
 func (p *Provider) stored(ctx context.Context, z dnsprovider.Zone, id string) (dnsprovider.Record, error) {
-	rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		return dnsprovider.Record{}, err
 	}
@@ -120,7 +120,7 @@ func (p *Provider) CreateRecord(ctx context.Context, z dnsprovider.Zone, r dnspr
 }
 
 func (p *Provider) create(ctx context.Context, z dnsprovider.Zone, q url.Values) (dnsprovider.Record, error) {
-	prior, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	prior, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		return dnsprovider.Record{}, err
 	}
@@ -131,7 +131,7 @@ func (p *Provider) create(ctx context.Context, z dnsprovider.Zone, q url.Values)
 	if err = p.ack(ctx, "/dns/add-record.json", q); err != nil {
 		return dnsprovider.Record{}, err
 	}
-	rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		return dnsprovider.Record{}, fmt.Errorf("cloudns: create acknowledged but readback failed: %w", err)
 	}

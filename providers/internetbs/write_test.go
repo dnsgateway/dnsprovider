@@ -144,7 +144,7 @@ func TestCreateReadback(t *testing.T) {
 func TestNativeUpdateAndExactDeletePreserveSibling(t *testing.T) {
 	p, f := newDNSFixture(t, rr("www.example.com", "A", "192.0.2.1", 300), rr("www.example.com", "A", "192.0.2.2", 300), rr("example.com", "DYNAMIC", "opaque", 300))
 	zone := dnsprovider.Zone{Name: "example.com"}
-	set, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestSupportedWritesAndRawSelectors(t *testing.T) {
 	mx := rr("example.com", "MX", "Mail.example.net.", 300)
 	mx["priority"] = uint32(10)
 	p, f := newDNSFixture(t, rr("www.example.com", "CNAME", "Target.example.net.", 300), mx)
-	set, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -222,7 +222,7 @@ func TestSupportedWritesAndRawSelectors(t *testing.T) {
 func TestSelectionAndValidationHaveNoSideEffects(t *testing.T) {
 	p, f := newDNSFixture(t, rr("example.com", "A", "192.0.2.1", 300), rr("example.com", "A", "192.0.2.2", 300))
 	zone := dnsprovider.Zone{Name: "example.com"}
-	set, _ := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	_, err := p.CreateRecord(context.Background(), zone, dnsprovider.Record{Name: "@", Type: "A", Value: "192.0.2.1", TTL: 600})
 	if !errors.Is(err, dnsprovider.ErrConflict) {
 		t.Fatal(err)
@@ -257,7 +257,7 @@ func TestReplacementRestorationAndUncertainty(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			p, f := newDNSFixture(t, rr("old.example.com", "A", "192.0.2.1", 300))
 			zone := dnsprovider.Zone{Name: "example.com"}
-			set, _ := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+			set, _ := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 			f.fail["Domain/DnsRecord/Add"] = mode
 			after := set.Records[0]
 			after.Name = "new.example.com"
@@ -292,7 +292,7 @@ func TestReplacementRestorationAndUncertainty(t *testing.T) {
 func TestAcknowledgedReadbackAndFailedRemove(t *testing.T) {
 	p, f := newDNSFixture(t, rr("old.example.com", "A", "192.0.2.1", 300))
 	zone := dnsprovider.Zone{Name: "example.com"}
-	set, _ := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	f.fail["Domain/DnsRecord/Remove"] = "reject"
 	after := set.Records[0]
 	after.Name = "new.example.com"
@@ -311,7 +311,7 @@ func TestMetadataPreservedAndReplacementRefused(t *testing.T) {
 	source["comment"] = "retain"
 	p, f := newDNSFixture(t, source)
 	zone := dnsprovider.Zone{Name: "example.com"}
-	set, _ := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	after := set.Records[0]
 	after.TTL = 600
 	changed, err := p.UpdateRecord(context.Background(), zone, set.Records[0], after)
@@ -328,7 +328,7 @@ func TestMetadataPreservedAndReplacementRefused(t *testing.T) {
 func TestApplyStaleAndOriginalOrder(t *testing.T) {
 	p, f := newDNSFixture(t, rr("old.example.com", "A", "192.0.2.1", 300), rr("change.example.com", "TXT", "old", 300))
 	zone := dnsprovider.Zone{Name: "example.com"}
-	set, _ := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	stale := set.Records[0]
 	stale.TTL = 600
 	_, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: zone, Changes: []dnsprovider.Change{{Kind: dnsprovider.ChangeDelete, Before: stale}}})
@@ -353,7 +353,7 @@ func TestApplyStaleAndOriginalOrder(t *testing.T) {
 func TestFailedRestorationReportsRemovedOriginal(t *testing.T) {
 	p, f := newDNSFixture(t, rr("old.example.com", "A", "192.0.2.1", 300))
 	zone := dnsprovider.Zone{Name: "example.com"}
-	set, _ := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	f.fail["Domain/DnsRecord/Add"] = "reject-twice"
 	after := set.Records[0]
 	after.Name = "new.example.com"
@@ -366,7 +366,7 @@ func TestFailedRestorationReportsRemovedOriginal(t *testing.T) {
 func TestUnsupportedStoredRecordCannotBeDeletedByChangingInputType(t *testing.T) {
 	p, f := newDNSFixture(t, rr("example.com", "DYNAMIC", "opaque", 300))
 	zone := dnsprovider.Zone{Name: "example.com"}
-	set, _ := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	set, _ := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	before := set.Records[0]
 	before.Type = "A"
 	if err := p.DeleteRecord(context.Background(), zone, before); err == nil || len(f.writes) != 0 {
@@ -395,7 +395,7 @@ func TestInvalidZoneFailsLocallyForRecordOperations(t *testing.T) {
 			if err := p.DeleteRecord(context.Background(), zone, record); err == nil {
 				t.Error("delete accepted invalid zone")
 			}
-			if _, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{}); err == nil {
+			if _, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{}); err == nil {
 				t.Error("read accepted invalid zone")
 			}
 			if calls != 0 {
@@ -412,7 +412,7 @@ func TestNativeMXPriorityUpdateSelectsStoredTTLSibling(t *testing.T) {
 	second["priority"] = uint32(10)
 	p, fixture := newDNSFixture(t, first, second)
 	zone := dnsprovider.Zone{Name: "example.com"}
-	set, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestNativeMXPriorityUpdateSelectsStoredTTLSibling(t *testing.T) {
 	if got.Value != "20 other.example.com" || got.TTL != 900 || len(fixture.writes) != 1 || fixture.writes[0].Get("CurrentTtl") != "600" || fixture.writes[0].Get("CurrentValue") != "mail.example.com." || fixture.writes[0].Get("CurrentPriority") != "10" || fixture.writes[0].Get("NewPriority") != "20" {
 		t.Fatalf("MX update selectors or result incorrect: %+v %v", got, fixture.writes)
 	}
-	remaining, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	remaining, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	if err != nil || len(remaining.Records) != 2 || remaining.Records[0].ID != set.Records[0].ID {
 		t.Fatalf("sibling changed: %+v %v", remaining, err)
 	}
@@ -435,7 +435,7 @@ func TestNativeMXPriorityUpdateSelectsStoredTTLSibling(t *testing.T) {
 func TestUncertainReplacementFailedReadDoesNotRestore(t *testing.T) {
 	p, fixture := newDNSFixture(t, rr("old.example.com", "A", "192.0.2.1", 300))
 	zone := dnsprovider.Zone{Name: "example.com"}
-	set, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

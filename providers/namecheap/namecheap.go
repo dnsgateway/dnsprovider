@@ -313,10 +313,10 @@ type getHostsResult struct {
 	} `xml:"DomainDNSGetHostsResult"`
 }
 
-// Records implements dnsprovider.Provider. getHosts answers the whole host
+// ListRecords implements dnsprovider.Provider. getHosts answers the whole host
 // list at once, so the filter is applied here with dnsprovider.MatchRecord.
 // Namecheap reports no SOA serial.
-func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	res, err := p.getHosts(ctx, zone)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

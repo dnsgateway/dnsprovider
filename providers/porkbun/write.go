@@ -63,7 +63,7 @@ func (p *Provider) writeBody(z dnsprovider.Zone, r dnsprovider.Record) (dnsprovi
 }
 
 func (p *Provider) collision(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record, except string) error {
-	rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		return err
 	}

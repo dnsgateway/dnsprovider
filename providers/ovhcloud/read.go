@@ -304,10 +304,10 @@ func publicRecord(zone string, defaultTTL uint32, w wireRecord) (storedRecord, e
 	}}, nil
 }
 
-// Records lists the Zone's record IDs and reads each Record. A type
+// ListRecords lists the Zone's record IDs and reads each Record. A type
 // filter of a native record type is pushed down; every other filter is
 // applied locally.
-func (p *Provider) Records(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	typ := strings.ToUpper(f.Type)
 	if !slices.Contains(fieldTypes, typ) {
 		typ = ""

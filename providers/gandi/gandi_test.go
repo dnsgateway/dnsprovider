@@ -28,7 +28,7 @@ func TestRecordsExpandValuesWithStableContentKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	z := dnsprovider.Zone{ID: "example.org", Name: "example.org"}
-	rs, err := p.Records(context.Background(), z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), z, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -40,7 +40,7 @@ func TestRecordsExpandValuesWithStableContentKeys(t *testing.T) {
 	if len(rs.Records) != 2 || rs.Records[0].Name != "example.org" || rs.Records[0].ID == "" || rs.Records[0].ID == rs.Records[1].ID {
 		t.Fatalf("Records = %+v", rs)
 	}
-	again, err := p.Records(context.Background(), z, dnsprovider.RecordFilter{Type: "a"})
+	again, err := p.ListRecords(context.Background(), z, dnsprovider.RecordFilter{Type: "a"})
 	if err != nil || len(again.Records) != 2 || again.Records[0].ID != rs.Records[0].ID {
 		t.Fatalf("unstable keys: %+v %v", again, err)
 	}
@@ -81,7 +81,7 @@ func TestCreatePreservesRRsetSiblingAndMetadata(t *testing.T) {
 	if writes != 1 || got.ID == "" || got.Value != "192.0.2.2" || state["vendor_metadata"] == nil {
 		t.Fatalf("write lost state: %+v, %+v", state, got)
 	}
-	rs, err := p.Records(context.Background(), z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), z, dnsprovider.RecordFilter{})
 	if err != nil || len(rs.Records) != 2 || rs.Records[0].Value != "192.0.2.1" {
 		t.Fatalf("lost sibling: %+v %v", rs, err)
 	}

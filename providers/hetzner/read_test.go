@@ -60,7 +60,7 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 	if zones[0].ID != z.ID || zones[0].State != z.State {
 		t.Fatal("discovery differs from lookup")
 	}
-	rs, err := p.Records(context.Background(), z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), z, dnsprovider.RecordFilter{})
 	if err != nil || len(rs.Records) != 5 || rs.Serial != 123 {
 		t.Fatalf("Records = %+v,%v", rs, err)
 	}
@@ -80,11 +80,11 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 	if rs.Records[2].Name != "*.sub.example.com" || rs.Records[2].Value != "10 mail.example.com." || rs.Records[2].TTL != 600 {
 		t.Fatalf("MX = %+v", rs.Records[2])
 	}
-	filtered, err := p.Records(context.Background(), z, dnsprovider.RecordFilter{Type: "mx", Contains: "SUB.EXAMPLE.COM."})
+	filtered, err := p.ListRecords(context.Background(), z, dnsprovider.RecordFilter{Type: "mx", Contains: "SUB.EXAMPLE.COM."})
 	if err != nil || len(filtered.Records) != 1 {
 		t.Fatalf("filtered=%+v,%v", filtered, err)
 	}
-	unknown, err := p.Records(context.Background(), z, dnsprovider.RecordFilter{Type: "NOSUCHTYPE"})
+	unknown, err := p.ListRecords(context.Background(), z, dnsprovider.RecordFilter{Type: "NOSUCHTYPE"})
 	if err != nil || len(unknown.Records) != 0 {
 		t.Fatalf("unsupported filter=%+v,%v", unknown, err)
 	}
@@ -153,7 +153,7 @@ func TestRecordsExhaustPaginationAndRejectMissingValues(t *testing.T) {
 			}))
 			defer s.Close()
 			p, _ := hetzner.New(hetzner.Config{Token: "secret"}, dnsprovider.WithBaseURL(s.URL))
-			rs, err := p.Records(context.Background(), testZone, dnsprovider.RecordFilter{})
+			rs, err := p.ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{})
 			if tc.want > 0 {
 				if err != nil || len(rs.Records) != tc.want {
 					t.Fatalf("inventory=%+v,%v", rs, err)

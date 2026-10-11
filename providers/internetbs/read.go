@@ -101,9 +101,9 @@ type wireRecord struct {
 	Priority *uint32 `json:"priority"`
 }
 
-// Records reads all records and applies the common filters locally. Unknown
+// ListRecords reads all records and applies the common filters locally. Unknown
 // types remain readable, including types the adapter cannot write.
-func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	records, err := p.listRecords(ctx, zone)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

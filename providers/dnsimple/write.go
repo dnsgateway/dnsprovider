@@ -65,7 +65,7 @@ func (p *Provider) collision(ctx context.Context, z dnsprovider.Zone, r dnsprovi
 		return err
 	}
 	r.Name = abs
-	set, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		return err
 	}

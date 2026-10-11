@@ -26,7 +26,7 @@ token. A full-access or read-only token has them all, or the read ones.
 | Operation | Endpoint | Scope |
 | --- | --- | --- |
 | `Account` | `GET /v2/account` | `account:read` |
-| `Zones`, `Zone`, `Records` | `GET /v2/domains`, `/v2/domains/{name}`, `/v2/domains/{name}/records` | `domain:read` |
+| `Zones`, `Zone`, `ListRecords` | `GET /v2/domains`, `/v2/domains/{name}`, `/v2/domains/{name}/records` | `domain:read` |
 | `CreateRecord` | `POST /v2/domains/{name}/records` | `domain:read`, `domain:create` |
 | `UpdateRecord` | `PUT /v2/domains/{name}/records/{id}`; a type change also POSTs and DELETEs | `domain:read`, `domain:update` (`domain:create`, `domain:delete` for a type change) |
 | `DeleteRecord` | `DELETE /v2/domains/{name}/records/{id}` | `domain:read`, `domain:delete` |
@@ -60,7 +60,7 @@ skipped page, an empty intermediate page, a count disagreeing with
 
 ## Records
 
-`Records` reads the Domain first, for its zone-file SOA serial (zero when
+`ListRecords` reads the Domain first, for its zone-file SOA serial (zero when
 absent) and to tell a missing Zone, then every page of its Domain Records.
 A type filter DigitalOcean holds (A, AAAA, CAA, CNAME, MX, NS, SOA, SRV,
 TXT) is sent as `type`; any other type finds nothing without a list call.

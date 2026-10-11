@@ -176,7 +176,7 @@ func TestLocalRecordValidationRedactsCredentials(t *testing.T) {
 	invalidValue := dnsprovider.Record{Name: "@", Type: "A", Value: "pass&secret", TTL: 300}
 	invalidOwner := dnsprovider.Record{Name: "pass&secret", Type: "TXT", Value: "text", TTL: 300}
 	var errs []error
-	_, err := p.Records(ctx, invalidZone, dnsprovider.RecordFilter{})
+	_, err := p.ListRecords(ctx, invalidZone, dnsprovider.RecordFilter{})
 	errs = append(errs, err)
 	errs = append(errs, p.DeleteRecord(ctx, invalidZone, valid))
 	for _, input := range []struct {

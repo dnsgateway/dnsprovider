@@ -194,7 +194,7 @@ func TestRecordsConvertStructuredFieldsAndReportSerial(t *testing.T) {
 			t.Errorf("unexpected request %s", r.URL)
 		}
 	})
-	set, err := p.Records(context.Background(), dnsprovider.Zone{ID: "example.com", Name: "example.com"}, dnsprovider.RecordFilter{})
+	set, err := p.ListRecords(context.Background(), dnsprovider.Zone{ID: "example.com", Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil || !reflect.DeepEqual(set.Records, wantRecords) || set.Serial != 1415982609 {
 		t.Fatalf("Records: %+v %v", set, err)
 	}
@@ -229,7 +229,7 @@ func TestRecordsExhaustPagesAndFilterExactly(t *testing.T) {
 	})
 	ctx := context.Background()
 	z := dnsprovider.Zone{ID: "example.com", Name: "example.com"}
-	set, err := p.Records(ctx, z, dnsprovider.RecordFilter{Type: "a", Contains: "WWW.EXAMPLE.COM."})
+	set, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{Type: "a", Contains: "WWW.EXAMPLE.COM."})
 	if err != nil || len(set.Records) != 2 || set.Records[0].ID != "1" || set.Records[1].ID != "3" || set.Serial != 0 {
 		t.Fatalf("Records: %+v %v", set, err)
 	}
@@ -237,7 +237,7 @@ func TestRecordsExhaustPagesAndFilterExactly(t *testing.T) {
 		t.Fatalf("queries: %v", queries)
 	}
 	queries = nil
-	set, err = p.Records(ctx, z, dnsprovider.RecordFilter{Type: "URI"})
+	set, err = p.ListRecords(ctx, z, dnsprovider.RecordFilter{Type: "URI"})
 	if err != nil || len(set.Records) != 0 || len(queries) != 0 {
 		t.Fatalf("unsupported type: %+v %v %v", set, err, queries)
 	}
@@ -248,7 +248,7 @@ func TestRecordsOfMissingZoneAndMalformedRecordsFail(t *testing.T) {
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprint(w, `{"id":"not_found","message":"The resource you were accessing could not be found."}`)
 	})
-	if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "missing.com"}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "missing.com"}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("missing: %v", err)
 	}
 	for _, row := range []string{
@@ -268,7 +268,7 @@ func TestRecordsOfMissingZoneAndMalformedRecordsFail(t *testing.T) {
 				}
 				fmt.Fprintf(w, `{"domain_records":[%s],"links":{},"meta":{"total":1}}`, row)
 			})
-			if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); err == nil {
+			if _, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); err == nil {
 				t.Fatal("malformed Record accepted")
 			}
 		})

@@ -133,9 +133,9 @@ func (p *Provider) rawRecords(ctx context.Context, zone dnsprovider.Zone) ([]wir
 	})
 }
 
-// Records reads all pages and applies shared filters locally, since the API
+// ListRecords reads all pages and applies shared filters locally, since the API
 // silently ignores unknown type filters. Unfamiliar types retain raw values.
-func (p *Provider) Records(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	raw, err := p.rawRecords(ctx, zone)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

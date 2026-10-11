@@ -335,7 +335,7 @@ func TestZoneCallsWorkWithoutATenant(t *testing.T) {
 		t.Fatalf("Zone = %+v, %v; want z1", got, err)
 	}
 
-	if _, err := p.Records(ctx, zone, dnsprovider.RecordFilter{}); err != nil {
+	if _, err := p.ListRecords(ctx, zone, dnsprovider.RecordFilter{}); err != nil {
 		t.Errorf("Records: %v", err)
 	}
 

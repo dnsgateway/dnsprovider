@@ -227,7 +227,7 @@ type Provider interface {
     ListZones(context.Context, ZoneFilter) (ZoneSet, error)
     UpdateZone(context.Context, Zone, ZoneUpdate) (ZoneStatus, error)
     DeleteZone(context.Context, Zone) error
-    Records(context.Context, Zone, RecordFilter) (RecordSet, error)
+    ListRecords(context.Context, Zone, RecordFilter) (RecordSet, error)
     CreateRecord(context.Context, Zone, Record) (Record, error)
     UpdateRecord(ctx context.Context, zone Zone, before, after Record) (Record, error)
     DeleteRecord(context.Context, Zone, Record) error
@@ -491,7 +491,7 @@ Serial is zero when unknown; the non-batch path never supplies one.
 | GetZone | exact-name list, preferring Active then Pending | domain detail, list fallback on 403/422 | domain list searched to an exact match |
 | CreateZone / DeleteZone | `POST /zones`; `DELETE /zones/{id}` | Unsupported | Unsupported |
 | ZoneStatus / UpdateZone | DNSSEC, `security_header`, `min_tls_version` reads and PATCHes | Unsupported | Unsupported |
-| Records | paged DNS record list with type/name filters | paged records, optional type endpoint, local filters | `domains.dns.getHosts`, local filters |
+| ListRecords | paged DNS record list with type/name filters | paged records, optional type endpoint, local filters | `domains.dns.getHosts`, local filters |
 | Record writes | POST, PATCH (GET + PUT on type change), DELETE by ID | read and replace affected RRsets, DELETE empty RRsets | read and replace all hosts |
 | Batcher | None | Changes grouped by RRset | One getHosts and one setHosts |
 
@@ -580,7 +580,7 @@ domain before deleting the old one. `DeleteZone` does not check Delegation.
 Consumers also explain the registrar DS-record dependency when disabling
 DNSSEC and the persistent browser effect of enabling HSTS.
 
-A Migration workflow can be built from source `Records`, supported target
+A Migration workflow can be built from source `ListRecords`, supported target
 `CreateZone`, and `Apply` with additions. The consumer checks target write
 types, TTL limits, and Provider-specific Extras before copying, then handles
 Delegation separately. There is no Migration API in this module.

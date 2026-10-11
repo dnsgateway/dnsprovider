@@ -1201,7 +1201,7 @@ func TestApplySplitsThePriorityAndDataOutOfTheValue(t *testing.T) {
 			rec.ID = "new1"
 			assertResults(t, res, []dnsprovider.ChangeResult{{Change: add, Record: rec}})
 
-			rs, err := p.Records(context.Background(), zone, dnsprovider.RecordFilter{})
+			rs, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
 			if err != nil {
 				t.Fatalf("Records: %v", err)
 			}
@@ -1546,7 +1546,7 @@ func TestEdgeRateLimitWithoutAJSONBodyIsATypedError(t *testing.T) {
 	}}
 	p := newProvider(t, api)
 
-	_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
+	_, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 
 	if !errors.Is(err, dnsprovider.ErrRateLimited) {
 		t.Fatalf("err = %v, want dnsprovider.ErrRateLimited", err)
@@ -1586,7 +1586,7 @@ func TestErrorResponsesAreTypedErrors(t *testing.T) {
 			}}
 			p := newProvider(t, api)
 
-			_, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "nope"}, dnsprovider.RecordFilter{})
+			_, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "nope"}, dnsprovider.RecordFilter{})
 
 			var apiErr *dnsprovider.APIError
 			if !errors.As(err, &apiErr) {
@@ -1759,7 +1759,7 @@ func TestRecordsListsEveryPageWithTheProxyFlag(t *testing.T) {
 	}
 	p := newProvider(t, api)
 
-	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -1794,7 +1794,7 @@ func TestRecordsPutThePriorityInTheValue(t *testing.T) {
 	api := &cfAPI{records: map[string][]map[string]any{"z1": {mx, srv, uri}}}
 	p := newProvider(t, api)
 
-	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -1812,7 +1812,7 @@ func TestRecordsAreOneListingWithNoSerial(t *testing.T) {
 	api := &cfAPI{records: map[string][]map[string]any{"z1": {cfRecord("r1", "A", "example.com", "192.0.2.1", 1, true, true)}}}
 	p := newProvider(t, api)
 
-	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
@@ -1992,7 +1992,7 @@ func TestRecordsFilteredByTypeAndNamePushBothToCloudflare(t *testing.T) {
 					cfRecord("r5", "TXT", "wwwx.example.com", "\"x\"", 300, false, false),
 				}}}
 
-				rs, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, c.filter)
+				rs, err := newProvider(t, api).ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, c.filter)
 				if err != nil {
 					t.Fatalf("Records: %v", err)
 				}
@@ -2020,9 +2020,9 @@ func TestRecordsFilteredLeaveOutARecordTheyCannotReadOutsideTheFilter(t *testing
 			odd,
 		}}}
 
-		rs, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, f)
+		rs, err := newProvider(t, api).ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, f)
 		if err != nil {
-			t.Fatalf("Records(%+v): %v", f, err)
+			t.Fatalf("ListRecords(%+v): %v", f, err)
 		}
 
 		want := []string{"r1"}
@@ -2031,7 +2031,7 @@ func TestRecordsFilteredLeaveOutARecordTheyCannotReadOutsideTheFilter(t *testing
 		}
 
 		if got := recordIDs(rs.Records); !slices.Equal(got, want) {
-			t.Errorf("Records(%+v) = %v, want %v", f, got, want)
+			t.Errorf("ListRecords(%+v) = %v, want %v", f, got, want)
 		}
 	}
 }
@@ -2042,7 +2042,7 @@ var cfRecordTypes = []string{"A", "AAAA", "CAA", "CERT", "CNAME", "DNSKEY", "DS"
 func TestRecordsWithTheZeroFilterSendNoFilter(t *testing.T) {
 	api := &cfAPI{records: map[string][]map[string]any{"z1": {cfRecord("r1", "A", "example.com", "192.0.2.1", 1, true, true)}}}
 
-	if _, err := newProvider(t, api).Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{}); err != nil {
+	if _, err := newProvider(t, api).ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{}); err != nil {
 		t.Fatalf("Records: %v", err)
 	}
 
@@ -2128,7 +2128,7 @@ func TestRecordsCarryTheirCommentAndTags(t *testing.T) {
 	}
 	p := newProvider(t, api)
 
-	rs, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "z1"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}

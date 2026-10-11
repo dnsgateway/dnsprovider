@@ -48,7 +48,7 @@ func (f *fake) published(id string) (wireRecord, bool) {
 func read(t *testing.T, p dnsprovider.Provider) map[string]dnsprovider.Record {
 	t.Helper()
 
-	rs, err := p.Records(context.Background(), testZone, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

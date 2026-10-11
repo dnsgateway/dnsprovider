@@ -83,7 +83,7 @@ func recheck(ctx context.Context, p Provider, cs Changeset) error {
 	}
 
 	// A Before of no type matches no filter: read the whole Zone for it.
-	live, err := p.Records(ctx, cs.Zone, f)
+	live, err := p.ListRecords(ctx, cs.Zone, f)
 	if err != nil {
 		return fmt.Errorf("re-check the Records the Changeset was built from: %w", err)
 	}
@@ -93,7 +93,7 @@ func recheck(ctx context.Context, p Provider, cs Changeset) error {
 	if f.Type != "" && slices.ContainsFunc(touched, func(c Change) bool {
 		return c.Before.ID != "" && !slices.ContainsFunc(live.Records, func(r Record) bool { return r.ID == c.Before.ID })
 	}) {
-		if live, err = p.Records(ctx, cs.Zone, RecordFilter{}); err != nil {
+		if live, err = p.ListRecords(ctx, cs.Zone, RecordFilter{}); err != nil {
 			return fmt.Errorf("re-check the Records the Changeset was built from: %w", err)
 		}
 	}

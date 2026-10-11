@@ -398,10 +398,10 @@ func recordsPath(z dnsprovider.Zone) string {
 	return "/domains/" + url.PathEscape(zoneName(z)) + "/records"
 }
 
-// Records lists every page of the Zone's DNS Records. Vultr's list takes
+// ListRecords lists every page of the Zone's DNS Records. Vultr's list takes
 // no filter: type and name filters are applied locally. A missing Zone is
 // ErrNotFound. Vultr reports no SOA serial.
-func (p *Provider) Records(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+func (p *Provider) ListRecords(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	all, err := p.records(ctx, z)
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

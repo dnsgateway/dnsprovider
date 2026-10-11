@@ -15,7 +15,7 @@ func TestApplyRejectsStaleModificationsAndDeletionsBeforeWriting(t *testing.T) {
 			api, p := fixtureAPI(t)
 			ctx := context.Background()
 			z := dnsprovider.Zone{Name: "example.com"}
-			rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+			rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -41,7 +41,7 @@ func TestApplyReportsOriginalOrderAndPartialFailures(t *testing.T) {
 	api, p := fixtureAPI(t)
 	ctx := context.Background()
 	z := dnsprovider.Zone{Name: "example.com"}
-	rs, err := p.Records(ctx, z, dnsprovider.RecordFilter{})
+	rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

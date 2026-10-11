@@ -155,8 +155,8 @@ func (p *Provider) readRecords(ctx context.Context, z dnsprovider.Zone, id strin
 	return out, nil
 }
 
-// Records reads all editable DNS records and applies the common filters.
-func (p *Provider) Records(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
+// ListRecords reads all editable DNS records and applies the common filters.
+func (p *Provider) ListRecords(ctx context.Context, z dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
 	rs, err := p.readRecords(ctx, z, "")
 	if err != nil {
 		return dnsprovider.RecordSet{}, err

@@ -154,7 +154,7 @@ func (f *fixture) serve(w http.ResponseWriter, r *http.Request) {
 
 func readRecords(t *testing.T, f *fixture) []dnsprovider.Record {
 	t.Helper()
-	rs, err := f.p.Records(context.Background(), dnsprovider.Zone{ID: "1", Name: "example.com"}, dnsprovider.RecordFilter{})
+	rs, err := f.p.ListRecords(context.Background(), dnsprovider.Zone{ID: "1", Name: "example.com"}, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}

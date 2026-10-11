@@ -47,7 +47,7 @@ func TestCreateRoundTripsStructuredRecords(t *testing.T) {
 					t.Errorf("sent %s = %#v, want %#v (body %v)", k, body[k], v, body)
 				}
 			}
-			set, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{})
+			set, err := p.ListRecords(context.Background(), exampleZone, dnsprovider.RecordFilter{})
 			if err != nil || len(set.Records) != 1 || !reflect.DeepEqual(set.Records[0], r) {
 				t.Fatalf("read back: %+v %v", set, err)
 			}
@@ -301,7 +301,7 @@ func TestSameOwnerCNAMETypeMoveRestoresTheOriginalWhenTheReplacementFails(t *tes
 	if !reflect.DeepEqual(s.writes, []string{"DELETE " + before.ID, "POST " + recordID(2)}) {
 		t.Fatalf("writes: %v", s.writes)
 	}
-	set, err := p.Records(context.Background(), exampleZone, dnsprovider.RecordFilter{Contains: "www.example.com"})
+	set, err := p.ListRecords(context.Background(), exampleZone, dnsprovider.RecordFilter{Contains: "www.example.com"})
 	want := before
 	want.ID = recordID(2)
 	if err != nil || len(set.Records) != 1 || !reflect.DeepEqual(set.Records[0], want) {
@@ -369,7 +369,7 @@ func TestMissingRecordsAreNotFoundAndDeleteRemovesOnlyTheSelectedRecord(t *testi
 		if err := p.DeleteRecord(ctx, exampleZone, dnsprovider.Record{ID: id, Type: "TXT", Name: "www.example.com"}); err != nil {
 			t.Fatal(err)
 		}
-		set, err := p.Records(ctx, exampleZone, dnsprovider.RecordFilter{Type: "TXT"})
+		set, err := p.ListRecords(ctx, exampleZone, dnsprovider.RecordFilter{Type: "TXT"})
 		if err != nil || (id == a && (len(set.Records) != 1 || set.Records[0].ID != b)) || (id == b && len(set.Records) != 0) {
 			t.Fatalf("after deleting %s: %+v %v", id, set, err)
 		}

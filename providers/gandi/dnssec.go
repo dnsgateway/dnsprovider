@@ -18,7 +18,12 @@ import (
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
-// wireKey is one DNSSEC key as the Gandi Domain API key list returns it:
+// gandiKSK is Gandi's wire value for the type of a key the DS of a
+// Delegation names: a signing key is sent with it, and a held key with it
+// reads with flags 257.
+const gandiKSK = "ksk"
+
+// wireKey is one signing key as the Gandi Domain API key list returns it:
 // the key Gandi sent the registry and the DS it computed from it.
 type wireKey struct {
 	// ID is a number in the docs' key list but a string in their delete
@@ -37,13 +42,13 @@ func dnskeysPath(z dnsprovider.Zone) string {
 }
 
 // signingKey is the Signing Key of a held key: its DNSKEY when Gandi
-// returns its public key, a KSK's flags 257 and any other's 256, and its
-// DS.
+// returns its public key, flags 257 for a key of type gandiKSK and 256
+// for any other, and its DS.
 func (w wireKey) signingKey() (dnsprovider.SigningKey, error) {
 	digest, err := hex.DecodeString(w.Digest)
 	if w.KeyTag == nil || w.Algorithm == nil || w.DigestType == nil || err != nil || len(digest) == 0 ||
 		*w.KeyTag < 0 || *w.KeyTag > 0xFFFF || *w.Algorithm < 0 || *w.Algorithm > 0xFF || *w.DigestType < 0 || *w.DigestType > 0xFF {
-		return dnsprovider.SigningKey{}, errors.New("gandi: malformed DNSSEC key")
+		return dnsprovider.SigningKey{}, errors.New("gandi: malformed signing key")
 	}
 	k := dnsprovider.SigningKey{
 		KeyTag: uint16(*w.KeyTag),
@@ -51,7 +56,7 @@ func (w wireKey) signingKey() (dnsprovider.SigningKey, error) {
 	}
 	if w.PublicKey != "" {
 		flags := 256
-		if w.Type == "ksk" {
+		if w.Type == gandiKSK {
 			flags = 257
 		}
 		k.DNSKEY = fmt.Sprintf("%d 3 %d %s", flags, *w.Algorithm, w.PublicKey)
@@ -69,7 +74,7 @@ func (w wireKey) id() (string, error) {
 	if json.Unmarshal(w.ID, &n) == nil && n != "" {
 		return n.String(), nil
 	}
-	return "", errors.New("gandi: DNSSEC key without an id")
+	return "", errors.New("gandi: signing key without an id")
 }
 
 // heldKey is a key Gandi holds at the registry, read and checked.
@@ -126,8 +131,8 @@ type sentKey struct {
 }
 
 // keyToSend is the key Gandi is sent for a Signing Key: its DNSKEY's
-// algorithm and public key, as a KSK, the key the DS of a Delegation
-// names. Gandi takes no DS.
+// algorithm and public key, of type gandiKSK, the key the DS of a
+// Delegation names. Gandi takes no DS.
 func keyToSend(k dnsprovider.SigningKey) (sentKey, error) {
 	f := strings.Fields(k.DNSKEY)
 	if len(f) < 4 {
@@ -138,7 +143,7 @@ func keyToSend(k dnsprovider.SigningKey) (sentKey, error) {
 	if _, errB := base64.StdEncoding.DecodeString(pub); err != nil || errB != nil || f[1] != "3" {
 		return sentKey{}, fmt.Errorf("gandi: malformed DNSKEY %q", k.DNSKEY)
 	}
-	return sentKey{Algorithm: int(alg), Type: "ksk", PublicKey: canonicalKey(pub)}, nil
+	return sentKey{Algorithm: int(alg), Type: gandiKSK, PublicKey: canonicalKey(pub)}, nil
 }
 
 // canonicalKey is a base64 public key in standard padded form, so two
@@ -158,8 +163,8 @@ func bySentKey(a, b sentKey) int {
 
 // SetDelegationSigners implements dnsprovider.DSRegistrar: it reads the
 // keys Gandi holds, and when they differ from the keys' DNSKEYs it sends
-// those, in their order, as KSKs in one replace, Gandi computing their DS
-// for the registry. No keys deletes each held key instead, as the docs do
+// those, in their order, as gandiKSK keys in one replace, Gandi computing
+// their DS for the registry. No keys deletes each held key instead, as the docs do
 // not say a replace may hold none. A key with no DNSKEY is ErrUnsupported,
 // and so is a replace Gandi answers with 400.
 func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {

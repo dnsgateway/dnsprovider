@@ -86,7 +86,7 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 	var payload struct {
 		Message string `json:"message"`
 		Code    int    `json:"code"`
-		// Errors detail a validation error, such as a refused DNSSEC key.
+		// Errors detail a validation error, such as a refused signing key.
 		Errors []struct {
 			Description string `json:"description"`
 		} `json:"errors"`

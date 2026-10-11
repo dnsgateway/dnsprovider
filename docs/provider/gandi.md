@@ -65,9 +65,9 @@ without `/livedns`). Its token needs permission to manage the domain's
 technical configuration, which `Account` does not check. `DelegationSigners`
 lists the keys Gandi holds at the registry, ordered by key tag, each with the
 DS Gandi computed and its DNSKEY when Gandi returns the public key (flags 257
-for a KSK, 256 otherwise). Gandi takes only key data and computes the DS
+for a signing key of type `ksk`, 256 otherwise). Gandi takes only key data and computes the DS
 itself, so `SetDelegationSigners` sends each key's DNSKEY algorithm and public
-key as a KSK; a key without a DNSKEY is `ErrUnsupported` before any call. It
+key as a signing key of type `ksk`; a key without a DNSKEY is `ErrUnsupported` before any call. It
 reads the held keys and writes nothing when they already match; otherwise it
 replaces the whole set with one `PUT`. No keys deletes each held key by its
 id, as the docs do not say a replace may hold none. Gandi answers writes with
@@ -92,7 +92,7 @@ writes live DNS.
 References checked for this implementation:
 
 - [LiveDNS contracts](https://api.gandi.net/docs/livedns/)
-- [Domain API DNSSEC keys](https://api.gandi.net/docs/domains/)
+- [Domain API signing keys](https://api.gandi.net/docs/domains/)
 - [DNSSEC at Gandi](https://docs.gandi.net/en/domain_names/advanced_users/dnssec.html)
 - [Personal access token authentication](https://api.gandi.net/docs/authentication/)
 - [API quotas and sharing](https://api.gandi.net/docs/reference/)

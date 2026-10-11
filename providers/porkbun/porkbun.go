@@ -83,6 +83,10 @@ func (p *Provider) apiError(status int, b []byte) error {
 	var env struct {
 		Code, Message string
 		TTLRemaining  int `json:"ttlRemaining"`
+		// Account names the account a domain is not in, on a
+		// DOMAIN_NOT_FOUND, DOMAIN_NOT_REGISTERED, or the INVALID_DOMAIN of
+		// /dns/*; an INVALID_DOMAIN without it is a malformed name.
+		Account string
 	}
 	_ = json.Unmarshal(b, &env)
 	var kind error
@@ -92,10 +96,15 @@ func (p *Provider) apiError(status int, b []byte) error {
 		"IP_NOT_ALLOWED", "DOMAIN_NOT_ALLOWED", "INSUFFICIENT_SCOPE", "API_ACCESS_DISABLED",
 	}, env.Code):
 		kind = dnsprovider.ErrUnauthorized
-	case slices.Contains([]string{"INVALID_RECORD_ID", "DNS_RECORD_NOT_FOUND", "DOMAIN_NOT_FOUND"}, env.Code):
+	case slices.Contains([]string{"INVALID_RECORD_ID", "DNS_RECORD_NOT_FOUND", "DOMAIN_NOT_FOUND", "DOMAIN_NOT_REGISTERED"}, env.Code),
+		env.Code == "INVALID_DOMAIN" && env.Account != "":
 		kind = dnsprovider.ErrNotFound
 	case slices.Contains([]string{"DUPLICATE_RECORD", "RECORD_CONFLICT"}, env.Code), status == http.StatusConflict:
 		kind = dnsprovider.ErrConflict
+	case env.Code == "DNSSEC_ALGORITHM_DEPRECATED", env.Code == "DNSSEC_CREATE_FAILED":
+		// The registry's policy refuses the DS's algorithm or digest type,
+		// checked before it is sent, or the registry refused the DS.
+		kind = dnsprovider.ErrUnsupported
 	case env.Code == "RATE_LIMIT_EXCEEDED":
 		kind = dnsprovider.ErrRateLimited
 	}

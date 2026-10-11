@@ -34,6 +34,23 @@ Creates and updates read the stored Record back. `dnsprovider.Apply` provides
 stale checking and ordered CRUD with per-change results; changes are not atomic.
 Mutations are never automatically retried, including after an uncertain reply.
 
+The Provider is a registrar adapter (`dnsprovider.DSRegistrar`), which
+needs the key's `domains` scope (or `full`) for DS writes; `Account` does not
+check for it. `DelegationSigners` reads the registry's DS records with
+`getDnssecRecords`, one Signing Key per key tag, without the DNSKEY, which
+Porkbun does not return. `SetDelegationSigners` sends each key's SHA-256 DS
+(its first DS when it has none), the only form Porkbun takes: a key without
+a DS, or two keys of one key tag, is `ErrUnsupported` before any call. It
+reads the held set and writes only the difference, by key tag, as
+`deleteDnssecRecord` deletes: new key tags are added first, a changed one is
+deleted and added again, and a gone one is deleted last, so a rollover keeps
+a DS in place. The writes are not atomic, and a failure stops them, leaving
+those before it written. A domain not in the Account (`DOMAIN_NOT_FOUND`,
+`DOMAIN_NOT_REGISTERED`, or an `INVALID_DOMAIN` that names the account) is
+`ErrNotFound`; `DNSSEC_ALGORITHM_DEPRECATED` and `DNSSEC_CREATE_FAILED`, the
+registry refusing the DS, are `ErrUnsupported`. Algorithm 8 or 13 with
+digest type 2 is accepted by every registry Porkbun serves.
+
 The adapter accepts TTLs from 600 to 4,294,967,295 seconds, without an automatic
 TTL sentinel. The documented minimum is account-dependent (typically 600),
 and no universal maximum is published: this conservative minimum and Go's

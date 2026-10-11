@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 	"github.com/dnsgateway/dnsprovider/rest"
@@ -274,7 +275,7 @@ func records(z dnsprovider.Zone, s rrset) []dnsprovider.Record {
 		// multi-chunk strings retain their presentation verbatim. The original
 		// wire strings remain intact when sibling values are rewritten.
 		if s.Type == "TXT" {
-			if text, err := unquoteDNS(v); err == nil {
+			if text, err := charstr.Unquote(v); err == nil {
 				r.Value = text
 			}
 		}
@@ -322,8 +323,8 @@ func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 	return ttlRange.Min, ttlRange.Max
 }
 
-// ttlRange is the TTLRange of every Provider, which TTLRange and
-// Factory report.
+// ttlRange is the TTL policy used by Record writes and reported by
+// TTLRange and Factory.
 var ttlRange = dnsprovider.TTLRange{Min: 300, Max: 2592000}
 
 var _ dnsprovider.TTLLimits = (*Provider)(nil)
@@ -336,7 +337,7 @@ func normalize(z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, er
 	if err := dnsprovider.CheckValue(r.Type, r.Value); err != nil {
 		return r, err
 	}
-	if err := (dnsprovider.TTLRange{Min: 300, Max: 2592000}).Check(r.TTL); err != nil {
+	if err := ttlRange.Check(r.TTL); err != nil {
 		return r, err
 	}
 	abs, err := dnsprovider.QualifyName(z.Name, r.Name)

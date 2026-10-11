@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
@@ -28,8 +29,8 @@ func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 	return ttlRange.Min, ttlRange.Max
 }
 
-// ttlRange is the TTLRange of every Provider, which TTLRange and
-// Factory report.
+// ttlRange is the TTL policy used by Record writes and reported by
+// TTLRange and Factory.
 var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 2147483647}
 
 func normalizeValue(typ, value string) string {
@@ -40,7 +41,7 @@ func normalizeValue(typ, value string) string {
 		}
 	case "TXT":
 		if !strings.HasPrefix(value, `"`) {
-			return quoteText(value)
+			return charstr.Quote(value)
 		}
 	case "CNAME", "NS":
 		if value != "." {
@@ -82,7 +83,7 @@ func normalized(z wireZone, r dnsprovider.Record, validate bool) (dnsprovider.Re
 		if err := dnsprovider.CheckValue(r.Type, r.Value); err != nil {
 			return dnsprovider.Record{}, err
 		}
-		if err := (dnsprovider.TTLRange{Min: 60, Max: 2147483647}).Check(r.TTL); err != nil {
+		if err := ttlRange.Check(r.TTL); err != nil {
 			return dnsprovider.Record{}, err
 		}
 	}
@@ -538,25 +539,6 @@ func (p *Provider) writeSet(ctx context.Context, z wireZone, s *plannedSet) erro
 		return p.action(ctx, http.MethodPost, rrPath(z, w)+"/actions/set_records", map[string]any{"records": values})
 	}
 	return nil
-}
-
-func quoteText(value string) string {
-	var b strings.Builder
-	b.WriteByte('"')
-	for i := range len(value) {
-		c := value[i]
-		switch {
-		case c == '"' || c == '\\':
-			b.WriteByte('\\')
-			b.WriteByte(c)
-		case c < 32 || c == 127:
-			fmt.Fprintf(&b, "\\%03d", c)
-		default:
-			b.WriteByte(c)
-		}
-	}
-	b.WriteByte('"')
-	return b.String()
 }
 
 // sameNativeValues compares unordered native values including comments without

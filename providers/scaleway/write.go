@@ -14,6 +14,7 @@ import (
 
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/batch"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
@@ -78,7 +79,7 @@ func (p *Provider) toWire(zone string, r dnsprovider.Record) (wireRecord, dnspro
 	priority := uint32(0)
 	switch r.Type {
 	case "TXT":
-		data = quoteDNS(data)
+		data = charstr.Quote(data)
 	case "CNAME", "NS":
 		data = strings.TrimSuffix(data, ".") + "."
 	case "MX", "SRV":
@@ -408,7 +409,10 @@ func caaOutcomeValue(value string) (uint64, string, string, error) {
 		return 0, "", "", errors.New("scaleway: malformed CAA outcome")
 	}
 	if strings.HasPrefix(rest, `"`) {
-		rest, err = unquoteDNS(rest)
+		rest, err = charstr.Unquote(rest)
+		if err != nil {
+			err = fmt.Errorf("scaleway: %w", err)
+		}
 	}
 	return flags, tokens[1], rest, err
 }

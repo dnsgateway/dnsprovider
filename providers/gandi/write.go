@@ -13,6 +13,7 @@ import (
 
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/batch"
+	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
@@ -301,5 +302,5 @@ func valueOnWire(after dnsprovider.Record, original entry) string {
 	if original.record.Type == "TXT" && original.record.Value == after.Value {
 		return original.wireValue
 	}
-	return quoteDNS(after.Value)
+	return charstr.Quote(after.Value)
 }

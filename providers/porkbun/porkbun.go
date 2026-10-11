@@ -101,9 +101,9 @@ func (p *Provider) apiError(status int, b []byte) error {
 		kind = dnsprovider.ErrNotFound
 	case slices.Contains([]string{"DUPLICATE_RECORD", "RECORD_CONFLICT"}, env.Code), status == http.StatusConflict:
 		kind = dnsprovider.ErrConflict
-	case env.Code == "DNSSEC_ALGORITHM_DEPRECATED", env.Code == "DNSSEC_CREATE_FAILED":
-		// The registry's policy refuses the DS's algorithm or digest type,
-		// checked before it is sent, or the registry refused the DS.
+	case slices.Contains([]string{"DNSSEC_ALGORITHM_DEPRECATED"}, env.Code):
+		// The registry's policy refuses the DS's algorithm or digest type.
+		// DNSSEC_CREATE_FAILED is the registry refusing it for any reason.
 		kind = dnsprovider.ErrUnsupported
 	case env.Code == "RATE_LIMIT_EXCEEDED":
 		kind = dnsprovider.ErrRateLimited

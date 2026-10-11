@@ -24,6 +24,8 @@ func TestFailedEnvelopesHaveTypedRedactedErrors(t *testing.T) {
 		{"DOMAIN_NOT_ALLOWED", dnsprovider.ErrUnauthorized},
 		{"INVALID_RECORD_ID", dnsprovider.ErrNotFound},
 		{"DOMAIN_NOT_FOUND", dnsprovider.ErrNotFound},
+		{"DOMAIN_NOT_REGISTERED", dnsprovider.ErrNotFound},
+		{"DNSSEC_ALGORITHM_DEPRECATED", dnsprovider.ErrUnsupported},
 		{"DUPLICATE_RECORD", dnsprovider.ErrConflict},
 		{"RECORD_CONFLICT", dnsprovider.ErrConflict},
 		{"RATE_LIMIT_EXCEEDED", dnsprovider.ErrRateLimited},
@@ -100,6 +102,24 @@ func TestInvalidDomainInputIsNotReportedAsAbsent(t *testing.T) {
 	var api *dnsprovider.APIError
 	if err == nil || !errors.As(err, &api) || errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("invalid domain=%v", err)
+	}
+}
+
+func TestADomainNotInTheAccountIsNotFoundOnEveryEndpoint(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/domain/listAll" {
+			w.Write([]byte(`{"status":"SUCCESS","domains":[{"domain":"example.com","apiAccess":1}]}`))
+			return
+		}
+		w.Write([]byte(`{"status":"ERROR","code":"INVALID_DOMAIN","message":"Invalid domain.","account":"alice"}`))
+	}))
+	defer s.Close()
+	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
+	if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("Records=%v", err)
+	}
+	if _, err := p.Zone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("Zone=%v", err)
 	}
 }
 

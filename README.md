@@ -39,8 +39,11 @@ Gandi, and Internet.bs support reading and changing DNSSEC Delegation Signer
 features, supported record types, and limits.
 
 The library manages DNS hosting. It does not register, renew, transfer, or
-cancel domains, or change the domain's nameserver delegation. Your application
-stores credentials and decides when to make changes.
+cancel domains. The optional [Delegation workflow](docs/delegation.md) plans and
+coordinates explicit hosting and registrar work, reports manual nameserver work,
+and verifies replacement hosting before deletion. It requires caller-supplied
+DNS observations; automatic nameserver changes also require your own adapter.
+Your application stores credentials, selects Accounts, and confirms changes.
 
 ## Supported providers
 

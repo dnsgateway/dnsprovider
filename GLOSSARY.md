@@ -37,3 +37,23 @@ _Avoid_: Hosting State, DNS status
 Whether a Provider's Zone signing is Unknown, Off, On, or Pending. Pending
 includes both signing and unsigning in progress; Unknown does not establish Off.
 _Avoid_: DNSSEC validity, Delegation state
+
+**Delegation**:
+The parent zone's Nameservers and Delegation Signer records that direct queries
+and establish trust for a Zone.
+_Avoid_: nameserver settings, DNS routing
+
+**Onboarding**:
+Establishing DNS hosting for a Zone and, when requested, coordinating its
+Delegation to that hosting.
+_Avoid_: domain registration, provisioning
+
+**Offboarding**:
+Removing DNS hosting after replacement hosting serves the name and Delegation
+has left every old Nameserver. The Registration remains intact.
+_Avoid_: domain cancellation, unregistering
+
+**Trust Path**:
+The parent Delegation Signers and the authoritative Zone's Signing Keys that
+allow DNSSEC validation of that Zone.
+_Avoid_: matching key tags, signed status

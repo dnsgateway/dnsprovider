@@ -356,7 +356,7 @@ func TestEveryRequestCarriesTheConfigsAuthParameters(t *testing.T) {
 	}
 	p := newProvider(t, api)
 
-	if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
+	if _, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
 
@@ -396,7 +396,7 @@ func TestZonesAreTheDomainsOnNamecheapDNSOnEveryPage(t *testing.T) {
 		}
 	}
 
-	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -467,7 +467,7 @@ func TestZonesPushTheNameFilterToSearchTerm(t *testing.T) {
 		{Name: "other.org", OurDNS: true},
 	}}
 
-	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example"})
+	set, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example"})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestZonesKeepOnlyMatchesWhenNamecheapSearchesLoosely(t *testing.T) {
 	api := &ncAPI{ignoreSearch: true}
 	api.domains, _ = domains(150)
 
-	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "d12"})
+	set, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "d12"})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -507,7 +507,7 @@ func TestZonesAreActive(t *testing.T) {
 	api := &ncAPI{}
 	api.domains, _ = domains(3)
 
-	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -527,7 +527,7 @@ func TestZoneReadsOneDomainOnNamecheapDNSByItsExactName(t *testing.T) {
 		{Name: "example.com", OurDNS: true},
 	}}
 
-	got, err := newProvider(t, api).Zone(context.Background(), "Example.COM.")
+	got, err := newProvider(t, api).GetZone(context.Background(), "Example.COM.")
 	if err != nil {
 		t.Fatalf("Zone: %v", err)
 	}
@@ -549,7 +549,7 @@ func TestZoneOfADomainNotOnNamecheapDNSIsNotFound(t *testing.T) {
 	p := newProvider(t, api)
 
 	for _, name := range []string{"example.com", "elsewhere.com"} {
-		if _, err := p.Zone(context.Background(), name); !errors.Is(err, dnsprovider.ErrNotFound) {
+		if _, err := p.GetZone(context.Background(), name); !errors.Is(err, dnsprovider.ErrNotFound) {
 			t.Errorf("Zone(%s): err = %v, want ErrNotFound", name, err)
 		}
 	}
@@ -561,7 +561,7 @@ func TestZonesReadEveryPageWhenTheAnswerHasNoTotal(t *testing.T) {
 	var want []string
 	api.domains, want = domains(150)
 
-	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -579,7 +579,7 @@ func TestZonesReadEveryPageWhenNamecheapServesSmallerPages(t *testing.T) {
 	var want []string
 	api.domains, want = domains(45)
 
-	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -595,7 +595,7 @@ func TestZonesFailWhenTheListAnswersTheSamePageTwice(t *testing.T) {
 	api := &ncAPI{stuckPage: true}
 	api.domains, _ = domains(250)
 
-	_, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	_, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err == nil || !strings.Contains(err.Error(), "same page") {
 		t.Errorf("err = %v, want the same page answered twice", err)
 	}
@@ -608,7 +608,7 @@ func TestZonesFailWhenTheListAnswersTheSamePageTwice(t *testing.T) {
 func TestZonesOfAnAccountWithNoDomainsAreNone(t *testing.T) {
 	api := &ncAPI{}
 
-	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -835,7 +835,7 @@ func TestHTTPErrorStatusesAreClassifiedByStatus(t *testing.T) {
 				t.Fatalf("New: %v", err)
 			}
 
-			_, err = p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+			_, err = p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 
 			var apiErr *dnsprovider.APIError
 			if !errors.As(err, &apiErr) || apiErr.StatusCode != c.status {
@@ -858,7 +858,7 @@ func TestHTTPErrorStatusesAreClassifiedByStatus(t *testing.T) {
 func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
 	api := &ncAPI{fail: func(string) []ncError { return []ncError{{1011102, "Parameter APIKey is invalid"}} }}
 
-	_, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	_, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err == nil || strings.Contains(err.Error(), "apikey") {
 		t.Errorf("err = %v, want an error without the API key", err)
 	}
@@ -868,7 +868,7 @@ func TestErrorsNeverCarryTheAPIKey(t *testing.T) {
 		t.Fatalf("New: %v", err)
 	}
 
-	if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); err == nil || strings.Contains(err.Error(), "apikey") {
+	if _, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err == nil || strings.Contains(err.Error(), "apikey") {
 		t.Errorf("unreachable API: err = %v, want an error without the API key", err)
 	}
 }
@@ -926,7 +926,7 @@ func TestProvidersOfOneAccountShareItsRateLimit(t *testing.T) {
 	other.User = "otheruser"
 
 	for range namecheap.RequestsPerMinute {
-		if _, err := first.Zones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
+		if _, err := first.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
 			t.Fatalf("Zones: %v", err)
 		}
 	}
@@ -934,11 +934,11 @@ func TestProvidersOfOneAccountShareItsRateLimit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 
-	if _, err := again.Zones(ctx, dnsprovider.ZoneFilter{}); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := again.ListZones(ctx, dnsprovider.ZoneFilter{}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Errorf("Zones of a second Provider of the Account = %v, want it held back past the deadline", err)
 	}
 
-	if _, err := build(other).Zones(ctx, dnsprovider.ZoneFilter{}); err != nil {
+	if _, err := build(other).ListZones(ctx, dnsprovider.ZoneFilter{}); err != nil {
 		t.Errorf("Zones of another Account: %v, want its own rate limit", err)
 	}
 }
@@ -949,7 +949,7 @@ func TestZonesFilteredByAnAbsoluteNameSearchForItWithoutTheDot(t *testing.T) {
 		{Name: "example.community", OurDNS: true},
 	}}
 
-	set, err := newProvider(t, api).Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example.COM."})
+	set, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "Example.COM."})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -969,7 +969,7 @@ func TestZoneStopsReadingTheListAtItsName(t *testing.T) {
 	api := &ncAPI{ignoreSearch: true}
 	api.domains, _ = domains(250)
 
-	got, err := newProvider(t, api).Zone(context.Background(), "d005.example")
+	got, err := newProvider(t, api).GetZone(context.Background(), "d005.example")
 	if err != nil || got.Name != "d005.example" {
 		t.Fatalf("Zone = %+v, %v; want d005.example", got, err)
 	}

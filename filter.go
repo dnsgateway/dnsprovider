@@ -3,7 +3,7 @@ package dnsprovider
 import "strings"
 
 // ZoneFilter narrows Zones. The zero value matches every Zone. One exact
-// Zone is read with Zone(name), not with a filter.
+// Zone is read with GetZone(name), not with a filter.
 type ZoneFilter struct {
 	// Contains matches zone names holding this text, ignoring case. The
 	// names are matched in absolute form, so a trailing dot ends one:

@@ -12,6 +12,14 @@ import (
 // oneTenant is a Provider whose credentials act within one Tenant alone.
 type oneTenant struct{ dnsprovider.Provider }
 
+func (oneTenant) Capabilities() []dnsprovider.Capability { return nil }
+
+func TestZoneMethodsAloneDoNotDeclareSupport(t *testing.T) {
+	if dnsprovider.CanCreateZone(oneTenant{}) || dnsprovider.CanUpdateZone(oneTenant{}) || dnsprovider.CanDeleteZone(oneTenant{}) {
+		t.Fatal("Zone methods alone must not declare supported operations")
+	}
+}
+
 // manyTenants is a Provider whose credentials can reach several Tenants.
 type manyTenants struct{ dnsprovider.Provider }
 
@@ -179,6 +187,10 @@ func TestZoneStatusOfAReaderIsWhatItReads(t *testing.T) {
 // zoneUpdater is a Provider that changes Zone settings.
 type zoneUpdater struct{ dnsprovider.Provider }
 
+func (zoneUpdater) Capabilities() []dnsprovider.Capability {
+	return []dnsprovider.Capability{dnsprovider.CapZoneUpdater}
+}
+
 func (zoneUpdater) UpdateZone(context.Context, dnsprovider.Zone, dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
 	return dnsprovider.ZoneStatus{}, nil
 }
@@ -196,6 +208,10 @@ func TestCanUpdateZoneOnlyForAZoneUpdater(t *testing.T) {
 // zoneCreator is a Provider that Onboards zone names.
 type zoneCreator struct{ oneTenant }
 
+func (zoneCreator) Capabilities() []dnsprovider.Capability {
+	return []dnsprovider.Capability{dnsprovider.CapZoneCreator}
+}
+
 func (zoneCreator) CreateZone(context.Context, string) (dnsprovider.Zone, error) {
 	return dnsprovider.Zone{}, nil
 }
@@ -212,6 +228,10 @@ func TestCanCreateZoneOnlyForAZoneCreator(t *testing.T) {
 
 // zoneDeleter is a Provider that Offboards Zones.
 type zoneDeleter struct{ oneTenant }
+
+func (zoneDeleter) Capabilities() []dnsprovider.Capability {
+	return []dnsprovider.Capability{dnsprovider.CapZoneDeleter}
+}
 
 func (zoneDeleter) DeleteZone(context.Context, dnsprovider.Zone) error {
 	return nil

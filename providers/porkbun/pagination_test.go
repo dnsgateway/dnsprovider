@@ -34,7 +34,7 @@ func TestZonesReadEveryPageAndRejectRepeatedPages(t *testing.T) {
 			}))
 			defer s.Close()
 			p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-			set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "LAST.EXAMPLE.COM."})
+			set, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "LAST.EXAMPLE.COM."})
 			zs := set.Zones
 
 			if repeat {
@@ -56,10 +56,10 @@ func TestEmptyListsAndExactLookupDoNotHideErrors(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write([]byte(body)) }))
 			defer s.Close()
 			p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-			set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+			set, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 			zs := set.Zones
 
-			_, lookup := p.Zone(context.Background(), "example.com")
+			_, lookup := p.GetZone(context.Background(), "example.com")
 			if body[11:18] == "SUCCESS" {
 				if err != nil || len(zs) != 0 || !errors.Is(lookup, dnsprovider.ErrNotFound) {
 					t.Fatalf("empty=%v,%v,%v", zs, err, lookup)

@@ -42,7 +42,7 @@ func TestAPIEnvelopesAndHTTPFailuresAreTypedAndRedacted(t *testing.T) {
 func TestMalformedResponsesFailAndCancellationIsRespected(t *testing.T) {
 	for _, body := range []string{`null`, `{}`, `{"status":"mystery"}`, `not json`, `{"status":"Success","statusDescription":"ok"}`} {
 		p := newProvider(t, func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, body) })
-		if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
+		if _, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
 			t.Fatalf("accepted malformed zones %s", body)
 		}
 	}
@@ -99,12 +99,12 @@ func TestQuotaIsSharedAcrossCredentialsAndHonorsDeadline(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = p.Zones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
+	if _, err = p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
 		t.Fatal(err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
-	if _, err = other.Zones(ctx, dnsprovider.ZoneFilter{}); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err = other.ListZones(ctx, dnsprovider.ZoneFilter{}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("quota ignored deadline: %v", err)
 	}
 }

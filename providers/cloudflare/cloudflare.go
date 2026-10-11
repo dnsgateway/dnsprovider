@@ -201,9 +201,6 @@ var (
 	_ dnsprovider.TenantLister     = (*Provider)(nil)
 	_ dnsprovider.ZoneStatusReader = (*Provider)(nil)
 	_ dnsprovider.KeyReader        = (*Provider)(nil)
-	_ dnsprovider.ZoneUpdater      = (*Provider)(nil)
-	_ dnsprovider.ZoneCreator      = (*Provider)(nil)
-	_ dnsprovider.ZoneDeleter      = (*Provider)(nil)
 )
 
 // AutoTTL implements dnsprovider.AutoTTL: Cloudflare reads TTL 1 as automatic.
@@ -221,7 +218,7 @@ func (p *Provider) TTLRange() (minTTL, maxTTL uint32) {
 // Factory report.
 var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 86400, Auto: true}
 
-// Zones implements dnsprovider.Provider: the Zones of the configured
+// ListZones implements dnsprovider.Provider: the Zones of the configured
 // Tenant, or without one every Zone the API token reaches, whose names
 // match the filter.
 // Cloudflare filters by name itself, "contains:" ignoring case; the
@@ -229,7 +226,7 @@ var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 86400, Auto: true}
 // its Hosting State and the nameservers Cloudflare assigned to it, which
 // can differ between Zones of one Account.
 // The ZoneSet is a Full View.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	name := ""
 	if text := names.ZoneName(f.Contains); text != "" {
 		name = "contains:" + text
@@ -251,12 +248,12 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprov
 	return dnsprovider.ZoneSet{Zones: out}, nil
 }
 
-// Zone implements dnsprovider.Provider: the Zone of that exact name, read
+// GetZone implements dnsprovider.Provider: the Zone of that exact name, read
 // with Cloudflare's name filter, within the Tenant when one is set;
 // ErrNotFound when there is none. Of several
 // Zones of the name, such as one Moved and one Onboarded again, it is the
 // Active one, else the Pending one, else the first listed.
-func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	name = names.ZoneName(name)
 
 	var found []dnsprovider.Zone
@@ -287,7 +284,7 @@ func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, err
 	return dnsprovider.Zone{}, fmt.Errorf("cloudflare: zone %q: %w", name, dnsprovider.ErrNotFound)
 }
 
-// CreateZone implements dnsprovider.ZoneCreator: a POST /zones of a full
+// CreateZone implements dnsprovider.Provider: a POST /zones of a full
 // zone in the Tenant, which is never retried, as a retry of a create
 // Cloudflare took but whose answer was lost would fail as a conflict.
 // Cloudflare answers with the Zone pending and the nameservers it
@@ -331,7 +328,7 @@ func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zon
 	return p.readBackCreated(ctx, name), nil
 }
 
-// DeleteZone implements dnsprovider.ZoneDeleter: a DELETE /zones/{id},
+// DeleteZone implements dnsprovider.Provider: a DELETE /zones/{id},
 // which Offboards the Zone and drops its Records at Cloudflare; the
 // domain's registration is not Cloudflare's to touch here. A delete is
 // idempotent, so it is retried as reads are. A not-found for the zone (it
@@ -432,7 +429,7 @@ func (p *Provider) inTenant(ctx context.Context, zone dnsprovider.Zone) error {
 // alone, Pending, without an ID or nameservers, which the next Zones or
 // Zone read fills in.
 func (p *Provider) readBackCreated(ctx context.Context, name string) dnsprovider.Zone {
-	z, err := p.Zone(ctx, name)
+	z, err := p.GetZone(ctx, name)
 	if err != nil || z.State == dnsprovider.HostingMoved {
 		return dnsprovider.Zone{Name: name, State: dnsprovider.HostingPending}
 	}
@@ -1177,7 +1174,7 @@ func (p *Provider) hstsStatus(ctx context.Context, zone dnsprovider.Zone) (dnspr
 	return dnsprovider.Off, nil
 }
 
-// UpdateZone implements dnsprovider.ZoneUpdater: a PATCH of each setting
+// UpdateZone implements dnsprovider.Provider: a PATCH of each setting
 // u sets, DNSSEC, then HSTS, then MinTLS, and a read of each it leaves
 // nil. A setting left nil that fails to read, or that the API token may
 // not read, is Unknown. A write that fails is the error, returned with

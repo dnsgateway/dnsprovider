@@ -279,7 +279,7 @@ func TestZonesAreTheTenantsAlone(t *testing.T) {
 		return false
 	}
 
-	if _, err := newProviderIn(t, api, acme, acc1).Zones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
+	if _, err := newProviderIn(t, api, acme, acc1).ListZones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
 
@@ -301,7 +301,7 @@ func TestZonesWithoutATenantListEveryZoneTheTokenReaches(t *testing.T) {
 		return false
 	}
 
-	gotSet, err := newProviderIn(t, api, acme, "").Zones(context.Background(), dnsprovider.ZoneFilter{})
+	gotSet, err := newProviderIn(t, api, acme, "").ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -330,7 +330,7 @@ func TestZoneCallsWorkWithoutATenant(t *testing.T) {
 	p := newProviderIn(t, api, acme, "")
 	ctx := context.Background()
 
-	got, err := p.Zone(ctx, zone.Name)
+	got, err := p.GetZone(ctx, zone.Name)
 	if err != nil || got.ID != zone.ID {
 		t.Fatalf("Zone = %+v, %v; want z1", got, err)
 	}

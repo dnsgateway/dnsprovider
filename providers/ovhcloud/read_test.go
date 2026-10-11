@@ -38,7 +38,7 @@ func TestZoneDiscoveryAndExactLookupAgree(t *testing.T) {
 	f := discoveryFake(t)
 	p := f.provider(t)
 
-	allSet, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	allSet, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	all := allSet.Zones
 
 	if err != nil || len(all) != 3 {
@@ -49,14 +49,14 @@ func TestZoneDiscoveryAndExactLookupAgree(t *testing.T) {
 		t.Error("Zones is a Partial View, want a Full View")
 	}
 
-	filteredSet, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	filteredSet, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
 	filtered := filteredSet.Zones
 
 	if err != nil || len(filtered) != 1 || filtered[0].Name != "example.com" {
 		t.Fatalf("filtered Zones = %+v, %v", filtered, err)
 	}
 
-	z, err := p.Zone(context.Background(), "Example.COM.")
+	z, err := p.GetZone(context.Background(), "Example.COM.")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,12 +69,12 @@ func TestZoneDiscoveryAndExactLookupAgree(t *testing.T) {
 		t.Fatalf("nameservers = %v / %v", z.Nameservers, filtered[0].Nameservers)
 	}
 
-	if _, err := p.Zone(context.Background(), "absent.example"); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err := p.GetZone(context.Background(), "absent.example"); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("absent Zone = %v", err)
 	}
 
 	f.fail["GET /domain/zone/example.com"] = []int{http.StatusForbidden}
-	if _, err := p.Zone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrUnauthorized) || errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err := p.GetZone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrUnauthorized) || errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("denied Zone = %v", err)
 	}
 }
@@ -94,7 +94,7 @@ func TestZoneListingRejectsRepeatedOrMalformedNames(t *testing.T) {
 				f.serve(w, r)
 			})
 
-			if _, err := f.provider(t).Zones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
+			if _, err := f.provider(t).ListZones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
 				t.Fatal("malformed listing accepted")
 			}
 		})

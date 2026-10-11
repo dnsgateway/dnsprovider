@@ -42,7 +42,7 @@ func TestZonesExhaustPagesAndApplyExactSharedFilters(t *testing.T) {
 		}
 	})
 	ctx := context.Background()
-	set, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	set, err := p.ListZones(ctx, dnsprovider.ZoneFilter{})
 	zs := set.Zones
 
 	if err != nil || len(zs) != 102 {
@@ -53,15 +53,15 @@ func TestZonesExhaustPagesAndApplyExactSharedFilters(t *testing.T) {
 		t.Error("Zones is a Partial View, want a Full View")
 	}
 
-	z, err := p.Zone(ctx, "Example.Com.")
+	z, err := p.GetZone(ctx, "Example.Com.")
 	if err != nil || z.ID != "example.com" || z.Name != "example.com" || z.State != dnsprovider.HostingUnknown {
 		t.Fatalf("Zone = %+v, %v", z, err)
 	}
-	if _, err = p.Zone(ctx, "absent.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err = p.GetZone(ctx, "absent.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatal(err)
 	}
 	f := dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."}
-	filteredSet, err := p.Zones(ctx, f)
+	filteredSet, err := p.ListZones(ctx, f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,7 +83,7 @@ func TestZonesRejectRepeatedPages(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(zs)
 	})
-	if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); !errors.Is(err, rest.ErrSamePage) {
+	if _, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); !errors.Is(err, rest.ErrSamePage) {
 		t.Fatal(err)
 	}
 }
@@ -183,7 +183,7 @@ func TestEmptyRecordsAndDNSPermissionFailuresRemainDistinct(t *testing.T) {
 	if rs, err := p.Records(context.Background(), testZone, dnsprovider.RecordFilter{}); err != nil || len(rs.Records) != 0 {
 		t.Fatalf("empty records %+v, %v", rs, err)
 	}
-	if _, err := p.Zone(context.Background(), "absent.com"); !errors.Is(err, dnsprovider.ErrUnauthorized) {
+	if _, err := p.GetZone(context.Background(), "absent.com"); !errors.Is(err, dnsprovider.ErrUnauthorized) {
 		t.Fatal(err)
 	}
 }

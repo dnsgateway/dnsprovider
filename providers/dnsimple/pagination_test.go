@@ -31,7 +31,7 @@ func TestDiscoveryExhaustsShortPagesAndAppliesExactFilters(t *testing.T) {
 			http.NotFound(w, r)
 		}
 	})
-	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	set, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
 	zs := set.Zones
 
 	if err != nil || len(zs) != 1 || zs[0].ID != "7" || zs[0].State != dnsprovider.HostingActive {
@@ -42,11 +42,11 @@ func TestDiscoveryExhaustsShortPagesAndAppliesExactFilters(t *testing.T) {
 		t.Error("Zones is a Partial View, want a Full View")
 	}
 
-	z, err := p.Zone(context.Background(), "EXAMPLE.COM.")
+	z, err := p.GetZone(context.Background(), "EXAMPLE.COM.")
 	if err != nil || !reflect.DeepEqual(z, zs[0]) {
 		t.Fatalf("Zone: %+v %v", z, err)
 	}
-	_, err = p.Zone(context.Background(), "missing.com")
+	_, err = p.GetZone(context.Background(), "missing.com")
 	if !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("missing: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestRepeatedPagesAndMalformedSuccessesFailExplicitly(t *testing.T) {
 	for _, body := range []string{`{}`, `{"data":null}`, `{"message":"failure"}`, `{"data":[{"id":1,"account_id":13,"name":"example.com"}],"pagination":{"current_page":1,"per_page":1,"total_pages":1}}`, `{"data":[],"pagination":{"current_page":1,"per_page":1,"total_pages":3}}`} {
 		t.Run(body, func(t *testing.T) {
 			p := provider(t, func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, body) })
-			if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
+			if _, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
 				t.Fatal("invalid response accepted")
 			}
 		})
@@ -89,7 +89,7 @@ func TestRepeatedPagesAndMalformedSuccessesFailExplicitly(t *testing.T) {
 	p := provider(t, func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"data":[{"id":1,"account_id":12,"name":"example.com","active":true}],"pagination":{"current_page":%s,"per_page":1,"total_pages":3}}`, r.URL.Query().Get("page"))
 	})
-	_, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	_, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if !errors.Is(err, rest.ErrSamePage) {
 		t.Fatalf("repeated page: %v", err)
 	}

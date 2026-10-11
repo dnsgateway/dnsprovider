@@ -8,8 +8,9 @@ credential storage, caches, UI, and Delegation checks.
 ## Scope
 
 - One vocabulary across adapters for Accounts, Zones, Records, and Changesets.
-- A required core for account verification, Zone reads, and Record CRUD.
-- Optional interfaces for Tenant listing, Zone writes and settings, signing
+- A required core for account verification, Zone CRUD, supported Zone-write
+  declarations, and Record CRUD.
+- Optional interfaces for Tenant listing, Zone Status reads, signing
   key reads, DS writes at a registrar, batch writes, TTL limits, automatic
   TTLs, and proxy flags.
 - Exactly filtered lists for consumers without a cache.
@@ -206,10 +207,11 @@ Factories reject unknown fields, missing required fields, and values not among
 a field's Choices. `Registry.Types`
 returns sorted provider names; `Registry.New` rejects unknown types.
 
-Factory capabilities declare optional Zone writes. `Factory.Can` checks
+Factory capabilities declare supported Zone writes. `Factory.Can` checks
 `CapZoneCreator`, `CapZoneUpdater`, or `CapZoneDeleter` before credentials are
-available. These declarations are hints; check the built Provider with
-`CanCreateZone`, `CanUpdateZone`, or `CanDeleteZone` too.
+available. They agree with the built Provider's `Capabilities()` declaration.
+`CanCreateZone`, `CanUpdateZone`, and `CanDeleteZone` consult that declaration.
+Support does not guarantee credentials, permissions, or a selected Tenant.
 
 ## Required interface and filters
 
@@ -217,9 +219,13 @@ These signatures are in the root `dnsprovider` package:
 
 ```go
 type Provider interface {
+    Capabilities() []Capability
     Account(context.Context) (AccountInfo, error)
-    Zones(context.Context, ZoneFilter) (ZoneSet, error)
-    Zone(context.Context, string) (Zone, error)
+    CreateZone(context.Context, string) (Zone, error)
+    GetZone(context.Context, string) (Zone, error)
+    ListZones(context.Context, ZoneFilter) (ZoneSet, error)
+    UpdateZone(context.Context, Zone, ZoneUpdate) (ZoneStatus, error)
+    DeleteZone(context.Context, Zone) error
     Records(context.Context, Zone, RecordFilter) (RecordSet, error)
     CreateRecord(context.Context, Zone, Record) (Record, error)
     UpdateRecord(ctx context.Context, zone Zone, before, after Record) (Record, error)
@@ -241,7 +247,7 @@ absolute form with a trailing dot: `example.com.` matches `example.com` and
 `shop.example.com`, but not `example.community`. Type matches ignoring case.
 Adapters push filters down where possible and apply `MatchZone` or
 `MatchRecord` locally, so results are exactly filtered. Lists read all pages.
-`Zone(ctx, name)` matches an exact name ignoring case and a trailing dot,
+`GetZone(ctx, name)` matches an exact name ignoring case and a trailing dot,
 and returns `ErrNotFound` when absent.
 
 `RecordSet` contains Records and an optional SOA Serial. Adapters return zero for the serial when it is unknown.
@@ -261,7 +267,7 @@ only when shared across Zones. Cloudflare supplies them per Zone.
 
 A Tenant is a Provider-side account. Cloudflare implements `TenantLister`;
 `CanListTenants` detects it. `Tenants` lists accessible accounts with or
-without a configured Tenant. With TenantID, `Zones` and `Zone` are scoped to
+without a configured Tenant. With TenantID, `ListZones` and `GetZone` are scoped to
 that account. Without it, they reach every Zone the token can access.
 Record and setting calls address a Zone by ID in either mode, without an
 additional Tenant ownership check. `DeleteZone` checks ownership when scoped;
@@ -285,14 +291,21 @@ returns its user as the Tenant and BasicDNS nameservers.
   to Moved, and no reported nameservers to Unknown.
 - Namecheap lists only domains on its DNS and reports them Active.
 
-Cloudflare can list several Zones of one name. `Zone(name)` prefers Active,
+Cloudflare can list several Zones of one name. `GetZone(name)` prefers Active,
 then Pending, then the first listed Zone.
 
-## Optional Zone operations and settings
+## Zone operations and optional settings reads
 
-Cloudflare implements `ZoneCreator`, `ZoneDeleter`, `ZoneStatusReader`,
-`ZoneUpdater` and `KeyReader`. Porkbun, Gandi, and Internet.bs implement `DSRegistrar`.
-GoDaddy and Namecheap implement none of these.
+Every Provider exposes Zone CRUD. Cloudflare declares support for all three
+Zone writes; other built-in adapters return `ErrNotImplemented` before any
+network request. Test support with `CanCreateZone`, `CanUpdateZone`, or
+`CanDeleteZone`, then call the method directly on the Provider. The deprecated
+`ZoneCreator`, `ZoneUpdater`, and `ZoneDeleter` interfaces remain available
+for narrow parameters, but type assertions no longer detect support.
+
+Cloudflare implements the optional `ZoneStatusReader` and `KeyReader`.
+Porkbun, Gandi, and Internet.bs implement `DSRegistrar`.
+GoDaddy and Namecheap implement none of these optional interfaces.
 
 `CreateZone(ctx, name)` Onboards a name with `type: full` in the configured
 Tenant. It returns `ErrNoTenant` without a request when unscoped and
@@ -419,8 +432,8 @@ Serial is zero when unknown; the non-batch path never supplies one.
 | Operation | Cloudflare (v4 REST) | GoDaddy (v1 REST) | Namecheap (XML API) |
 | --- | --- | --- | --- |
 | Account / Tenants | account/user token verification; `GET /accounts` | `GET /v1/domains?statuses=ACTIVE` | `users.getBalances` |
-| Zones | `GET /zones`, optional account and name filter | marker-paged active domain list, local filter | paged `domains.getList`, SearchTerm and local filter |
-| Zone | exact-name list, preferring Active then Pending | domain detail, list fallback on 403/422 | domain list searched to an exact match |
+| ListZones | `GET /zones`, optional account and name filter | marker-paged active domain list, local filter | paged `domains.getList`, SearchTerm and local filter |
+| GetZone | exact-name list, preferring Active then Pending | domain detail, list fallback on 403/422 | domain list searched to an exact match |
 | CreateZone / DeleteZone | `POST /zones`; `DELETE /zones/{id}` | Unsupported | Unsupported |
 | ZoneStatus / UpdateZone | DNSSEC, `security_header`, `min_tls_version` reads and PATCHes | Unsupported | Unsupported |
 | Records | paged DNS record list with type/name filters | paged records, optional type endpoint, local filters | `domains.dns.getHosts`, local filters |
@@ -469,7 +482,8 @@ Kind. Kind overrides HTTP classification; otherwise 429 maps to
 ErrRateLimited, 401/403 to ErrUnauthorized, and 404 to ErrNotFound. StatusCode
 zero represents an error reported inside a successful HTTP response.
 
-Detect absent optional interfaces before offering operations.
+Consult `Capabilities()` or the Zone-write helpers before offering Zone writes.
+Detect absent optional interfaces before offering their operations.
 `ErrNotImplemented` represents an operation the adapter has not implemented.
 
 ## Shared REST client
@@ -511,7 +525,7 @@ domain before deleting the old one. `DeleteZone` does not check Delegation.
 Consumers also explain the registrar DS-record dependency when disabling
 DNSSEC and the persistent browser effect of enabling HSTS.
 
-A Migration workflow can be built from source `Records`, optional target
+A Migration workflow can be built from source `Records`, supported target
 `CreateZone`, and `Apply` with additions. The consumer checks target write
 types, TTL limits, and Provider-specific Extras before copying, then handles
 Delegation separately. There is no Migration API in this module.
@@ -526,16 +540,28 @@ Records, account data, failures, withheld results or serials, and Partial
 Views (`SetPartialZones`, `SetPartialRecords`). Its
 `Factory` builds Providers sharing the script. Configure optional interfaces
 before building: `SetTenants`, `SetZoneStatus`, `SetSigningKeys`,
-`SetRegistration`, `SetBatcher`, `SetZoneCreator`, `SetZoneUpdater`, and
-`SetZoneDeleter`. `SetRegistration` makes a Zone one the Account registers,
+`SetRegistration`, and `SetBatcher`. Configure supported Zone writes with
+`SetZoneCreator`, `SetZoneUpdater`, and `SetZoneDeleter`. `SetRegistration`
+makes a Zone one the Account registers,
 with the DS records the registry holds; any other Zone is `ErrNotFound` to
 the `DSRegistrar`. Unscripted Providers
-omit those optional interfaces. When any Zone write is scripted, built
-Providers expose all three Zone-write interfaces, but unscripted writes
-return `ErrNotImplemented`; Factory capabilities declare only scripted writes,
-the Factory's `TTL` is the range scripted with `SetTTLRange` and
+omit those optional interfaces. Every built Provider exposes Zone CRUD;
+unscripted writes
+return `ErrNotImplemented` without recording a call. Factory and Provider
+capabilities declare only scripted writes. A built Provider keeps the write
+support and Tenant scope captured at construction, while sharing mutable
+Zone, Record, and failure scripts. Configure scripts before obtaining a
+Factory and constructing Providers; obtain a fresh Factory after changing
+capability scripts. `DeleteZone` removes hosting while retaining Registration
+and its Delegation Signers. The explicit `RemoveZone` scripting helper clears
+all associated state, including Registration, so re-adding its ID starts clean.
+The Factory's `TTL` is the range scripted with `SetTTLRange` and
 `SetAutoTTL`, and its `Extras` hold the `ExtraProxied` entry for the types
 scripted with `SetProxiableTypes`.
+
+External implementations must migrate to the expanded interface. See the
+[Zone CRUD migration guide](zone-crud-migration.md) for renamed reads,
+unsupported-write implementations, and capability declarations.
 
 Live tests only read and are skipped when required secret fields are unset.
 Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:

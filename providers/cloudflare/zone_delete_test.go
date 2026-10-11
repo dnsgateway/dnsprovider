@@ -80,7 +80,7 @@ func zoneDeletePath(r *http.Request) (string, bool) {
 }
 
 // newOffboarding builds the Provider scoped to acc1, Offboarding through o.
-func newOffboarding(t *testing.T, o *offboard) dnsprovider.ZoneDeleter {
+func newOffboarding(t *testing.T, o *offboard) dnsprovider.Provider {
 	t.Helper()
 
 	if o.api == nil {
@@ -91,12 +91,7 @@ func newOffboarding(t *testing.T, o *offboard) dnsprovider.ZoneDeleter {
 
 	p := newProvider(t, o.api)
 
-	d, ok := p.(dnsprovider.ZoneDeleter)
-	if !ok {
-		t.Fatal("Cloudflare is not a ZoneDeleter")
-	}
-
-	return d
+	return p
 }
 
 var offboardZone = dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingPending}
@@ -121,7 +116,7 @@ func TestDeleteZoneDeletesTheZoneByItsID(t *testing.T) {
 
 	assertWrites(t, o.api, []write{{Method: "DELETE", Path: "/client/v4/zones/z1"}})
 
-	set, err := d.(dnsprovider.Provider).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := d.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}

@@ -7,7 +7,7 @@ Import `providers/cloudflare`, or select Registry key `cloudflare`.
 A Cloudflare token can reach several Tenants (Cloudflare accounts). The
 Provider implements `TenantLister`, whose `Tenants(ctx)` works with or
 without `TenantID`; `dnsprovider.CanListTenants(p)` says whether a Provider
-does. With `TenantID` set, a 32-hex-digit account ID, `Zones` and `Zone`
+does. With `TenantID` set, a 32-hex-digit account ID, `ListZones` and `GetZone`
 list that Tenant's Zones alone. Without it the Provider is unscoped: it
 lists every Zone the token reaches, in any account, and `Account` verifies
 the token alone, with an empty Tenant. The calls on a Zone work by its ID
@@ -17,14 +17,16 @@ set; a token that may not read accounts, such as a DNS-only one, gets an
 
 ## Zones
 
-Cloudflare is the only adapter that implements `ZoneCreator`, `ZoneDeleter`,
-`ZoneStatusReader`, `ZoneUpdater` and `KeyReader`.
+All adapters expose Zone CRUD through `dnsprovider.Provider`. Cloudflare is
+the only built-in adapter declaring support for creation, settings updates,
+and deletion in `Capabilities()`. It also implements the optional
+`ZoneStatusReader` and `KeyReader`.
 
 Cloudflare reports Hosting State Active, Pending (also for a Zone still
 initializing) and Moved (also for a deactivated Zone). Zone filtering uses
 the API's `name=contains:` filter and the common local filter.
 
-Onboarding is the optional `ZoneCreator`, found with
+Onboarding is `CreateZone`, whose support is declared through
 `dnsprovider.CanCreateZone(p)`: `CreateZone(ctx, "example.org")` starts DNS
 hosting of the name in the Provider's Tenant (it never registers the domain)
 and returns the new Zone Pending, with the nameservers Delegation must name
@@ -35,8 +37,8 @@ hold, Cloudflare Onboards a name active in another account, pending until
 Delegation moves it. A Provider without a Tenant returns
 `dnsprovider.ErrNoTenant` without a request. The create is never retried.
 
-Offboarding is the optional `ZoneDeleter`, found
-with `dnsprovider.CanDeleteZone(p)`: `DeleteZone(ctx, zone)` stops DNS
+Offboarding is `DeleteZone`, whose support is declared
+through `dnsprovider.CanDeleteZone(p)`: `DeleteZone(ctx, zone)` stops DNS
 hosting of the Zone, by its ID, and drops its Records there; it never
 touches the registration. It cannot be undone, so a consumer asks first and never
 Offboards the Live Zone. The delete is retried like a read: a retry that
@@ -47,11 +49,11 @@ Zone is first read by its ID, one more request, and a Zone of another
 account is refused without the delete; without a Tenant, the caller owns
 that check. A Zone without an ID fails without a request.
 
-Zone Status (DNSSEC, HSTS) uses the optional `ZoneStatusReader`.
+Zone Status (DNSSEC, HSTS, minimum TLS) uses the optional `ZoneStatusReader`.
 `dnsprovider.ZoneStatusOf(ctx, p, zone)` reads it, and
 reports every setting Unknown, without a call, for a Provider without one.
-The optional `ZoneUpdater`, found with
-`dnsprovider.CanUpdateZone(p)`, turns DNSSEC and HSTS on or off:
+`UpdateZone`, whose support is declared through
+`dnsprovider.CanUpdateZone(p)`, changes DNSSEC, HSTS, and minimum TLS:
 `UpdateZone(ctx, zone, dnsprovider.ZoneUpdate{DNSSEC: &on})` writes only the
 settings it is given and returns the Zone Status after the change, each
 setting it was not given as read, Unknown when it could not be. A write that
@@ -66,6 +68,10 @@ same `GET /zones/{id}/dnssec` as Zone Status, as a `SigningKey` with its
 DNSKEY, key tag and SHA-256 DS. A Zone signed, pending or pending-disabled
 has one key; a disabled Zone has none. A token that may not read DNSSEC is
 `ErrUnauthorized`.
+
+Use canonical `GetZone` and `ListZones` reads. Deprecated concrete `Zone`
+and `Zones` aliases forward to them during migration; see the
+[Zone CRUD migration guide](../zone-crud-migration.md).
 
 ## Live tests
 

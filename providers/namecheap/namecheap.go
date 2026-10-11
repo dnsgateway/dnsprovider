@@ -163,13 +163,13 @@ type getListResult struct {
 	} `xml:"Paging"`
 }
 
-// Zones implements dnsprovider.Provider: the domains of the Account on
+// ListZones implements dnsprovider.Provider: the domains of the Account on
 // Namecheap's own DNS whose names match the filter. A domain delegated
 // elsewhere has no host list Namecheap will read. The filter goes to
 // getList as its SearchTerm, and the answer is filtered again with
 // dnsprovider.MatchZone. Every Zone is Active.
 // The ZoneSet is a Full View.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	all, err := p.listDomains(ctx, names.ZoneName(f.Contains))
 	if err != nil {
 		return dnsprovider.ZoneSet{}, err
@@ -186,11 +186,11 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprov
 	return dnsprovider.ZoneSet{Zones: out}, nil
 }
 
-// Zone implements dnsprovider.Provider: the domain of that exact name on
+// GetZone implements dnsprovider.Provider: the domain of that exact name on
 // Namecheap's DNS, found through getList's SearchTerm; ErrNotFound when
 // the Account has none, or has it delegated elsewhere. Reading stops at
 // the page that holds the name.
-func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	name = names.ZoneName(name)
 
 	var (

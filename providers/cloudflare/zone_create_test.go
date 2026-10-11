@@ -55,7 +55,7 @@ func (o *onboard) install() {
 }
 
 // newOnboarding builds the Provider scoped to acc1, Onboarding through o.
-func newOnboarding(t *testing.T, o *onboard) dnsprovider.ZoneCreator {
+func newOnboarding(t *testing.T, o *onboard) dnsprovider.Provider {
 	t.Helper()
 
 	if o.api == nil {
@@ -66,12 +66,7 @@ func newOnboarding(t *testing.T, o *onboard) dnsprovider.ZoneCreator {
 
 	p := newProvider(t, o.api)
 
-	c, ok := p.(dnsprovider.ZoneCreator)
-	if !ok {
-		t.Fatal("Cloudflare is not a ZoneCreator")
-	}
-
-	return c
+	return p
 }
 
 func TestCloudflareCreatesZones(t *testing.T) {

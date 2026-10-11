@@ -647,7 +647,7 @@ func TestNativeErrorsMapToSentinels(t *testing.T) {
 				f.serve(w, r)
 			})
 
-			_, err := f.provider(t).Zones(context.Background(), dnsprovider.ZoneFilter{})
+			_, err := f.provider(t).ListZones(context.Background(), dnsprovider.ZoneFilter{})
 
 			var api *dnsprovider.APIError
 			if !errors.Is(err, tc.kind) || !errors.As(err, &api) || api.StatusCode != tc.status || strings.Contains(err.Error(), consumerKey) || !strings.Contains(err.Error(), "dnsZone:apiovh:get") {

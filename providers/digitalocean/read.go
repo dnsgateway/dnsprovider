@@ -167,10 +167,10 @@ func zone(w wireDomain) (dnsprovider.Zone, error) {
 	return dnsprovider.Zone{ID: name, Name: name, State: dnsprovider.HostingUnknown}, nil
 }
 
-// Zones implements dnsprovider.Provider: every Domain of the Account
+// ListZones implements dnsprovider.Provider: every Domain of the Account
 // whose name matches the filter, filtered locally.
 // The ZoneSet is a Full View.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	all, err := list[wireDomain](ctx, p, "/domains", "domains", nil)
 	if err != nil {
 		return dnsprovider.ZoneSet{}, err
@@ -218,9 +218,9 @@ func (p *Provider) domain(ctx context.Context, name string) (wireDomain, error) 
 	return *answer.Domain, nil
 }
 
-// Zone reads one Domain by its exact name: ErrNotFound when the Account
+// GetZone reads one Domain by its exact name: ErrNotFound when the Account
 // has none of that name.
-func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	w, err := p.domain(ctx, name)
 	if err != nil {
 		return dnsprovider.Zone{}, err

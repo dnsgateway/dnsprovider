@@ -141,10 +141,10 @@ func publicZone(w wireZone) (dnsprovider.Zone, error) {
 	return dnsprovider.Zone{ID: strconv.FormatInt(w.ID, 10), Name: names.ZoneName(w.Name), State: state, Nameservers: ns}, nil
 }
 
-// Zones implements dnsprovider.Provider: every Zone of the project whose
+// ListZones implements dnsprovider.Provider: every Zone of the project whose
 // name matches the filter, filtered locally.
 // The ZoneSet is a Full View.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	all, err := list[wireZone](ctx, p, "/zones", "zones")
 	if err != nil {
 		return dnsprovider.ZoneSet{}, err
@@ -188,8 +188,8 @@ func (p *Provider) zone(ctx context.Context, z dnsprovider.Zone) (wireZone, erro
 	return *answer.Zone, nil
 }
 
-// Zone reads the exact Zone name, without hiding remote errors.
-func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+// GetZone reads the exact Zone name, without hiding remote errors.
+func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	w, err := p.zone(ctx, dnsprovider.Zone{Name: names.ZoneName(name)})
 	if err != nil {
 		return dnsprovider.Zone{}, err

@@ -118,7 +118,7 @@ func TestADomainNotInTheAccountIsNotFoundOnEveryEndpoint(t *testing.T) {
 	if _, err := p.Records(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Errorf("Records=%v", err)
 	}
-	if _, err := p.Zone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err := p.GetZone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Errorf("Zone=%v", err)
 	}
 }

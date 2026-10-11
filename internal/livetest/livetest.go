@@ -67,7 +67,7 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		}
 	}
 
-	zs, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	zs, err := p.ListZones(ctx, dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatalf("Zones: %v", err)
 	}
@@ -88,7 +88,7 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		return
 	}
 
-	z, err := p.Zone(ctx, zones[0].Name)
+	z, err := p.GetZone(ctx, zones[0].Name)
 	if err != nil {
 		t.Fatalf("Zone(%s): %v", zones[0].Name, err)
 	}

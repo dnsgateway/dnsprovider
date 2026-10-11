@@ -11,11 +11,11 @@ import (
 	"github.com/dnsgateway/dnsprovider/rest"
 )
 
-// Zones implements dnsprovider.Provider: every accessible DNS Zone that
+// ListZones implements dnsprovider.Provider: every accessible DNS Zone that
 // matches the filter, including secondary Zones.
 // The listing does not establish whether a Zone is being served.
 // The ZoneSet is a Full View.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	zs, err := p.zoneList(ctx, f)
 
 	return dnsprovider.ZoneSet{Zones: zs}, err
@@ -55,8 +55,8 @@ func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dn
 	return out, nil
 }
 
-// Zone performs a case-insensitive exact lookup without masking API errors.
-func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+// GetZone performs a case-insensitive exact lookup without masking API errors.
+func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	zs, err := p.zoneList(ctx, dnsprovider.ZoneFilter{})
 	if err != nil {
 		return dnsprovider.Zone{}, err

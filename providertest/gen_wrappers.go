@@ -34,11 +34,7 @@ type iface struct {
 	Methods []string
 }
 
-// options are each an option: the types are one per combination, so each
-// option doubles them. The Zone writes are one option, as a consumer
-// offers each by its Factory's Capabilities: the fake implements all
-// three once any is scripted, and one not scripted refuses (see
-// scope.unscripted).
+// options independently vary the optional interfaces; core Zone writes need no combinations.
 var options = []option{
 	{
 		Name: "Tenants",
@@ -77,41 +73,6 @@ var options = []option{
 			Name:    "Batcher",
 			Methods: []string{"ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) { return p.applyChangeset(ctx, cs) }"},
 		}},
-	},
-	{
-		Name: "ZoneWrites",
-		Ifaces: []iface{
-			{
-				Name: "ZoneUpdater",
-				Methods: []string{`UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-					if err := p.unscripted(dnsprovider.CapZoneUpdater); err != nil {
-						return dnsprovider.ZoneStatus{}, err
-					}
-
-					return p.updateZone(ctx, z, u)
-				}`},
-			},
-			{
-				Name: "ZoneCreator",
-				Methods: []string{`CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-					if err := p.unscripted(dnsprovider.CapZoneCreator); err != nil {
-						return dnsprovider.Zone{}, err
-					}
-
-					return p.createZone(ctx, p.unscoped, name)
-				}`},
-			},
-			{
-				Name: "ZoneDeleter",
-				Methods: []string{`DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-					if err := p.unscripted(dnsprovider.CapZoneDeleter); err != nil {
-						return err
-					}
-
-					return p.deleteZone(ctx, z)
-				}`},
-			},
-		},
 	},
 }
 
@@ -162,7 +123,7 @@ const (
 		}
 
 		fmt.Fprintf(&b, "// %s is the fake as a %s.\n", typ, joinIfaces(in))
-		fmt.Fprintf(&b, "type %s struct {\n\t*Provider\n\tscope\n}\n\n", typ)
+		fmt.Fprintf(&b, "type %s struct {\n\tscopedProvider\n}\n\n", typ)
 
 		for _, o := range in {
 			for _, f := range o.Ifaces {
@@ -175,7 +136,7 @@ const (
 			}
 		}
 
-		fmt.Fprintf(&cases, "\tcase %s:\n\t\treturn %s{p, sc}\n", strings.Join(names, " | "), typ)
+		fmt.Fprintf(&cases, "\tcase %s:\n\t\treturn %s{scopedProvider{p, sc}}\n", strings.Join(names, " | "), typ)
 	}
 
 	fmt.Fprintf(&b, "var (\n%s)\n\n", asserts.String())
@@ -185,7 +146,7 @@ func wrap(p *Provider, set opts, sc scope) dnsprovider.Provider {
 	switch set {
 %s	}
 
-	return p
+	return scopedProvider{p, sc}
 }
 `, cases.String())
 

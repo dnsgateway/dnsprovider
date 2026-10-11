@@ -49,7 +49,7 @@ func TestZonesRespectAPIAccessAndNameBoundaries(t *testing.T) {
 	}))
 	defer s.Close()
 	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
-	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	set, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
 	zs := set.Zones
 
 	if err != nil || len(zs) != 1 || zs[0].ID != "example.com" || zs[0].State != dnsprovider.HostingUnknown {
@@ -60,7 +60,7 @@ func TestZonesRespectAPIAccessAndNameBoundaries(t *testing.T) {
 		t.Error("Zones is a Partial View, want a Full View")
 	}
 
-	z, err := p.Zone(context.Background(), "EXAMPLE.COM.")
+	z, err := p.GetZone(context.Background(), "EXAMPLE.COM.")
 	if err != nil || z.ID != zs[0].ID || z.State != zs[0].State {
 		t.Fatalf("Zone=%+v,%v", z, err)
 	}

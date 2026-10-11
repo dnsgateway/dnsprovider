@@ -81,14 +81,14 @@ func (w wireKey) id() (string, error) {
 type heldKey struct {
 	id  string
 	key dnsprovider.SigningKey
-	// sent is the key as it was sent to Gandi.
-	sent sentKey
+	// compared is the key in the form a held and a wanted key compare in.
+	compared comparedKey
 }
 
 // heldKeys reads the keys Gandi holds at the registry for the Zone's
 // domain, ordered by key tag.
 func (p *Provider) heldKeys(ctx context.Context, z dnsprovider.Zone) ([]heldKey, error) {
-	all, err := listAt[wireKey](ctx, p, p.domainURL, dnskeysPath(z))
+	all, err := list[wireKey](ctx, p, p.domainURL, dnskeysPath(z))
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (p *Provider) heldKeys(ctx context.Context, z dnsprovider.Zone) ([]heldKey,
 		if err != nil {
 			return nil, err
 		}
-		held = append(held, heldKey{id: id, key: k, sent: sentKey{Algorithm: *w.Algorithm, Type: w.Type, PublicKey: canonicalKey(w.PublicKey)}})
+		held = append(held, heldKey{id: id, key: k, compared: w.compared()})
 	}
 	slices.SortStableFunc(held, func(a, b heldKey) int { return cmp.Compare(a.key.KeyTag, b.key.KeyTag) })
 	return held, nil
@@ -123,27 +123,36 @@ func (p *Provider) DelegationSigners(ctx context.Context, z dnsprovider.Zone) ([
 	return keys, nil
 }
 
-// sentKey is a key as Gandi takes it, to compute its DS itself.
-type sentKey struct {
+// comparedKey is the form a held and a wanted key compare in: a key as
+// Gandi takes it, to compute its DS itself, its public key canonical. It
+// is also the body of a replace.
+type comparedKey struct {
 	Algorithm int    `json:"algorithm"`
 	Type      string `json:"type"`
 	PublicKey string `json:"public_key"`
 }
 
+// compared is the key in the form it compares in. Its algorithm is
+// checked present.
+func (w wireKey) compared() comparedKey {
+	return comparedKey{Algorithm: *w.Algorithm, Type: w.Type, PublicKey: canonicalKey(w.PublicKey)}
+}
+
 // keyToSend is the key Gandi is sent for a Signing Key: its DNSKEY's
 // algorithm and public key, of type gandiKSK, the key the DS of a
 // Delegation names. Gandi takes no DS.
-func keyToSend(k dnsprovider.SigningKey) (sentKey, error) {
+func keyToSend(k dnsprovider.SigningKey) (comparedKey, error) {
 	f := strings.Fields(k.DNSKEY)
 	if len(f) < 4 {
-		return sentKey{}, fmt.Errorf("gandi: key tag %d has no DNSKEY, the only form Gandi takes: %w", k.KeyTag, dnsprovider.ErrUnsupported)
+		return comparedKey{}, fmt.Errorf("gandi: key tag %d has no DNSKEY, the only form Gandi takes: %w", k.KeyTag, dnsprovider.ErrUnsupported)
 	}
 	alg, err := strconv.ParseUint(f[2], 10, 8)
 	pub := strings.Join(f[3:], "")
 	if _, errB := base64.StdEncoding.DecodeString(pub); err != nil || errB != nil || f[1] != "3" {
-		return sentKey{}, fmt.Errorf("gandi: malformed DNSKEY %q", k.DNSKEY)
+		return comparedKey{}, fmt.Errorf("gandi: malformed DNSKEY %q", k.DNSKEY)
 	}
-	return sentKey{Algorithm: int(alg), Type: gandiKSK, PublicKey: canonicalKey(pub)}, nil
+	a := int(alg)
+	return wireKey{Algorithm: &a, Type: gandiKSK, PublicKey: pub}.compared(), nil
 }
 
 // canonicalKey is a base64 public key in standard padded form, so two
@@ -157,7 +166,7 @@ func canonicalKey(pub string) string {
 	return base64.StdEncoding.EncodeToString(b)
 }
 
-func bySentKey(a, b sentKey) int {
+func byComparedKey(a, b comparedKey) int {
 	return cmp.Or(cmp.Compare(a.Algorithm, b.Algorithm), cmp.Compare(a.PublicKey, b.PublicKey), cmp.Compare(a.Type, b.Type))
 }
 
@@ -168,7 +177,7 @@ func bySentKey(a, b sentKey) int {
 // not say a replace may hold none. A key with no DNSKEY is ErrUnsupported,
 // and so is a replace Gandi answers with 400.
 func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
-	want := make([]sentKey, 0, len(keys))
+	want := make([]comparedKey, 0, len(keys))
 	for _, k := range keys {
 		s, err := keyToSend(k)
 		if err != nil {
@@ -182,19 +191,19 @@ func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone,
 	if err != nil {
 		return err
 	}
-	have := make([]sentKey, 0, len(held))
+	have := make([]comparedKey, 0, len(held))
 	for _, h := range held {
-		have = append(have, h.sent)
+		have = append(have, h.compared)
 	}
-	slices.SortFunc(have, bySentKey)
-	if slices.Equal(slices.SortedFunc(slices.Values(want), bySentKey), have) {
+	slices.SortFunc(have, byComparedKey)
+	if slices.Equal(slices.SortedFunc(slices.Values(want), byComparedKey), have) {
 		return nil
 	}
 	if len(want) > 0 {
-		return refusedAsUnsupported(p.requestAt(ctx, p.domainURL, http.MethodPut, dnskeysPath(z), nil, map[string]any{"keys": want}, nil))
+		return refusedAsUnsupported(p.request(ctx, p.domainURL, http.MethodPut, dnskeysPath(z), nil, map[string]any{"keys": want}, nil))
 	}
 	for _, h := range held {
-		if err := p.requestAt(ctx, p.domainURL, http.MethodDelete, dnskeysPath(z)+"/"+url.PathEscape(h.id), nil, nil, nil); err != nil {
+		if err := p.request(ctx, p.domainURL, http.MethodDelete, dnskeysPath(z)+"/"+url.PathEscape(h.id), nil, nil, nil); err != nil {
 			return err
 		}
 	}

@@ -18,8 +18,9 @@ Zones are domains handled by LiveDNS, identified by their normalized domain
 name. Hosting State is Unknown: the API's list does not prove that public
 Delegation points at LiveDNS. List and exact lookup use the same identity and
 state. Domain registration, renewal, transfer, the Delegation's NS records and
-Zone lifecycle or settings changes are outside this adapter. SOA serials are reported when the
-record collection contains a valid apex SOA. Unknown record types remain visible.
+Zone lifecycle or settings changes are outside this adapter. SOA serials are
+reported when the record collection contains a valid apex SOA. Unknown record
+types remain visible.
 
 Writes support A, AAAA, CNAME, MX, TXT, NS, SRV and CAA. URI writes are unsupported
 by the documented LiveDNS type list. Names are absolute without a trailing dot;

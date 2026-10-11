@@ -155,7 +155,7 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 func (p *Provider) writeGroup(ctx context.Context, z dnsprovider.Zone, g *group) error {
 	path := p.recordPath(z) + "/" + url.PathEscape(g.name) + "/" + url.PathEscape(g.typ)
 	if len(g.entries) == 0 {
-		err := p.request(ctx, http.MethodDelete, path, nil, nil, nil)
+		err := p.request(ctx, p.baseURL, http.MethodDelete, path, nil, nil, nil)
 		if err != nil {
 			return fmt.Errorf("gandi: RRset %s/%s deletion unconfirmed: %w", g.name, g.typ, err)
 		}
@@ -174,12 +174,12 @@ func (p *Provider) writeGroup(ctx context.Context, z dnsprovider.Zone, g *group)
 	delete(body, "rrset_name")
 	delete(body, "rrset_type")
 	delete(body, "rrset_href")
-	if err := p.request(ctx, http.MethodPut, path, nil, body, nil); err != nil {
+	if err := p.request(ctx, p.baseURL, http.MethodPut, path, nil, body, nil); err != nil {
 		return fmt.Errorf("gandi: RRset %s/%s replacement unconfirmed: %w", g.name, g.typ, err)
 	}
 	g.written = true
 	var w wireSet
-	if err := p.request(ctx, http.MethodGet, path, nil, nil, &w); err != nil {
+	if err := p.request(ctx, p.baseURL, http.MethodGet, path, nil, nil, &w); err != nil {
 		return fmt.Errorf("gandi: RRset %s/%s written but readback failed: %w", g.name, g.typ, err)
 	}
 	s, err := decode(w)
@@ -199,7 +199,7 @@ func (p *Provider) writeGroup(ctx context.Context, z dnsprovider.Zone, g *group)
 }
 
 func (p *Provider) readGroups(ctx context.Context, z dnsprovider.Zone) (map[string]*group, error) {
-	all, err := list[wireSet](ctx, p, p.recordPath(z))
+	all, err := list[wireSet](ctx, p, p.baseURL, p.recordPath(z))
 	if err != nil {
 		return nil, err
 	}

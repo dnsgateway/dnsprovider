@@ -13,6 +13,7 @@ import (
 // Hashing keeps credentials out of the limiter's identity and diagnostics.
 var limits = struct {
 	sync.Mutex
+
 	byKey map[[32]byte]*rate.Limiter
 }{byKey: map[[32]byte]*rate.Limiter{}}
 

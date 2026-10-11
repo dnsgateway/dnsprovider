@@ -63,6 +63,7 @@ func TestCanRegisterDSOnlyForADSRegistrar(t *testing.T) {
 // or err when set.
 type keyHost struct {
 	dnsprovider.Provider
+
 	err error
 }
 
@@ -147,6 +148,7 @@ func TestMatchZoneMatchesNamesHoldingTheTextIgnoringCase(t *testing.T) {
 // statusReader is a Provider that reads Zone Status.
 type statusReader struct {
 	dnsprovider.Provider
+
 	status dnsprovider.ZoneStatus
 	err    error
 }

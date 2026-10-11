@@ -35,6 +35,7 @@ func PerMinute(n int) *Window {
 // accounts are AccountPerMinute's limiters, by Account.
 var accounts = struct {
 	sync.Mutex
+
 	m map[string]*Window
 }{m: map[string]*Window{}}
 

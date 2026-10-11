@@ -17,6 +17,7 @@ import (
 
 type dnsState struct {
 	sync.Mutex
+
 	records map[string]map[string]string
 	writes  []string
 	next    int

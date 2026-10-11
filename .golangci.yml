@@ -53,6 +53,7 @@ linters:
     - wrapcheck
     - wsl
     - gomodguard
+    - exhaustive
     - exhaustruct_v5
 
     # temporarily disabled linters
@@ -68,9 +69,7 @@ linters:
     - funcorder
     - revive
     #
-    - embeddedstructfieldcheck
     - errchkjson
-    - exhaustive
   settings:
     wsl_v5:
       allow-first-in-block: true
@@ -138,6 +137,7 @@ linters:
           - exhaustruct_v5
           - prealloc
           - lll
+          - errchkjson
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0

@@ -11,6 +11,7 @@ import (
 
 type detailHost struct {
 	dnsprovider.Provider
+
 	zone dnsprovider.Zone
 	err  error
 }
@@ -32,6 +33,7 @@ func TestZoneDetailsRetainIdentityWithoutOptionalReaders(t *testing.T) {
 
 type statusDetailHost struct {
 	detailHost
+
 	status    dnsprovider.ZoneStatus
 	statusErr error
 }
@@ -42,6 +44,7 @@ func (p statusDetailHost) ZoneStatus(context.Context, dnsprovider.Zone) (dnsprov
 
 type keyDetailHost struct {
 	statusDetailHost
+
 	keys   []dnsprovider.SigningKey
 	keyErr error
 }
@@ -99,22 +102,25 @@ func TestZoneDetailsKeysAreExplicitAndEmptyKeysAreSuccessful(t *testing.T) {
 
 func TestZoneDetailsIdentityFailureReturnsNoDetails(t *testing.T) {
 	got, err := dnsprovider.ZoneDetailsOf(context.Background(), detailHost{err: dnsprovider.ErrNotFound}, "missing.example", dnsprovider.ZoneDetailRequest{SigningKeys: true})
-	if !errors.Is(err, dnsprovider.ErrNotFound) || !reflect.DeepEqual(got, dnsprovider.ZoneDetails{}) {
+	if !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("missing zone=%+v err=%v", got, err)
 	}
+	assertZoneDetailsEqual(t, got, dnsprovider.ZoneDetails{})
 }
 
 func TestZoneDetailsCancellationIsObservableEvenWhenReaderIgnoresIt(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	got, err := dnsprovider.ZoneDetailsOf(ctx, detailHost{zone: dnsprovider.Zone{ID: "z1"}}, "example.com", dnsprovider.ZoneDetailRequest{})
-	if !errors.Is(err, context.Canceled) || !reflect.DeepEqual(got, dnsprovider.ZoneDetails{}) {
+	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled read=%+v err=%v", got, err)
 	}
+	assertZoneDetailsEqual(t, got, dnsprovider.ZoneDetails{})
 }
 
 type combinedDetailHost struct {
 	detailHost
+
 	details   dnsprovider.ZoneDetails
 	detailErr error
 	cancel    context.CancelFunc
@@ -140,9 +146,10 @@ func TestZoneDetailsPreferCombinedReaderAndRetainAuthoritativeIdentity(t *testin
 	got, err := dnsprovider.ZoneDetailsOf(context.Background(), p, "example.com", dnsprovider.ZoneDetailRequest{SigningKeys: true})
 	want := p.details
 	want.Zone = p.zone
-	if !reflect.DeepEqual(got, want) || !errors.Is(err, dnsprovider.ErrUnauthorized) {
+	if !errors.Is(err, dnsprovider.ErrUnauthorized) {
 		t.Fatalf("combined details=%+v err=%v", got, err)
 	}
+	assertZoneDetailsEqual(t, got, want)
 }
 
 func TestZoneDetailsCancellationRetainsCompletedProperties(t *testing.T) {
@@ -186,6 +193,7 @@ func TestZoneDetailsDoNotSubstituteRegistrarSigningKeys(t *testing.T) {
 
 type canceledIdentityHost struct {
 	dnsprovider.Provider
+
 	cancel context.CancelFunc
 }
 
@@ -198,7 +206,29 @@ func TestZoneDetailsIdentityFailureRetainsCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	got, err := dnsprovider.ZoneDetailsOf(ctx, canceledIdentityHost{cancel: cancel}, "missing.example", dnsprovider.ZoneDetailRequest{SigningKeys: true})
-	if !errors.Is(err, dnsprovider.ErrNotFound) || !errors.Is(err, context.Canceled) || !reflect.DeepEqual(got, dnsprovider.ZoneDetails{}) {
+	if !errors.Is(err, dnsprovider.ErrNotFound) || !errors.Is(err, context.Canceled) {
 		t.Fatalf("failed identity=%+v err=%v", got, err)
+	}
+	assertZoneDetailsEqual(t, got, dnsprovider.ZoneDetails{})
+}
+
+func assertZoneDetailsEqual(t *testing.T, got, want dnsprovider.ZoneDetails) {
+	t.Helper()
+	if !reflect.DeepEqual(got.Zone, want.Zone) || got.Status != want.Status || !reflect.DeepEqual(got.SigningKeys, want.SigningKeys) {
+		t.Errorf("details = %+v, want %+v", got, want)
+	}
+	for _, property := range []struct {
+		name string
+		got  dnsprovider.PropertyResult
+		want dnsprovider.PropertyResult
+	}{
+		{"DNSSEC", got.Properties.DNSSEC, want.Properties.DNSSEC},
+		{"HSTS", got.Properties.HSTS, want.Properties.HSTS},
+		{"MinTLS", got.Properties.MinTLS, want.Properties.MinTLS},
+		{"SigningKeys", got.Properties.SigningKeys, want.Properties.SigningKeys},
+	} {
+		if property.got.State != property.want.State || !errors.Is(property.got.Err, property.want.Err) {
+			t.Errorf("%s = %+v, want %+v", property.name, property.got, property.want)
+		}
 	}
 }

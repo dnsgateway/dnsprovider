@@ -73,8 +73,9 @@ func (e *safeError) Error() string { return e.message }
 func (e *safeError) Unwrap() error { return e.cause }
 
 type codedError struct {
-	code string
 	*dnsprovider.APIError
+
+	code string
 }
 
 func (e *codedError) Unwrap() error { return e.APIError }

@@ -15,6 +15,7 @@ import (
 // Clients to the same endpoint share the budget across all credentials.
 var endpointLimits = struct {
 	sync.Mutex
+
 	limits map[string]*quota
 }{limits: map[string]*quota{}}
 

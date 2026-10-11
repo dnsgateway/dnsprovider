@@ -102,7 +102,8 @@ func TestZoneDetailsAllFailedPropertiesKeepIdentityAndDiagnostics(t *testing.T) 
 func TestZoneDetailsMissingIdentityDoesNotReadProperties(t *testing.T) {
 	api := &cfAPI{}
 	got, err := dnsprovider.ZoneDetailsOf(context.Background(), newProvider(t, api), "missing.example", dnsprovider.ZoneDetailRequest{SigningKeys: true})
-	if !errors.Is(err, dnsprovider.ErrNotFound) || !reflect.DeepEqual(got, dnsprovider.ZoneDetails{}) {
+	if !errors.Is(err, dnsprovider.ErrNotFound) || !reflect.DeepEqual(got.Zone, dnsprovider.Zone{}) ||
+		got.Status != (dnsprovider.ZoneStatus{}) || got.SigningKeys != nil || got.Properties != (dnsprovider.ZoneDetailProperties{}) {
 		t.Fatalf("missing details=%+v err=%v", got, err)
 	}
 	for _, req := range api.Requests() {

@@ -83,6 +83,7 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 // shares one.
 var limits = struct {
 	sync.Mutex
+
 	m map[string]*rate.Limiter
 }{m: map[string]*rate.Limiter{}}
 

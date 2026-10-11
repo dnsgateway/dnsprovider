@@ -117,7 +117,7 @@ func idOf(k map[string]any) string {
 	return ""
 }
 
-// heldKey is a key as the Gandi key list returns it.
+// heldKey is a signing key as the Gandi key list returns it.
 func heldKey(id any, tag, alg int, typ, pub, digest string) map[string]any {
 	return map[string]any{
 		"id": id, "keytag": tag, "algorithm": alg, "type": typ, "public_key": pub,
@@ -169,7 +169,7 @@ func TestDelegationSignersOfADomainTheAccountDoesNotRegisterAreNotFound(t *testi
 	}
 }
 
-func TestSetDelegationSignersPublishesTheDNSKEYAsAKSK(t *testing.T) {
+func TestSetDelegationSignersPublishesTheDNSKEYAsASigningKey(t *testing.T) {
 	reg, p := registryAPI(t, "example.com")
 	// The public key may come split in chunks, as in a zone file.
 	key := dnsprovider.SigningKey{DNSKEY: "257 3 13 " + pubA[:40] + " " + pubA[40:], KeyTag: 2371, DS: []string{"2371 13 2 " + digestA}}
@@ -204,7 +204,7 @@ func TestSetDelegationSignersWithNoKeysDeletesEveryKey(t *testing.T) {
 }
 
 func TestSetDelegationSignersReplacesTheWholeSetInOneWrite(t *testing.T) {
-	// A rollover: 2371 stays, 40000 is new, and the ZSK Gandi held goes.
+	// A rollover: 2371 stays, 40000 is new, and the "zsk" Gandi held goes.
 	reg, p := registryAPI(t, "example.com",
 		heldKey(3, 2371, 13, "ksk", pubA, digestA),
 		heldKey(4, 5555, 13, "zsk", pubB, digestA),
@@ -302,7 +302,7 @@ func TestSetDelegationSignersFailuresThatAreNotTheKeys(t *testing.T) {
 	})
 }
 
-func TestMalformedDNSSECKeysFailExplicitly(t *testing.T) {
+func TestMalformedSigningKeysFailExplicitly(t *testing.T) {
 	for _, body := range []string{
 		`null`, `{"keys":[]}`,
 		`[{"id":3,"keytag":2371,"algorithm":13,"type":"ksk","digest_type":2,"digest":"not hex"}]`,

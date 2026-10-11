@@ -3,7 +3,8 @@
 This document describes the current implementation of
 `github.com/dnsgateway/dnsprovider`. The module manages DNS hosting through a
 shared Provider interface and provider-neutral types. Consumers own their
-credential storage, caches, UI, and Delegation checks.
+credential storage, caches, UI, and DNS observation adapters. They can use the
+optional [Delegation workflow](delegation.md) for explicit coordination.
 
 ## Scope
 
@@ -18,9 +19,10 @@ credential storage, caches, UI, and Delegation checks.
   `cloudflare-go/v7`.
 
 Onboarding and Offboarding start and stop DNS hosting. They never register,
-renew, transfer, or cancel a domain. The module never changes the
-Delegation's NS records; only a registrar adapter changes the Delegation's DS
-records. It does not manage a consumer's locally stored Accounts.
+renew, transfer, or cancel a domain. Ordinary Zone CRUD changes hosting only. The opt-in Delegation workflow can
+coordinate NS writes through a caller-supplied adapter and DS writes through a
+selected `DSRegistrar`; no production NS adapter is supplied. It does not manage
+a consumer's locally stored Accounts.
 
 ## Module layout
 
@@ -37,6 +39,7 @@ dnsprovider/
 ├── stale.go         pre-write re-check and StaleError
 ├── errors.go        typed errors and APIError
 ├── rest/            HTTP client, rate limiting, pagination
+├── delegation/      explicit hosting/Registration coordination workflow
 ├── providertest/    scriptable in-memory Provider for consumers' tests
 ├── internal/        adapter helpers and test support
 └── providers/
@@ -574,9 +577,12 @@ Consumers decide how to store credentials, select Tenants, cache Records,
 confirm writes, and refresh incomplete successful responses. The module
 contains no TUI, vault, or cache migrations.
 
-Zone writes and DS writes require consumer confirmation. Consumers must never Offboard
-the Live Zone: resolve Delegation and verify that another Zone serves the
-domain before deleting the old one. `DeleteZone` does not check Delegation.
+Zone writes and DS writes require consumer confirmation. Consumers using direct
+CRUD must resolve Delegation and verify replacement hosting before deleting the
+old Zone. `DeleteZone` does not check Delegation. The optional Delegation workflow
+provides conservative checks when consumers explicitly select Accounts and supply
+DNS observations; see the [coordination guide](delegation.md) for supported
+sequences, resumption and remaining caller responsibilities.
 Consumers also explain the registrar DS-record dependency when disabling
 DNSSEC and the persistent browser effect of enabling HSTS.
 

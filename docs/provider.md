@@ -27,6 +27,7 @@ records. It does not manage a consumer's locally stored Accounts.
 ```text
 dnsprovider/
 ├── provider.go      Provider, optional interfaces, capability helpers, results
+├── zone_details.go  explicit detailed Zone read, property outcomes
 ├── types.go         AccountInfo, Tenant, Zone, Record, Changeset, ZoneStatus,
 │                    SigningKey
 ├── config.go        Options, Field, Factory, Registry
@@ -391,6 +392,60 @@ the key's algorithm, digest type or form for the domain. Porkbun implements
 it, sending the DS, and Gandi, sending the DNSKEY. Internet.bs sends the
 available DS and DNSKEY forms in one Registration update.
 
+## Detailed Zone reads
+
+Use `dnsprovider.ZoneDetailsOf` to read identity and Zone properties together:
+
+```go
+details, err := dnsprovider.ZoneDetailsOf(ctx, p, "example.org",
+    dnsprovider.ZoneDetailRequest{SigningKeys: true})
+```
+
+The result contains `Zone` (including Hosting State and Nameservers), `Status`
+(DNSSEC, HSTS, minimum TLS), `SigningKeys`, and `Properties`. Zone Status is
+always requested; Signing Keys require `SigningKeys: true`. `GetZone` and
+`ListZones` retain their ordinary identity-only cost, and list Full View and
+Partial View semantics are unchanged.
+
+Every property outcome is a `PropertyResult` with `State` and `Err`:
+
+| State | Meaning |
+| --- | --- |
+| `PropertyNotRequested` | Signing Keys were not requested. |
+| `PropertyUnsupported` | The adapter lacks support for this property. |
+| `PropertyRead` | The property was read successfully, possibly Unknown or an empty key list. |
+| `PropertyFailed` | The supported read failed; `Err` retains its diagnostic. |
+
+DNSSEC retains Unknown, Off, On, and Pending. Unknown does not mean disabled;
+Pending covers signing and unsigning in progress. A successfully read empty
+Signing Key list describes an unsigned Zone; unsupported and failed reads do
+not establish that the Zone is unsigned. Inspect `Properties.SigningKeys`
+before interpreting an empty list.
+
+Identity is read first. If it fails, the helper returns no details and the
+identity error. Once identity succeeds, known properties remain available
+alongside a joined error for failed reads. Use `errors.Is` on that aggregate
+or an individual property's `Err` for `ErrUnauthorized` and other typed errors;
+`errors.As` retains the original `APIError` diagnostics. Unsupported properties
+alone do not fail the read. Context cancellation remains visible in the
+returned error, including when some details were obtained; inspect the result
+and error together rather than treating cancellation as complete success.
+
+Adapters can implement the optional `ZoneDetailsReader` to assemble combined
+properties. `ZoneDetailsOf` passes the successfully read Zone to that reader,
+then restores that identity in the result. Adapters without it fall back to
+`ZoneStatusReader` and `KeyReader`. Missing readers report unsupported properties.
+A legacy status reader supplies only one error for all settings: known values
+are retained as successful, while Unknown values carry that error. A legacy
+reader that suppresses a failure cannot supply its diagnostic; its Unknown
+value becomes a successful observation. Direct `ZoneStatusOf` and `SigningKeysOf`
+retain their existing behavior, including the distinctions they collapse.
+
+Related properties can share one response, but independent Provider resources
+are not an atomic snapshot. Signing Keys here describe Provider signing only:
+this read never consults a Registration, substitutes registrar-held keys,
+writes DS records, or establishes end-to-end DNSSEC validity.
+
 ## Applying a Changeset
 
 ```go
@@ -540,7 +595,7 @@ Records, account data, failures, withheld results or serials, and Partial
 Views (`SetPartialZones`, `SetPartialRecords`). Its
 `Factory` builds Providers sharing the script. Configure optional interfaces
 before building: `SetTenants`, `SetZoneStatus`, `SetSigningKeys`,
-`SetRegistration`, and `SetBatcher`. Configure supported Zone writes with
+`SetRegistration`, `SetZoneDetails`, and `SetBatcher`. Configure supported Zone writes with
 `SetZoneCreator`, `SetZoneUpdater`, and `SetZoneDeleter`. `SetRegistration`
 makes a Zone one the Account registers,
 with the DS records the registry holds; any other Zone is `ErrNotFound` to
@@ -555,6 +610,14 @@ Factory and constructing Providers; obtain a fresh Factory after changing
 capability scripts. `DeleteZone` removes hosting while retaining Registration
 and its Delegation Signers. The explicit `RemoveZone` scripting helper clears
 all associated state, including Registration, so re-adding its ID starts clean.
+`SetZoneDetails(zoneID, details)` enables the optional combined reader independently
+of the legacy readers. Script `Properties` to distinguish successful, unsupported,
+and failed reads; property errors are joined automatically. `Fail(OpZoneDetails, err)`
+adds a whole-read failure while retaining scripted details. Unrequested keys are
+omitted, and an unscripted Zone reports unsupported properties. Combined reads
+record `OpGetZone` then `OpZoneDetails`, with the requested flags in
+`Call.ZoneDetailRequest`. Inputs and returned detail slices are independent copies.
+
 The Factory's `TTL` is the range scripted with `SetTTLRange` and
 `SetAutoTTL`, and its `Extras` hold the `ExtraProxied` entry for the types
 scripted with `SetProxiableTypes`.

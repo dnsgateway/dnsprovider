@@ -24,10 +24,12 @@ type Op string
 
 // Operations.
 const (
-	OpNew     Op = "New"
-	OpZones   Op = "Zones"
-	OpZone    Op = "Zone"
-	OpRecords Op = "Records"
+	OpNew       Op = "New"
+	OpListZones Op = "ListZones"
+	OpZones     Op = OpListZones // Deprecated: use OpListZones.
+	OpGetZone   Op = "GetZone"
+	OpZone      Op = OpGetZone // Deprecated: use OpGetZone.
+	OpRecords   Op = "Records"
 	// OpApply is the Batcher's ApplyChangeset; see SetBatcher.
 	OpApply Op = "Apply"
 	// OpCreateRecord, OpUpdateRecord and OpDeleteRecord are the Record CRUD
@@ -170,13 +172,19 @@ func (p *Provider) RemoveZone(zoneID string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
+	p.removeHosting(zoneID)
+	delete(p.registryKeys, zoneID)
+}
+
+// removeHosting drops scripted DNS hosting while preserving Registration.
+// The caller holds p.mu.
+func (p *Provider) removeHosting(zoneID string) {
 	p.zones = slices.DeleteFunc(p.zones, func(z dnsprovider.Zone) bool { return z.ID == zoneID })
 	delete(p.records, zoneID)
 	delete(p.serials, zoneID)
 	delete(p.hosting, zoneID)
 	delete(p.status, zoneID)
 	delete(p.keys, zoneID)
-	delete(p.registryKeys, zoneID)
 	delete(p.partialRecords, zoneID)
 }
 
@@ -226,11 +234,9 @@ func (p *Provider) SetAutoTTL(on bool) {
 // and DSRegistrar, which a consumer may branch on, and Batcher, which changes how
 // dnsprovider.Apply writes, are implemented by wrapper types, built only
 // once scripted: one type per combination, generated (see
-// gen_wrappers.go) and picked by build. So are ZoneUpdater, ZoneCreator
-// and ZoneDeleter, together: a consumer offers its Zone writes by the
-// Factory's Capabilities, which declare each as scripted, and a Zone
-// write not scripted refuses with dnsprovider.ErrNotImplemented,
-// recording nothing.
+// gen_wrappers.go) and picked by build. Core Zone writes always exist;
+// Capabilities declares each as scripted, and an unscripted write returns
+// dnsprovider.ErrNotImplemented, recording nothing.
 var (
 	_ dnsprovider.TTLLimits = (*Provider)(nil)
 	_ dnsprovider.AutoTTL   = (*Provider)(nil)
@@ -379,11 +385,10 @@ func (p *Provider) SetBatcher(on bool) {
 	p.batcher = on
 }
 
-// SetZoneUpdater enables dnsprovider.ZoneUpdater and records calls as
+// SetZoneUpdater declares support for UpdateZone and records calls as
 // OpUpdateZone. Updates apply HSTS and MinTLS as given and set DNSSEC to
 // Pending; SetZoneStatus controls the reported DNSSEC state. Without this
-// script, the method is unavailable unless another Zone write is scripted,
-// in which case it returns dnsprovider.ErrNotImplemented.
+// script, the method returns dnsprovider.ErrNotImplemented.
 func (p *Provider) SetZoneUpdater(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -391,11 +396,11 @@ func (p *Provider) SetZoneUpdater(on bool) {
 	p.updater = on
 }
 
-// SetZoneCreator enables dnsprovider.ZoneCreator and records calls as
+// SetZoneCreator declares support for CreateZone and records calls as
 // OpCreateZone. It creates an empty Pending Zone with a new ID and the
 // scripted Account's nameservers. Existing non-Moved names conflict;
 // without a Tenant it returns ErrNoTenant. Without this script, creation
-// is unavailable unless another Zone write is scripted.
+// returns dnsprovider.ErrNotImplemented.
 func (p *Provider) SetZoneCreator(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -403,10 +408,11 @@ func (p *Provider) SetZoneCreator(on bool) {
 	p.creator = on
 }
 
-// SetZoneDeleter enables dnsprovider.ZoneDeleter and records calls as
-// OpDeleteZone. DeleteZone removes the Zone and its Records, or returns
+// SetZoneDeleter declares support for DeleteZone and records calls as
+// OpDeleteZone. DeleteZone removes hosting and Records, retains Registration,
+// and returns
 // dnsprovider.ErrNotFound for an unknown ID. Without this script, deletion
-// is unavailable unless another Zone write is scripted.
+// returns dnsprovider.ErrNotImplemented.
 func (p *Provider) SetZoneDeleter(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -519,8 +525,7 @@ type scope struct {
 }
 
 // unscripted refuses a Zone write that was not scripted when the Provider
-// was built: it implements the Zone writes together, once any is
-// scripted. It records nothing.
+// was built. It records nothing.
 func (sc scope) unscripted(c dnsprovider.Capability) error {
 	if slices.Contains(sc.writes, c) {
 		return nil
@@ -564,9 +569,6 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 	}
 
 	writes := p.zoneWrites()
-	if len(writes) > 0 {
-		set |= optZoneWrites
-	}
 
 	return wrap(p, set, scope{unscoped: p.tenants != nil && m[FieldTenant] == "", writes: writes}), nil
 }
@@ -592,10 +594,13 @@ func (p *Provider) SetPartialZones(on bool) {
 	p.partialZones = on
 }
 
-// Zones implements dnsprovider.Provider: the scripted Zones the filter
+// ListZones implements dnsprovider.Provider: the scripted Zones the filter
 // matches, in the order added, with their scripted Hosting State, as a
 // Partial View once SetPartialZones scripts one.
-func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+	if err := ctx.Err(); err != nil {
+		return dnsprovider.ZoneSet{}, err
+	}
 	if err := p.record(Call{Op: OpZones, ZoneFilter: f}); err != nil {
 		return dnsprovider.ZoneSet{}, err
 	}
@@ -614,12 +619,15 @@ func (p *Provider) Zones(_ context.Context, f dnsprovider.ZoneFilter) (dnsprovid
 	return dnsprovider.ZoneSet{Zones: out, Partial: p.partialZones}, nil
 }
 
-// Zone implements dnsprovider.Provider: the scripted Zone of that name,
+// GetZone implements dnsprovider.Provider: the scripted Zone of that name,
 // matched as the adapters match it, ignoring case and a trailing dot;
 // ErrNotFound when none is. Of several, such as one Moved and one
 // Onboarded again, it is the Active one, else the Pending one, else the
 // first added, as Cloudflare's.
-func (p *Provider) Zone(_ context.Context, name string) (dnsprovider.Zone, error) {
+func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+	if err := ctx.Err(); err != nil {
+		return dnsprovider.Zone{}, err
+	}
 	if err := p.record(Call{Op: OpZone, Zone: dnsprovider.Zone{Name: name}}); err != nil {
 		return dnsprovider.Zone{}, err
 	}
@@ -982,21 +990,21 @@ func (p *Provider) createZone(_ context.Context, unscoped bool, name string) (dn
 	return p.scripted(z), nil
 }
 
-// deleteZone is the fake's dnsprovider.ZoneDeleter; see SetZoneDeleter.
+// deleteZone removes scripted hosting only; see SetZoneDeleter.
 func (p *Provider) deleteZone(_ context.Context, z dnsprovider.Zone) error {
 	if err := p.record(Call{Op: OpDeleteZone, Zone: z}); err != nil {
 		return err
 	}
 
 	p.mu.Lock()
+	defer p.mu.Unlock()
 	held := slices.ContainsFunc(p.zones, func(s dnsprovider.Zone) bool { return s.ID == z.ID })
-	p.mu.Unlock()
 
 	if !held {
 		return fmt.Errorf("providertest: zone %s (%s): %w", z.Name, z.ID, dnsprovider.ErrNotFound)
 	}
 
-	p.RemoveZone(z.ID)
+	p.removeHosting(z.ID)
 
 	return nil
 }

@@ -53,7 +53,7 @@ func TestZonesFollowNextLinksThroughConfiguredEndpointAndFilterExactly(t *testin
 		}
 	})
 	ctx := context.Background()
-	allSet, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	allSet, err := p.ListZones(ctx, dnsprovider.ZoneFilter{})
 	all := allSet.Zones
 
 	if err != nil || len(all) != 3 || !reflect.DeepEqual(pages, []string{"1/200", "2/200"}) {
@@ -64,7 +64,7 @@ func TestZonesFollowNextLinksThroughConfiguredEndpointAndFilterExactly(t *testin
 		t.Error("Zones is a Partial View, want a Full View")
 	}
 
-	set, err := p.Zones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	set, err := p.ListZones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
 	zs := set.Zones
 
 	want := []dnsprovider.Zone{
@@ -74,11 +74,11 @@ func TestZonesFollowNextLinksThroughConfiguredEndpointAndFilterExactly(t *testin
 	if err != nil || !reflect.DeepEqual(zs, want) {
 		t.Fatalf("filtered Zones: %+v %v", zs, err)
 	}
-	z, err := p.Zone(ctx, "EXAMPLE.COM.")
+	z, err := p.GetZone(ctx, "EXAMPLE.COM.")
 	if err != nil || !reflect.DeepEqual(z, want[0]) {
 		t.Fatalf("Zone: %+v %v", z, err)
 	}
-	if _, err := p.Zone(ctx, "missing.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err := p.GetZone(ctx, "missing.com"); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("missing Zone: %v", err)
 	}
 }
@@ -87,7 +87,7 @@ func TestEmptyAccountListsNoZones(t *testing.T) {
 	p := provider(t, func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprint(w, `{"domains":[],"links":{},"meta":{"total":0}}`)
 	})
-	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	set, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	zs := set.Zones
 
 	if err != nil || len(zs) != 0 {
@@ -100,7 +100,7 @@ func TestZoneDeniedScopeIsNotAMissingZone(t *testing.T) {
 		w.WriteHeader(http.StatusForbidden)
 		fmt.Fprint(w, `{"id":"Forbidden","message":"You are not authorized to perform this operation"}`)
 	})
-	_, err := p.Zone(context.Background(), "example.com")
+	_, err := p.GetZone(context.Background(), "example.com")
 	if !errors.Is(err, dnsprovider.ErrUnauthorized) || errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("denied: %v", err)
 	}
@@ -142,7 +142,7 @@ func TestPaginationRefusesUntrustedRepeatedOrInconsistentPages(t *testing.T) {
 				hosts = append(hosts, r.Host)
 				fmt.Fprint(w, tc.body(r.URL.Query().Get("page")))
 			})
-			_, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+			_, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 			if err == nil || (tc.want != nil && !errors.Is(err, tc.want)) {
 				t.Fatalf("Zones: %v", err)
 			}

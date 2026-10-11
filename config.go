@@ -92,10 +92,9 @@ type Factory struct {
 	// field, a field not in Fields and a value not among its field's
 	// Choices are errors.
 	New func(fields map[string]string, opts ...Option) (Provider, error)
-	// Capabilities are the optional Zone writes every Provider New builds
-	// implements, which a consumer can offer before it has the
-	// credentials to build one. A hint only: the built Provider still
-	// says, through CanCreateZone, CanUpdateZone and CanDeleteZone.
+	// Capabilities are the supported Zone writes every Provider New builds
+	// declares through Capabilities, available before credentials are known.
+	// Support does not imply permission or a selected Tenant.
 	Capabilities []Capability
 	// TTL is the TTLRange of every Provider New builds, as TTLRangeOf
 	// reports it, for a consumer that knows only the Provider type. The
@@ -224,21 +223,20 @@ func (f Factory) TTLRange() TTLRange {
 	return f.TTL
 }
 
-// Capability names an optional interface a Factory declares its Providers
-// implement.
+// Capability names a supported Zone write declared by a Provider or its Factory.
 type Capability string
 
 // The capabilities a Factory declares.
 const (
-	// CapZoneCreator is ZoneCreator: the Provider Onboards zone names.
+	// CapZoneCreator declares support for Onboarding zone names.
 	CapZoneCreator Capability = "ZoneCreator"
-	// CapZoneUpdater is ZoneUpdater: the Provider changes Zone settings.
+	// CapZoneUpdater declares support for changing Zone settings.
 	CapZoneUpdater Capability = "ZoneUpdater"
-	// CapZoneDeleter is ZoneDeleter: the Provider Offboards Zones.
+	// CapZoneDeleter declares support for Offboarding Zones.
 	CapZoneDeleter Capability = "ZoneDeleter"
 )
 
-// Can reports whether f declares its Providers implement c.
+// Can reports whether f declares its Providers support c.
 func (f Factory) Can(c Capability) bool {
 	return slices.Contains(f.Capabilities, c)
 }

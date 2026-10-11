@@ -106,11 +106,11 @@ func (p *Provider) zone(ctx context.Context, name string) (dnsprovider.Zone, err
 	return z, nil
 }
 
-// Zones implements dnsprovider.Provider: the DNS Zone services (not
+// ListZones implements dnsprovider.Provider: the DNS Zone services (not
 // registrar domains) that match the filter, reading the details of each.
 // The listing is unpaged.
 // The ZoneSet is a Full View.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	var list *[]string
 	if err := p.do(ctx, http.MethodGet, "/domain/zone", nil, nil, &list); err != nil {
 		return dnsprovider.ZoneSet{}, err
@@ -150,8 +150,8 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprov
 	return dnsprovider.ZoneSet{Zones: out}, nil
 }
 
-// Zone reads the exact Zone service, ErrNotFound when there is none.
-func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+// GetZone reads the exact Zone service, ErrNotFound when there is none.
+func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	return p.zone(ctx, name)
 }
 

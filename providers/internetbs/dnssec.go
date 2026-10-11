@@ -91,7 +91,7 @@ func (p *Provider) registryKeys(ctx context.Context, z dnsprovider.Zone) ([]sign
 		// Permission code 100005 also covers unowned domains. A successful
 		// inventory lookup can distinguish absence without guessing from it.
 		if errors.Is(err, dnsprovider.ErrUnauthorized) {
-			if _, lookup := p.Zone(ctx, z.Name); errors.Is(lookup, dnsprovider.ErrNotFound) {
+			if _, lookup := p.GetZone(ctx, z.Name); errors.Is(lookup, dnsprovider.ErrNotFound) {
 				var api *dnsprovider.APIError
 				if errors.As(err, &api) {
 					copyErr := *api

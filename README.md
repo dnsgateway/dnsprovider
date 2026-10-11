@@ -97,7 +97,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	zone, err := p.Zone(ctx, "example.com")
+	zone, err := p.GetZone(ctx, "example.com")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -159,6 +159,9 @@ the examples above. If you already know which provider you need, import its
 package directly.
 
 ## More details
+
+See the [Zone CRUD migration guide](docs/zone-crud-migration.md) when upgrading
+consumers or external Provider implementations.
 
 See the [module design](docs/provider.md) for the full interface, record rules,
 optional features, and package layout.

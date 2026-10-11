@@ -80,7 +80,7 @@ func TestMalformedSuccessNeverLooksLikeEmptyInventory(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
 			defer s.Close()
 			p, _ := internetbs.New(internetbs.Config{Key: "key", Password: "password"}, dnsprovider.WithBaseURL(s.URL))
-			if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
+			if _, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
 				t.Fatal("malformed success accepted")
 			}
 		})
@@ -203,7 +203,7 @@ func TestMalformedListedZoneNamesFailWithoutCredentialEcho(t *testing.T) {
 			}))
 			defer s.Close()
 			p, _ := internetbs.New(internetbs.Config{Key: "api-secret", Password: "pass&secret"}, dnsprovider.WithBaseURL(s.URL))
-			_, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+			_, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 			if err == nil || strings.Contains(err.Error(), "pass&secret") {
 				t.Fatalf("invalid domain accepted or credential echoed: %v", err)
 			}

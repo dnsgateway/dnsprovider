@@ -16,12 +16,7 @@ var z1 = dnsprovider.Zone{ID: "z1", Name: "example.com"}
 func updateZone(t *testing.T, p dnsprovider.Provider, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
 	t.Helper()
 
-	up, ok := p.(dnsprovider.ZoneUpdater)
-	if !ok {
-		t.Fatal("Cloudflare is not a ZoneUpdater")
-	}
-
-	return up.UpdateZone(context.Background(), z1, u)
+	return p.UpdateZone(context.Background(), z1, u)
 }
 
 func TestCloudflareUpdatesZones(t *testing.T) {

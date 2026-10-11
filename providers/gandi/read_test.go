@@ -35,7 +35,7 @@ func TestZoneDiscoveryExhaustsShortPagesAndSharesLookupState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.ORG."})
+	set, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.ORG."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func TestZoneDiscoveryExhaustsShortPagesAndSharesLookupState(t *testing.T) {
 	if len(zones) != 1 || zones[0].State != dnsprovider.HostingUnknown {
 		t.Fatalf("Zones = %+v", zones)
 	}
-	exact, err := p.Zone(context.Background(), "EXAMPLE.ORG.")
+	exact, err := p.GetZone(context.Background(), "EXAMPLE.ORG.")
 	if err != nil || exact.ID != zones[0].ID || exact.State != zones[0].State {
 		t.Fatalf("lookup = %+v %v", exact, err)
 	}

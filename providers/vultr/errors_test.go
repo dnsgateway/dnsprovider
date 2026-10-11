@@ -31,7 +31,7 @@ func TestErrorsKeepTheirClassificationAndRedactTheKey(t *testing.T) {
 				w.WriteHeader(tc.status)
 				fmt.Fprintf(w, `{"error":"%s (key %s)","status":%d}`, tc.msg, apiKey, tc.status)
 			})
-			_, err := p.Zone(context.Background(), "example.com")
+			_, err := p.GetZone(context.Background(), "example.com")
 			var apiErr *dnsprovider.APIError
 			if !errors.As(err, &apiErr) || apiErr.StatusCode != tc.status || strings.Contains(err.Error(), apiKey) || !strings.Contains(err.Error(), tc.msg) {
 				t.Fatalf("error: %v", err)
@@ -54,7 +54,7 @@ func TestRateLimitsReportRetryAfterWithoutWaitingPastTheSharedBound(t *testing.T
 		w.WriteHeader(http.StatusTooManyRequests)
 		fmt.Fprint(w, `{"error":"Rate limit reached - please try your request again later.","status":429}`)
 	})
-	_, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	_, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	var apiErr *dnsprovider.APIError
 	if !errors.Is(err, dnsprovider.ErrRateLimited) || !errors.As(err, &apiErr) || apiErr.RetryAfter != time.Hour || calls != 1 {
 		t.Fatalf("rate limit: %v calls=%d", err, calls)
@@ -72,7 +72,7 @@ func TestIdempotentReadsRetryAfterShortWaits(t *testing.T) {
 		}
 		fmt.Fprintf(w, `{"domains":[],%s}`, meta(0, "", ""))
 	})
-	if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); err != nil || calls != 2 {
+	if _, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err != nil || calls != 2 {
 		t.Fatalf("retry: %v calls=%d", err, calls)
 	}
 }
@@ -118,7 +118,7 @@ func TestCancellationIsRespected(t *testing.T) {
 	p := provider(t, func(_ http.ResponseWriter, _ *http.Request) { t.Error("a canceled call reached the API") })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := p.Zones(ctx, dnsprovider.ZoneFilter{}); !errors.Is(err, context.Canceled) {
+	if _, err := p.ListZones(ctx, dnsprovider.ZoneFilter{}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Zones: %v", err)
 	}
 	if _, err := p.CreateRecord(ctx, exampleZone, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300}); !errors.Is(err, context.Canceled) {

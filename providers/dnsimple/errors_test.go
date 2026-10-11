@@ -34,7 +34,7 @@ func TestProviderErrorsRetainClassificationAndRedactTokens(t *testing.T) {
 				w.WriteHeader(tc.status)
 				fmt.Fprint(w, `{"message":"failed secret","errors":{"regions":["plan does not support secret"]}}`)
 			})
-			_, err := p.Zone(context.Background(), "example.com")
+			_, err := p.GetZone(context.Background(), "example.com")
 			var apiErr *dnsprovider.APIError
 			if !errors.As(err, &apiErr) || apiErr.StatusCode != tc.status || strings.Contains(err.Error(), "secret") {
 				t.Fatalf("error: %v", err)
@@ -70,7 +70,7 @@ func TestCancellationIsRespected(t *testing.T) {
 	p := provider(t, func(_ http.ResponseWriter, _ *http.Request) { t.Error("canceled call reached API") })
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	_, err := p.ListZones(ctx, dnsprovider.ZoneFilter{})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestSuppliedHTTPClientTimeoutIsRespected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+	_, err = p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("client timeout: %v", err)
 	}

@@ -151,12 +151,12 @@ type wireDomain struct {
 	NameServers []string `json:"nameServers"`
 }
 
-// Zones implements dnsprovider.Provider: the ACTIVE domains of the
+// ListZones implements dnsprovider.Provider: the ACTIVE domains of the
 // Account whose names match the filter. The v1 API has no name filter, so
 // every page is read and filtered with dnsprovider.MatchZone. A Zone's
 // Hosting State follows its Delegation; see hostingState.
 // The ZoneSet is a Full View.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	all, err := p.listDomains(ctx)
 	if err != nil {
 		return dnsprovider.ZoneSet{}, err
@@ -172,11 +172,11 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprov
 	return dnsprovider.ZoneSet{Zones: out}, nil
 }
 
-// Zone implements dnsprovider.Provider: the ACTIVE domain of that name,
+// GetZone implements dnsprovider.Provider: the ACTIVE domain of that name,
 // read with GET /v1/domains/{domain}; ErrNotFound when the Account has
 // no such domain, or has it in another status, which Zones does not list.
 // A key GoDaddy refuses stays ErrUnauthorized; see listedDomain.
-func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	name = names.ZoneName(name)
 	notFound := fmt.Errorf("godaddy: zone %q: %w", name, dnsprovider.ErrNotFound)
 
@@ -205,7 +205,7 @@ func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, err
 
 // listedDomain is the ACTIVE domain of that name in the Account's list,
 // read up to the page that holds it; ErrNotFound when the list has none.
-// Zone reads it when GoDaddy answers a domain the Account does not hold
+// GetZone reads it when GoDaddy answers a domain the Account does not hold
 // with 403 ACCESS_DENIED or 422, as it does for one held by another
 // Account, which a key GoDaddy refuses altogether also gets: the list
 // tells them apart, failing for the key with ErrUnauthorized.
@@ -388,7 +388,7 @@ func (p *Provider) notServed(ctx context.Context, zone dnsprovider.Zone, err err
 		return err
 	}
 
-	if _, zerr := p.Zone(ctx, zone.Name); zerr != nil {
+	if _, zerr := p.GetZone(ctx, zone.Name); zerr != nil {
 		return err
 	}
 

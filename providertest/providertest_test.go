@@ -222,7 +222,7 @@ func TestZonesAreFilteredAndRecordTheFilter(t *testing.T) {
 
 	f := dnsprovider.ZoneFilter{Contains: "AMPLE"}
 
-	zs, err := p.Zones(context.Background(), f)
+	zs, err := p.ListZones(context.Background(), f)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,7 +244,7 @@ func TestZonesAreAPartialViewOnlyOnceScripted(t *testing.T) {
 	for _, partial := range []bool{true, false} {
 		fake.SetPartialZones(partial)
 
-		zs, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+		zs, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -259,7 +259,7 @@ func TestSetHostingStateChangesAScriptedZone(t *testing.T) {
 	fake := providertest.New().AddZone(dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingPending})
 	fake.SetHostingState("z1", dnsprovider.HostingActive)
 
-	zs, err := newFake(t, fake).Zones(context.Background(), dnsprovider.ZoneFilter{})
+	zs, err := newFake(t, fake).ListZones(context.Background(), dnsprovider.ZoneFilter{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestZoneReadsOneScriptedZoneByName(t *testing.T) {
 	fake := providertest.New().AddZone(z).AddZone(dnsprovider.Zone{ID: "z2", Name: "shop.example.com"})
 	p := newFake(t, fake)
 
-	got, err := p.Zone(context.Background(), "example.com")
+	got, err := p.GetZone(context.Background(), "example.com")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestZoneReadsOneScriptedZoneByName(t *testing.T) {
 		t.Errorf("Zone = %+v, want %+v", got, z)
 	}
 
-	if _, err := p.Zone(context.Background(), "example"); !errors.Is(err, dnsprovider.ErrNotFound) {
+	if _, err := p.GetZone(context.Background(), "example"); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Errorf("Zone(example) error = %v, want ErrNotFound", err)
 	}
 
@@ -520,14 +520,14 @@ func TestSetHostingStateHoldsForAZoneAddedLaterUntilItIsRemoved(t *testing.T) {
 	fake := providertest.New().SetHostingState("z1", dnsprovider.HostingMoved).AddZone(z)
 	p := newFake(t, fake)
 
-	if got, err := p.Zone(ctx, "example.com"); err != nil || got.State != dnsprovider.HostingMoved {
+	if got, err := p.GetZone(ctx, "example.com"); err != nil || got.State != dnsprovider.HostingMoved {
 		t.Errorf("Zone = %+v, %v; want example.com Moved", got, err)
 	}
 
 	fake.RemoveZone("z1")
 	fake.AddZone(z)
 
-	if got, err := p.Zone(ctx, "example.com"); err != nil || got.State != dnsprovider.HostingPending {
+	if got, err := p.GetZone(ctx, "example.com"); err != nil || got.State != dnsprovider.HostingPending {
 		t.Errorf("re-added Zone = %+v, %v; want example.com Pending, as added", got, err)
 	}
 }
@@ -537,7 +537,7 @@ func TestZoneMatchesNamesAsTheAdaptersDo(t *testing.T) {
 	p := newFake(t, providertest.New().AddZone(z))
 
 	for _, name := range []string{"example.com", "EXAMPLE.com."} {
-		if got, err := p.Zone(context.Background(), name); err != nil || got.ID != "z1" {
+		if got, err := p.GetZone(context.Background(), name); err != nil || got.ID != "z1" {
 			t.Errorf("Zone(%s) = %+v, %v; want z1", name, got, err)
 		}
 	}
@@ -746,16 +746,15 @@ func TestBatcherFailsAChangeOfNoKnownKindAlone(t *testing.T) {
 	}
 }
 
-func TestZoneWritersAreDeclaredAsScriptedAndImplementedOnceAnyIsWithAnyOtherOption(t *testing.T) {
-	// The Zone writes are implemented together, once any is scripted; the
-	// Factory declares each as scripted, and one not scripted refuses
+func TestZoneWritersDeclareOnlyScriptedOperationsWithAnyOtherOption(t *testing.T) {
+	// Every Provider exposes Zone writes; the Factory declares each as
+	// scripted, and one not scripted refuses
 	// with dnsprovider.ErrNotImplemented, recording nothing.
 	ctx := context.Background()
 	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
 
 	for set := range 64 {
 		tenants, status, batcher, updater, creator, deleter := set&1 != 0, set&2 != 0, set&4 != 0, set&8 != 0, set&16 != 0, set&32 != 0
-		writes := updater || creator || deleter
 
 		fake := providertest.New().AddZone(z)
 		if tenants {
@@ -786,7 +785,7 @@ func TestZoneWritersAreDeclaredAsScriptedAndImplementedOnceAnyIsWithAnyOtherOpti
 		_, isBatcher := p.(dnsprovider.Batcher)
 		_, readsStatus := p.(dnsprovider.ZoneStatusReader)
 
-		if dnsprovider.CanUpdateZone(p) != writes || dnsprovider.CanCreateZone(p) != writes || dnsprovider.CanDeleteZone(p) != writes ||
+		if dnsprovider.CanUpdateZone(p) != updater || dnsprovider.CanCreateZone(p) != creator || dnsprovider.CanDeleteZone(p) != deleter ||
 			isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
 			t.Errorf("tenants %v, status %v, batcher %v, updater %v, creator %v, deleter %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v, updating Zones %v, creating Zones %v, deleting Zones %v",
 				tenants, status, batcher, updater, creator, deleter, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.CanUpdateZone(p), dnsprovider.CanCreateZone(p), dnsprovider.CanDeleteZone(p))
@@ -796,21 +795,17 @@ func TestZoneWritersAreDeclaredAsScriptedAndImplementedOnceAnyIsWithAnyOtherOpti
 			t.Errorf("updater %v, creator %v, deleter %v: Factory declares %v", updater, creator, deleter, f.Capabilities)
 		}
 
-		if !writes {
-			continue
-		}
-
 		calls := len(fake.Calls())
 
-		if _, err := p.(dnsprovider.ZoneUpdater).UpdateZone(ctx, z, dnsprovider.ZoneUpdate{}); !updater && !errors.Is(err, dnsprovider.ErrNotImplemented) {
+		if _, err := p.UpdateZone(ctx, z, dnsprovider.ZoneUpdate{}); !updater && !errors.Is(err, dnsprovider.ErrNotImplemented) {
 			t.Errorf("UpdateZone not scripted: %v, want ErrNotImplemented", err)
 		}
 
-		if _, err := p.(dnsprovider.ZoneCreator).CreateZone(ctx, "example.org"); !creator && !errors.Is(err, dnsprovider.ErrNotImplemented) {
+		if _, err := p.CreateZone(ctx, "example.org"); !creator && !errors.Is(err, dnsprovider.ErrNotImplemented) {
 			t.Errorf("CreateZone not scripted: %v, want ErrNotImplemented", err)
 		}
 
-		if err := p.(dnsprovider.ZoneDeleter).DeleteZone(ctx, z); !deleter && !errors.Is(err, dnsprovider.ErrNotImplemented) {
+		if err := p.DeleteZone(ctx, z); !deleter && !errors.Is(err, dnsprovider.ErrNotImplemented) {
 			t.Errorf("DeleteZone not scripted: %v, want ErrNotImplemented", err)
 		}
 
@@ -839,7 +834,7 @@ func TestUpdateZoneChangesTheSettingsItIsGivenAndRecordsTheUpdate(t *testing.T) 
 	on := true
 	u := dnsprovider.ZoneUpdate{HSTS: &on}
 
-	got, err := p.(dnsprovider.ZoneUpdater).UpdateZone(ctx, z, u)
+	got, err := p.UpdateZone(ctx, z, u)
 	if err != nil {
 		t.Fatalf("UpdateZone: %v", err)
 	}
@@ -864,7 +859,7 @@ func TestUpdateZoneFailsAsScriptedAndForAZoneNotScripted(t *testing.T) {
 	fake := providertest.New().AddZone(dnsprovider.Zone{ID: "z1", Name: "example.com"})
 	fake.SetZoneUpdater(true)
 
-	up := newFake(t, fake).(dnsprovider.ZoneUpdater)
+	up := newFake(t, fake)
 	off := false
 
 	if _, err := up.UpdateZone(ctx, dnsprovider.Zone{ID: "z2", Name: "example.org"}, dnsprovider.ZoneUpdate{HSTS: &off}); !errors.Is(err, dnsprovider.ErrNotFound) {
@@ -889,7 +884,7 @@ func TestUpdateZoneLeavesDNSSECPendingAsCloudflareSignsOrUnsignsOverTime(t *test
 
 		p := newFake(t, fake)
 
-		got, err := p.(dnsprovider.ZoneUpdater).UpdateZone(ctx, z, dnsprovider.ZoneUpdate{DNSSEC: &on})
+		got, err := p.UpdateZone(ctx, z, dnsprovider.ZoneUpdate{DNSSEC: &on})
 		if err != nil {
 			t.Fatalf("UpdateZone: %v", err)
 		}
@@ -914,7 +909,7 @@ func TestCreateZoneAddsTheZonePendingWithTheAccountsNameserversAndRecordsTheName
 
 	p := newFake(t, fake)
 
-	got, err := p.(dnsprovider.ZoneCreator).CreateZone(ctx, "Example.ORG.")
+	got, err := p.CreateZone(ctx, "Example.ORG.")
 	if err != nil {
 		t.Fatalf("CreateZone: %v", err)
 	}
@@ -929,7 +924,7 @@ func TestCreateZoneAddsTheZonePendingWithTheAccountsNameserversAndRecordsTheName
 		t.Errorf("last call = %+v, want CreateZone of Example.ORG.", c)
 	}
 
-	listed, err := p.Zone(ctx, "example.org")
+	listed, err := p.GetZone(ctx, "example.org")
 	if err != nil || !reflect.DeepEqual(listed, got) {
 		t.Errorf("Zone after CreateZone = %+v, %v; want %+v", listed, err, got)
 	}
@@ -949,7 +944,7 @@ func TestCreateZoneOfANameTheFakeServesOrAwaitsIsAConflict(t *testing.T) {
 		AddZone(dnsprovider.Zone{ID: "z3", Name: "example.org", State: dnsprovider.HostingMoved})
 	fake.SetZoneCreator(true)
 
-	c := newFake(t, fake).(dnsprovider.ZoneCreator)
+	c := newFake(t, fake)
 
 	for _, name := range []string{"EXAMPLE.com.", "example.net"} {
 		if _, err := c.CreateZone(ctx, name); !errors.Is(err, dnsprovider.ErrConflict) {
@@ -969,7 +964,7 @@ func TestCreateZoneFailsAsScriptedAndForNoName(t *testing.T) {
 	fake := providertest.New()
 	fake.SetZoneCreator(true)
 
-	c := newFake(t, fake).(dnsprovider.ZoneCreator)
+	c := newFake(t, fake)
 
 	if _, err := c.CreateZone(ctx, " "); err == nil {
 		t.Error("CreateZone of no name succeeded")
@@ -981,7 +976,7 @@ func TestCreateZoneFailsAsScriptedAndForNoName(t *testing.T) {
 		t.Errorf("CreateZone error = %v, want the scripted ErrUnauthorized", err)
 	}
 
-	if zs, _ := c.(dnsprovider.Provider).Zones(ctx, dnsprovider.ZoneFilter{}); len(zs.Zones) != 0 {
+	if zs, _ := c.ListZones(ctx, dnsprovider.ZoneFilter{}); len(zs.Zones) != 0 {
 		t.Errorf("Zones after failed creates = %+v, want none", zs)
 	}
 }
@@ -1004,11 +999,11 @@ func TestAFakeWithTenantsTakesOneAndOnboardsOnlyWithinIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := unscoped.(dnsprovider.ZoneCreator).CreateZone(ctx, "example.org"); !errors.Is(err, dnsprovider.ErrNoTenant) {
+	if _, err := unscoped.CreateZone(ctx, "example.org"); !errors.Is(err, dnsprovider.ErrNoTenant) {
 		t.Errorf("unscoped CreateZone: err = %v, want ErrNoTenant", err)
 	}
 
-	if zs, _ := unscoped.Zones(ctx, dnsprovider.ZoneFilter{}); len(zs.Zones) != 0 {
+	if zs, _ := unscoped.ListZones(ctx, dnsprovider.ZoneFilter{}); len(zs.Zones) != 0 {
 		t.Errorf("Zones after an unscoped create = %+v, want none", zs)
 	}
 
@@ -1017,7 +1012,7 @@ func TestAFakeWithTenantsTakesOneAndOnboardsOnlyWithinIt(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := scoped.(dnsprovider.ZoneCreator).CreateZone(ctx, "example.org"); err != nil {
+	if _, err := scoped.CreateZone(ctx, "example.org"); err != nil {
 		t.Errorf("CreateZone within a Tenant: %v", err)
 	}
 }
@@ -1052,12 +1047,12 @@ func TestZoneOfANameOnboardedAgainIsTheNewZoneNotTheMovedOne(t *testing.T) {
 
 	p := newFake(t, fake)
 
-	created, err := p.(dnsprovider.ZoneCreator).CreateZone(ctx, "example.org")
+	created, err := p.CreateZone(ctx, "example.org")
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got, err := p.Zone(ctx, "example.org"); err != nil || got.ID != created.ID {
+	if got, err := p.GetZone(ctx, "example.org"); err != nil || got.ID != created.ID {
 		t.Errorf("Zone = %+v, %v; want the Onboarded %s, as Cloudflare prefers an Active, then a Pending Zone", got, err, created.ID)
 	}
 }
@@ -1074,11 +1069,11 @@ func TestDeleteZoneRemovesTheZoneAndItsRecordsAndRecordsTheZone(t *testing.T) {
 
 	p := newFake(t, fake)
 
-	if err := p.(dnsprovider.ZoneDeleter).DeleteZone(ctx, gone); err != nil {
+	if err := p.DeleteZone(ctx, gone); err != nil {
 		t.Fatalf("DeleteZone: %v", err)
 	}
 
-	zs, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	zs, err := p.ListZones(ctx, dnsprovider.ZoneFilter{})
 	if err != nil || len(zs.Zones) != 1 || zs.Zones[0].ID != "z2" {
 		t.Errorf("Zones after DeleteZone = %+v, %v; want example.org alone", zs, err)
 	}
@@ -1100,7 +1095,7 @@ func TestDeleteZoneFailsAsScriptedAndForAZoneNotScripted(t *testing.T) {
 	fake := providertest.New().AddZone(z)
 	fake.SetZoneDeleter(true)
 
-	d := newFake(t, fake).(dnsprovider.ZoneDeleter)
+	d := newFake(t, fake)
 
 	if err := d.DeleteZone(ctx, dnsprovider.Zone{ID: "z2", Name: "example.org"}); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Errorf("DeleteZone of a Zone not scripted: error = %v, want ErrNotFound", err)
@@ -1114,8 +1109,21 @@ func TestDeleteZoneFailsAsScriptedAndForAZoneNotScripted(t *testing.T) {
 
 	fake.Fail(providertest.OpDeleteZone, nil)
 
-	zs, err := newFake(t, fake).Zones(ctx, dnsprovider.ZoneFilter{})
+	zs, err := newFake(t, fake).ListZones(ctx, dnsprovider.ZoneFilter{})
 	if err != nil || len(zs.Zones) != 1 {
 		t.Errorf("Zones after a failed DeleteZone = %+v, %v; want the Zone kept", zs, err)
+	}
+}
+
+func TestCanonicalZoneReadsHonorCancellation(t *testing.T) {
+	fake := providertest.New().AddZone(dnsprovider.Zone{ID: "z1", Name: "example.com"})
+	p := newFake(t, fake)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if _, err := p.GetZone(ctx, "example.com"); !errors.Is(err, context.Canceled) {
+		t.Errorf("GetZone error = %v, want context.Canceled", err)
+	}
+	if _, err := p.ListZones(ctx, dnsprovider.ZoneFilter{}); !errors.Is(err, context.Canceled) {
+		t.Errorf("ListZones error = %v, want context.Canceled", err)
 	}
 }

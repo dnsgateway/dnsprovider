@@ -55,7 +55,7 @@ func TestZonesNormalizesCompleteInventoryAndExactLookup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	set, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -69,7 +69,7 @@ func TestZonesNormalizesCompleteInventoryAndExactLookup(t *testing.T) {
 	if len(zs) != 2 || zs[0].ID != "example.com" || zs[0].Name != "example.com" || zs[0].State != dnsprovider.HostingUnknown || len(zs[0].Nameservers) != 2 || zs[0].Nameservers[0] != "ns-uk.topdns.com" {
 		t.Fatalf("unexpected zones: %+v", zs)
 	}
-	z, err := p.Zone(context.Background(), "Example.Com.")
+	z, err := p.GetZone(context.Background(), "Example.Com.")
 	if err != nil || z.ID != "example.com" {
 		t.Fatalf("exact lookup: %+v %v", z, err)
 	}

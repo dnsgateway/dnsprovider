@@ -42,7 +42,7 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 	s := discoveryServer(t)
 	defer s.Close()
 	p, _ := hetzner.New(hetzner.Config{Token: "secret"}, dnsprovider.WithBaseURL(s.URL))
-	set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	set, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
 	zones := set.Zones
 
 	if err != nil || len(zones) != 1 {
@@ -53,7 +53,7 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 		t.Error("Zones is a Partial View, want a Full View")
 	}
 
-	z, err := p.Zone(context.Background(), "EXAMPLE.COM.")
+	z, err := p.GetZone(context.Background(), "EXAMPLE.COM.")
 	if err != nil || z.State != dnsprovider.HostingActive || z.Nameservers[0] != "hydrogen.ns.hetzner.com" {
 		t.Fatalf("Zone = %+v,%v", z, err)
 	}
@@ -88,7 +88,7 @@ func TestDiscoveryAndRecordExpansion(t *testing.T) {
 	if err != nil || len(unknown.Records) != 0 {
 		t.Fatalf("unsupported filter=%+v,%v", unknown, err)
 	}
-	_, err = p.Zone(context.Background(), "absent.com")
+	_, err = p.GetZone(context.Background(), "absent.com")
 	if !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("missing=%v", err)
 	}
@@ -100,7 +100,7 @@ func TestPaginationAndMalformedResponses(t *testing.T) {
 			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { _, _ = w.Write([]byte(body)) }))
 			defer s.Close()
 			p, _ := hetzner.New(hetzner.Config{Token: "secret"}, dnsprovider.WithBaseURL(s.URL))
-			if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
+			if _, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err == nil {
 				t.Fatal("malformed listing accepted")
 			}
 			if _, err := p.Account(context.Background()); err == nil {
@@ -119,7 +119,7 @@ func TestPaginationAndMalformedResponses(t *testing.T) {
 		}))
 		defer s.Close()
 		p, _ := hetzner.New(hetzner.Config{Token: "secret"}, dnsprovider.WithBaseURL(s.URL))
-		_, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+		_, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 		if !errors.Is(err, rest.ErrSamePage) {
 			t.Fatalf("repeated page=%v", err)
 		}

@@ -42,10 +42,10 @@ func domainZone(d domain) dnsprovider.Zone {
 	return dnsprovider.Zone{ID: n, Name: n, State: dnsprovider.HostingUnknown}
 }
 
-// Zones implements dnsprovider.Provider: the API-enabled Zones that match
+// ListZones implements dnsprovider.Provider: the API-enabled Zones that match
 // the filter, each checked for per-domain access.
 // The ZoneSet is a Full View.
-func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
+func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprovider.ZoneSet, error) {
 	ds, err := p.domains(ctx)
 	if err != nil {
 		return dnsprovider.ZoneSet{}, err
@@ -68,8 +68,8 @@ func (p *Provider) Zones(ctx context.Context, f dnsprovider.ZoneFilter) (dnsprov
 	return dnsprovider.ZoneSet{Zones: zs}, nil
 }
 
-// Zone reads one accessible Zone by its exact name.
-func (p *Provider) Zone(ctx context.Context, name string) (dnsprovider.Zone, error) {
+// GetZone reads one accessible Zone by its exact name.
+func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	ds, err := p.domains(ctx)
 	if err != nil {
 		return dnsprovider.Zone{}, err

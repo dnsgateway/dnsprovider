@@ -39,7 +39,7 @@ func TestProjectDiscoveryAndOwnership(t *testing.T) {
 	if err != nil || account.Tenant.ID != project || account.Tenant.Name != "" {
 		t.Fatalf("account %+v %v", account, err)
 	}
-	set, err := p.Zones(ctx, dnsprovider.ZoneFilter{})
+	set, err := p.ListZones(ctx, dnsprovider.ZoneFilter{})
 	zs := set.Zones
 
 	if err != nil || len(zs) != 2 {
@@ -50,12 +50,12 @@ func TestProjectDiscoveryAndOwnership(t *testing.T) {
 		t.Error("Zones is a Partial View, want a Full View")
 	}
 
-	sub, err := p.Zone(ctx, "DEV.EXAMPLE.COM.")
+	sub, err := p.GetZone(ctx, "DEV.EXAMPLE.COM.")
 	if err != nil || sub.ID != "dev.example.com" || sub.Name != "dev.example.com" {
 		t.Fatalf("sub %+v %v", sub, err)
 	}
 	for _, name := range []string{"foreign.com", "missing.example.com"} {
-		if _, err = p.Zone(ctx, name); !errors.Is(err, dnsprovider.ErrNotFound) {
+		if _, err = p.GetZone(ctx, name); !errors.Is(err, dnsprovider.ErrNotFound) {
 			t.Fatalf("lookup %s: %v", name, err)
 		}
 		if _, err = p.Records(ctx, dnsprovider.Zone{ID: name, Name: name}, dnsprovider.RecordFilter{}); !errors.Is(err, dnsprovider.ErrNotFound) {
@@ -118,7 +118,7 @@ func TestCompletePaginationAndRepeatedPageDetection(t *testing.T) {
 			}))
 			defer srv.Close()
 			p, _ := scaleway.New(scaleway.Config{SecretKey: "secret", ProjectID: project}, dnsprovider.WithBaseURL(srv.URL))
-			set, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{})
+			set, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
 			zs := set.Zones
 
 			if repeated {
@@ -167,7 +167,7 @@ func TestFiltersAndStructuredRecordRoundTrips(t *testing.T) {
 	if err != nil || len(unsupported.Records) != 0 {
 		t.Fatalf("unsupported: %+v %v", unsupported, err)
 	}
-	zoneSet, err := p.Zones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
+	zoneSet, err := p.ListZones(ctx, dnsprovider.ZoneFilter{Contains: "EXAMPLE.COM."})
 	zones := zoneSet.Zones
 
 	if err != nil || len(zones) != 1 {

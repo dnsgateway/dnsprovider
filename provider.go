@@ -1,25 +1,67 @@
 package dnsprovider
 
-import "context"
+import (
+	"context"
+	"slices"
+)
 
 // Provider is one Account at a DNS hosting service.
-type Provider interface {
+type Provider interface { //nolint:interfacebloat // Zone and Record CRUD form the shared public Provider seam.
 	// Account describes the Account and proves its credentials work, even
 	// when it has no Zones: ErrUnauthorized when they do not.
 	Account(ctx context.Context) (AccountInfo, error)
-	// Zones lists the Account's Zones that match the filter, in every
+	// Capabilities declares supported Zone writes in an independent slice on
+	// each call. Support does not imply permission or a selected Tenant;
+	// merely exposing a method does not imply support.
+	Capabilities() []Capability
+	// GetZone reads one Zone by its name, in any Hosting State, set as ListZones
+	// sets it: ErrNotFound when the Account has no Zone of that name.
+	GetZone(ctx context.Context, name string) (Zone, error)
+	// ListZones lists the Account's Zones that match the filter, in every
 	// Hosting State, exactly filtered. Each has ID, Name and State set,
 	// and Nameservers when the Provider assigns them per Zone. The adapter
 	// pages through the whole list. The Providers in this module return a
 	// Full View; an adapter in front of another service with its own
 	// access rules, such as a Gateway's, may report a Partial View.
-	Zones(ctx context.Context, f ZoneFilter) (ZoneSet, error)
-	// Zone reads one Zone by its name, in any Hosting State, set as Zones
-	// sets it: ErrNotFound when the Account has no Zone of that name.
-	Zone(ctx context.Context, name string) (Zone, error)
+	ListZones(ctx context.Context, f ZoneFilter) (ZoneSet, error)
+	// CreateZone starts DNS hosting only: it never registers the domain or
+	// changes Delegation. It Onboards a name in the Provider's Tenant and returns
+	// the new Zone as ListZones reports it: normally Pending, with the
+	// nameservers Delegation must name before the Provider serves it. A
+	// create the Provider took without saying what it made is still a
+	// success: the Zone is then its name alone, Pending, without an ID or
+	// nameservers, until ListZones or GetZone reads it.
+	// ErrConflict when the Tenant already has a Zone of that name, or the
+	// Provider refuses it as another account holds it (Cloudflare's zone
+	// hold; without one, Cloudflare Onboards a name active in another
+	// account, pending until Delegation names the new Zone's
+	// nameservers); ErrNoTenant when the Provider has no Tenant to
+	// Onboard it in.
+	// Unsupported adapters return ErrNotImplemented without network traffic.
+	CreateZone(ctx context.Context, name string) (Zone, error)
+	// UpdateZone changes the settings u sets, leaving those it leaves nil
+	// as they are, and returns the Zone Status as it is after the change:
+	// each setting written as the Provider answered, and each other one
+	// as read, Unknown when it could not be. A setting written before
+	// one fails stays written: the error comes with the Zone Status as
+	// far as it is known, the settings written as answered and the rest
+	// as read or Unknown.
+	// Unsupported adapters return ErrNotImplemented without network traffic.
+	UpdateZone(ctx context.Context, zone Zone, u ZoneUpdate) (ZoneStatus, error)
+	// DeleteZone removes DNS hosting and its Records only, leaving Registration
+	// intact. It does not verify replacement hosting or Delegation.
+	// It Offboards the Zone by its ID, as ListZones or GetZone read it.
+	// A retried delete that finds the Zone gone succeeds when an earlier
+	// try may have Offboarded it: it was sent, and its answer was lost or
+	// a server error. Otherwise finding no such Zone is ErrNotFound, as
+	// the Provider does not say whether it ever held it. A Provider
+	// scoped to a Tenant refuses a Zone of another; an unscoped one
+	// leaves that check to the caller.
+	// Unsupported adapters return ErrNotImplemented without network traffic.
+	DeleteZone(ctx context.Context, zone Zone) error
 	// Records lists a Zone's Records that match the filter, exactly
 	// filtered, with the SOA serial when the Provider reports it. The
-	// RecordSet's Partial follows the same rule as Zones' ZoneSet.
+	// RecordSet's Partial follows the same rule as ListZones' ZoneSet.
 	Records(ctx context.Context, zone Zone, f RecordFilter) (RecordSet, error)
 	// CreateRecord adds a Record and returns it as the Provider stored
 	// it, with its ID: ErrConflict when the Zone holds a Record identical
@@ -62,17 +104,17 @@ func ZoneStatusOf(ctx context.Context, p Provider, zone Zone) (ZoneStatus, error
 	return ZoneStatus{DNSSEC: Unknown, HSTS: Unknown}, nil
 }
 
-// ZoneCreator is implemented by a Provider that can Onboard a zone name,
-// such as Cloudflare ("add a site"). It starts DNS hosting only; it never
-// registers the domain. This is a Zone write and should be explicitly
-// authorized before use.
+// ZoneCreator is retained for consumers accepting a narrow Zone write interface.
+// Implementing it does not imply operation support.
+//
+// Deprecated: use Provider and Capabilities for supported Zone writes.
 type ZoneCreator interface {
 	// CreateZone Onboards a zone name in the Provider's Tenant and returns
-	// the new Zone as Zones reports it: normally Pending, with the
+	// the new Zone as ListZones reports it: normally Pending, with the
 	// nameservers Delegation must name before the Provider serves it. A
 	// create the Provider took without saying what it made is still a
 	// success: the Zone is then its name alone, Pending, without an ID or
-	// nameservers, until Zones or Zone reads it.
+	// nameservers, until ListZones or GetZone reads it.
 	// ErrConflict when the Tenant already has a Zone of that name, or the
 	// Provider refuses it as another account holds it (Cloudflare's zone
 	// hold; without one, Cloudflare Onboards a name active in another
@@ -82,16 +124,15 @@ type ZoneCreator interface {
 	CreateZone(ctx context.Context, name string) (Zone, error)
 }
 
-// CanCreateZone reports whether a Provider implements ZoneCreator.
+// CanCreateZone reports whether a Provider declares support for this Zone write.
 func CanCreateZone(p Provider) bool {
-	_, ok := p.(ZoneCreator)
-
-	return ok
+	return slices.Contains(p.Capabilities(), CapZoneCreator)
 }
 
-// ZoneUpdater is implemented by a Provider that changes Zone settings,
-// such as Cloudflare. This is a Zone write and should be explicitly
-// authorized before use.
+// ZoneUpdater is retained for consumers accepting a narrow Zone write interface.
+// Implementing it does not imply operation support.
+//
+// Deprecated: use Provider and Capabilities for supported Zone writes.
 type ZoneUpdater interface {
 	// UpdateZone changes the settings u sets, leaving those it leaves nil
 	// as they are, and returns the Zone Status as it is after the change:
@@ -112,20 +153,17 @@ type ZoneUpdate struct {
 	MinTLS *TLSVersion
 }
 
-// CanUpdateZone reports whether a Provider implements ZoneUpdater.
+// CanUpdateZone reports whether a Provider declares support for this Zone write.
 func CanUpdateZone(p Provider) bool {
-	_, ok := p.(ZoneUpdater)
-
-	return ok
+	return slices.Contains(p.Capabilities(), CapZoneUpdater)
 }
 
-// ZoneDeleter is implemented by a Provider that can Offboard a Zone, such
-// as Cloudflare: stop hosting it and drop its Records there. It never
-// touches the domain's registration. It is a Zone write that cannot be
-// undone: callers should authorize it first, and it never Offboards the Live
-// Zone, which would stop the domain resolving.
+// ZoneDeleter is retained for consumers accepting a narrow Zone write interface.
+// Implementing it does not imply operation support.
+//
+// Deprecated: use Provider and Capabilities for supported Zone writes.
 type ZoneDeleter interface {
-	// DeleteZone Offboards the Zone by its ID, as Zones or Zone read it.
+	// DeleteZone Offboards the Zone by its ID, as ListZones or GetZone read it.
 	// A retried delete that finds the Zone gone succeeds when an earlier
 	// try may have Offboarded it: it was sent, and its answer was lost or
 	// a server error. Otherwise finding no such Zone is ErrNotFound, as
@@ -135,11 +173,9 @@ type ZoneDeleter interface {
 	DeleteZone(ctx context.Context, zone Zone) error
 }
 
-// CanDeleteZone reports whether a Provider implements ZoneDeleter.
+// CanDeleteZone reports whether a Provider declares support for this Zone write.
 func CanDeleteZone(p Provider) bool {
-	_, ok := p.(ZoneDeleter)
-
-	return ok
+	return slices.Contains(p.Capabilities(), CapZoneDeleter)
 }
 
 // TenantLister is implemented by a Provider whose credentials can reach

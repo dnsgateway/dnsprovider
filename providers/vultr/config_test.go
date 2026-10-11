@@ -86,7 +86,7 @@ func TestSuppliedHTTPClientTimeoutIsRespected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := p.Zones(context.Background(), dnsprovider.ZoneFilter{}); !errors.Is(err, context.DeadlineExceeded) {
+	if _, err := p.ListZones(context.Background(), dnsprovider.ZoneFilter{}); !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("client timeout: %v", err)
 	}
 }

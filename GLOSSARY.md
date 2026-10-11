@@ -22,3 +22,9 @@ records that fix it at the parent zone. It is one notion for the key a
 Provider signs the Zone with and the key a registrar holds; the type is
 `SigningKey`.
 _Avoid_: DNSSEC key, KSK, zone-signing key
+
+**Registration**:
+A Zone whose domain the Account registers, as well as or instead of
+hosting its DNS. A registrar adapter (`DSRegistrar`) reads and replaces the
+Signing Keys the registry publishes as its Delegation Signer records.
+_Avoid_: registrar zone, domain

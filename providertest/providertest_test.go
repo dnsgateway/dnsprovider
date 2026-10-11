@@ -403,6 +403,116 @@ func TestSigningKeysAreCopiesAndGoWithTheZone(t *testing.T) {
 	}
 }
 
+func TestDelegationSignersAreRegisteredOnceScripted(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	other := dnsprovider.Zone{ID: "z2", Name: "example.org"}
+	fake := providertest.New().AddZone(z).AddZone(other)
+
+	if dnsprovider.CanRegisterDS(newFake(t, fake)) {
+		t.Error("an unscripted fake registers DS records")
+	}
+
+	fake.SetRegistration("z1")
+
+	r, ok := newFake(t, fake).(dnsprovider.DSRegistrar)
+	if !ok {
+		t.Fatal("a fake with a scripted Registration is no DSRegistrar")
+	}
+
+	if got, err := r.DelegationSigners(ctx, z); err != nil || len(got) != 0 {
+		t.Errorf("DelegationSigners of a Registration without DS = %+v, %v; want none", got, err)
+	}
+
+	// The Account does not register a Zone not scripted as a Registration.
+	if _, err := r.DelegationSigners(ctx, other); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("DelegationSigners of another Zone error = %v, want ErrNotFound", err)
+	}
+
+	if err := r.SetDelegationSigners(ctx, other, nil); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("SetDelegationSigners of another Zone error = %v, want ErrNotFound", err)
+	}
+
+	key := dnsprovider.SigningKey{
+		DNSKEY: "257 3 13 mdsswUyr3DPW132mOi8V9xESWE8jTo0dxCjjnopKl+GqJxpVXckHAeF+KkxLbxILfDLUT0rAK9iUzy1L53eKGQ==",
+		KeyTag: 2371,
+		DS:     []string{"2371 13 2 1F987CC6583E92DF0890718C42A2BC8C04E5A60A1D3E1FC1D0C7826A4F47B4C1"},
+	}
+
+	if err := r.SetDelegationSigners(ctx, z, []dnsprovider.SigningKey{key}); err != nil {
+		t.Fatal(err)
+	}
+
+	calls := fake.Calls()
+	if last := calls[len(calls)-1]; last.Op != providertest.OpSetDelegationSigners || last.Zone.ID != "z1" ||
+		!reflect.DeepEqual(last.Keys, []dnsprovider.SigningKey{key}) {
+		t.Errorf("last call = %+v, want SetDelegationSigners of z1 with %+v", last, key)
+	}
+
+	if got, err := r.DelegationSigners(ctx, z); err != nil || !reflect.DeepEqual(got, []dnsprovider.SigningKey{key}) {
+		t.Errorf("DelegationSigners after setting = %+v, %v; want %+v", got, err, key)
+	}
+
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpDelegationSigners {
+		t.Errorf("last call = %+v, want DelegationSigners", calls[len(calls)-1])
+	}
+
+	// The set is replaced whole: none removes DNSSEC from the Delegation.
+	if err := r.SetDelegationSigners(ctx, z, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, _ := r.DelegationSigners(ctx, z); len(got) != 0 {
+		t.Errorf("DelegationSigners after removing = %+v, want none", got)
+	}
+
+	fake.Fail(providertest.OpSetDelegationSigners, dnsprovider.ErrUnsupported)
+
+	if err := r.SetDelegationSigners(ctx, z, []dnsprovider.SigningKey{key}); !errors.Is(err, dnsprovider.ErrUnsupported) {
+		t.Errorf("failed SetDelegationSigners error = %v, want ErrUnsupported", err)
+	}
+
+	if got, _ := r.DelegationSigners(ctx, z); len(got) != 0 {
+		t.Errorf("DelegationSigners after a refused write = %+v, want none", got)
+	}
+
+	fake.SetSigningKeys("z1", key)
+	fake.SetZoneUpdater(true)
+	p := newFake(t, fake)
+
+	if !dnsprovider.CanRegisterDS(p) || !dnsprovider.CanReadKeys(p) || !dnsprovider.CanUpdateZone(p) {
+		t.Error("a fake with a scripted Registration, signing keys and Zone writes does not do all three")
+	}
+}
+
+func TestARegistrationsKeysAreCopiesAndGoWithTheZone(t *testing.T) {
+	ctx := context.Background()
+	z := dnsprovider.Zone{ID: "z1", Name: "example.com"}
+	key := dnsprovider.SigningKey{DNSKEY: "257 3 13 AAAA", KeyTag: 1, DS: []string{"1 13 2 AA"}}
+	fake := providertest.New().AddZone(z)
+	fake.SetRegistration("z1", key)
+	key.DS[0] = "changed"
+
+	r, _ := newFake(t, fake).(dnsprovider.DSRegistrar)
+
+	got, _ := r.DelegationSigners(ctx, z)
+	if got[0].DS[0] != "1 13 2 AA" {
+		t.Errorf("scripted DS = %q, changed by the caller", got[0].DS[0])
+	}
+
+	got[0].DS[0] = "changed"
+	if again, _ := r.DelegationSigners(ctx, z); again[0].DS[0] != "1 13 2 AA" {
+		t.Errorf("read DS = %q, changed by an earlier reader", again[0].DS[0])
+	}
+
+	fake.RemoveZone("z1")
+	fake.AddZone(z)
+
+	if _, err := r.DelegationSigners(ctx, z); !errors.Is(err, dnsprovider.ErrNotFound) {
+		t.Errorf("a re-added Zone's DelegationSigners error = %v, want ErrNotFound", err)
+	}
+}
+
 func TestSetHostingStateHoldsForAZoneAddedLaterUntilItIsRemoved(t *testing.T) {
 	ctx := context.Background()
 	z := dnsprovider.Zone{ID: "z1", Name: "example.com", State: dnsprovider.HostingPending}

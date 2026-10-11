@@ -183,6 +183,32 @@ func SigningKeysOf(ctx context.Context, p Provider, zone Zone) ([]SigningKey, er
 	return nil, nil
 }
 
+// DSRegistrar is implemented by a Provider that registers domains and
+// can replace the Delegation Signer (DS) records the registry publishes
+// for them, such as Porkbun or Gandi: a registrar adapter. Writing them
+// changes the Delegation, so a consumer asks the user to confirm the set
+// first; it never changes the Delegation's NS records.
+type DSRegistrar interface {
+	// DelegationSigners returns the Signing Keys the registry holds for
+	// the Zone's domain, none when it holds none: ErrNotFound when the
+	// Account does not register the domain.
+	DelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
+	// SetDelegationSigners replaces the Signing Keys the registry holds
+	// for the Zone's domain with keys; none removes DNSSEC from the
+	// Delegation. The adapter sends each key in the form its registrar
+	// takes, its DNSKEY or its DS: ErrUnsupported when the registry
+	// refuses the key's algorithm or form for the domain, ErrNotFound
+	// when the Account does not register it.
+	SetDelegationSigners(ctx context.Context, zone Zone, keys []SigningKey) error
+}
+
+// CanRegisterDS reports whether a Provider implements DSRegistrar.
+func CanRegisterDS(p Provider) bool {
+	_, ok := p.(DSRegistrar)
+
+	return ok
+}
+
 // TTLLimits is implemented by a Provider whose Record TTLs have other
 // limits than DefaultTTLRange. TTL TTLAuto is allowed only where
 // the Provider implements AutoTTL. Its Factory declares the same range

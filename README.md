@@ -111,6 +111,14 @@ The optional `KeyReader`, found with `dnsprovider.CanReadKeys(p)`, returns a
 Zone's key-signing keys through the Provider's API: `SigningKeys(ctx, zone)`
 gives each as a `SigningKey`, its DNSKEY, key tag and DS records.
 
+The optional `DSRegistrar`, found with `dnsprovider.CanRegisterDS(p)`, is a
+registrar adapter: `DelegationSigners(ctx, zone)` reads the Signing Keys the
+registry holds for the domain, `ErrNotFound` when the Account does not
+register it, and `SetDelegationSigners(ctx, zone, keys)` replaces them, none
+removing DNSSEC from the Delegation. `ErrUnsupported` is a registry that
+refuses the key's algorithm or form for the domain. A DS write changes the
+Delegation: a consumer asks the user first.
+
 ## Providers
 
 Provider setup, behavior, limitations, and live-test credentials:

@@ -14,10 +14,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
-var (
-	_ dnsprovider.Provider = (*Provider)(nil)
-	_ dnsprovider.Batcher  = (*Provider)(nil)
-)
+var _ dnsprovider.Provider = (*Provider)(nil)
 
 // ErrUnpublished marks a change the API staged whose Zone refresh was not
 // confirmed: the edit is stored but may not be served. Re-read and

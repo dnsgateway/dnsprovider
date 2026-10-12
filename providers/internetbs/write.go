@@ -254,7 +254,7 @@ func Factory() dnsprovider.Factory {
 // traits are the Traits of every Provider, which Traits and Factory
 // report. Records carry the API's other record fields as their raw JSON;
 // writes refuse to create or change them.
-var traits = dnsprovider.Traits{Extras: []dnsprovider.ExtraSpec{
+var traits = dnsprovider.Traits{Capabilities: []dnsprovider.Capability{dnsprovider.CapDSRegistrar}, Extras: []dnsprovider.ExtraSpec{
 	{Key: ExtraWireValue, Label: "Wire value", Kind: dnsprovider.ExtraString, Types: []string{"CNAME", "NS", "MX"}},
 	{Key: dnsprovider.ExtraOther, Label: "Record metadata", Kind: dnsprovider.ExtraJSON},
 }}

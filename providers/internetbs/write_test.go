@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"slices"
 	"strings"
 	"testing"
 
@@ -183,7 +184,7 @@ func TestFactory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(factory.Capabilities) != 0 || dnsprovider.Can(p, dnsprovider.CapZoneCreator) || dnsprovider.Can(p, dnsprovider.CapZoneUpdater) || dnsprovider.Can(p, dnsprovider.CapZoneDeleter) || dnsprovider.AutoTTLOf(p) {
+	if !slices.Equal(factory.Capabilities, []dnsprovider.Capability{dnsprovider.CapDSRegistrar}) || dnsprovider.Can(p, dnsprovider.CapZoneCreator) || dnsprovider.Can(p, dnsprovider.CapZoneUpdater) || dnsprovider.Can(p, dnsprovider.CapZoneDeleter) || dnsprovider.AutoTTLOf(p) {
 		t.Fatal("unexpected capabilities")
 	}
 }

@@ -61,8 +61,8 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 		t.Fatalf("Account: %v", err)
 	}
 
-	if l, ok := p.(dnsprovider.TenantLister); ok {
-		if _, err := l.Tenants(ctx); err != nil {
+	if dnsprovider.Can(p, dnsprovider.CapTenantLister) {
+		if _, err := p.ListTenants(ctx); err != nil {
 			t.Fatalf("Tenants: %v", err)
 		}
 	}

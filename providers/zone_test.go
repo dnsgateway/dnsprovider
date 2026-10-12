@@ -21,10 +21,17 @@ func TestRegisteredProvidersDeclareTraitsIndependently(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			var want []dnsprovider.Capability
-			if typ == "cloudflare" {
-				want = []dnsprovider.Capability{dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter}
-			}
+			want := map[string][]dnsprovider.Capability{
+				"cloudflare": {dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter, dnsprovider.CapTenantLister},
+				"gandi":      {dnsprovider.CapBatcher, dnsprovider.CapDSRegistrar},
+				"godaddy":    {dnsprovider.CapBatcher},
+				"hetzner":    {dnsprovider.CapBatcher},
+				"internetbs": {dnsprovider.CapDSRegistrar},
+				"namecheap":  {dnsprovider.CapBatcher},
+				"ovhcloud":   {dnsprovider.CapBatcher},
+				"porkbun":    {dnsprovider.CapDSRegistrar},
+				"scaleway":   {dnsprovider.CapBatcher},
+			}[typ]
 			if got := p.Traits().Capabilities; !slices.Equal(got, want) {
 				t.Fatalf("Capabilities = %v, want %v", got, want)
 			}
@@ -49,7 +56,7 @@ func TestRegisteredProvidersDeclareTraitsIndependently(t *testing.T) {
 	}
 }
 
-func TestUnsupportedZoneWritesReturnNotImplementedWithoutNetworkTraffic(t *testing.T) {
+func TestUndeclaredOperationsReturnNotImplementedWithoutNetworkTraffic(t *testing.T) {
 	for typ, factory := range providers.Registry() {
 		t.Run(typ, func(t *testing.T) {
 			var requests atomic.Int32
@@ -82,9 +89,32 @@ func TestUnsupportedZoneWritesReturnNotImplementedWithoutNetworkTraffic(t *testi
 						t.Fatalf("unsupported DeleteZone = %v", err)
 					}
 				}
+				if !dnsprovider.Can(p, dnsprovider.CapBatcher) {
+					res, err := p.ApplyChangeset(ctx, dnsprovider.Changeset{Zone: zone})
+					if !errors.Is(err, dnsprovider.ErrNotImplemented) || res.Results != nil {
+						t.Fatalf("unsupported ApplyChangeset = %+v, %v", res, err)
+					}
+				}
+				if !dnsprovider.Can(p, dnsprovider.CapTenantLister) {
+					if ts, err := p.ListTenants(ctx); !errors.Is(err, dnsprovider.ErrNotImplemented) || ts != nil {
+						t.Fatalf("unsupported ListTenants = %+v, %v", ts, err)
+					}
+				}
+				if !dnsprovider.Can(p, dnsprovider.CapDSRegistrar) {
+					keys, err := p.ListDelegationSigners(ctx, zone)
+					if !errors.Is(err, dnsprovider.ErrNotImplemented) || keys != nil {
+						t.Fatalf("unsupported ListDelegationSigners = %+v, %v", keys, err)
+					}
+					if err := p.SetDelegationSigners(ctx, zone, []dnsprovider.SigningKey{{KeyTag: 1}}); !errors.Is(err, dnsprovider.ErrNotImplemented) {
+						t.Fatalf("unsupported SetDelegationSigners = %v", err)
+					}
+					if err := p.DeleteDelegationSigners(ctx, zone); !errors.Is(err, dnsprovider.ErrNotImplemented) {
+						t.Fatalf("unsupported DeleteDelegationSigners = %v", err)
+					}
+				}
 			}
 			if got := requests.Load(); got != 0 {
-				t.Fatalf("unsupported writes issued %d HTTP requests", got)
+				t.Fatalf("undeclared operations issued %d HTTP requests", got)
 			}
 		})
 	}
@@ -109,10 +139,10 @@ func TestDSRegistrarsRefuseSettingNoKeysWithoutNetworkTraffic(t *testing.T) {
 			s.Close()
 			t.Fatalf("%s: %v", typ, err)
 		}
-		if r, ok := p.(dnsprovider.DSRegistrar); ok {
+		if dnsprovider.Can(p, dnsprovider.CapDSRegistrar) {
 			registrars++
 			for _, keys := range [][]dnsprovider.SigningKey{nil, {}} {
-				if err := r.SetDelegationSigners(context.Background(), dnsprovider.Zone{ID: "z1", Name: "example.com"}, keys); !errors.Is(err, dnsprovider.ErrNoSigningKeys) {
+				if err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{ID: "z1", Name: "example.com"}, keys); !errors.Is(err, dnsprovider.ErrNoSigningKeys) {
 					t.Errorf("%s: SetDelegationSigners(%#v) = %v, want ErrNoSigningKeys", typ, keys, err)
 				}
 			}
@@ -123,7 +153,7 @@ func TestDSRegistrarsRefuseSettingNoKeysWithoutNetworkTraffic(t *testing.T) {
 		s.Close()
 	}
 	if registrars != 3 {
-		t.Errorf("found %d DSRegistrars, want porkbun, gandi and internetbs", registrars)
+		t.Errorf("found %d DS registrars, want porkbun, gandi and internetbs", registrars)
 	}
 }
 

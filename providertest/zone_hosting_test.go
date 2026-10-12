@@ -25,8 +25,7 @@ func TestDeleteZoneLeavesRegistrationAndDelegationSignersIntact(t *testing.T) {
 	if _, err := p.GetZone(ctx, z.Name); !errors.Is(err, dnsprovider.ErrNotFound) {
 		t.Fatalf("GetZone after Offboarding: %v, want ErrNotFound", err)
 	}
-	registrar := p.(dnsprovider.DSRegistrar)
-	got, err := registrar.ListDelegationSigners(ctx, z)
+	got, err := p.ListDelegationSigners(ctx, z)
 	if err != nil || !reflect.DeepEqual(got, []dnsprovider.SigningKey{key}) {
 		t.Fatalf("DelegationSigners after Offboarding = %+v, %v; want Registration's key retained", got, err)
 	}

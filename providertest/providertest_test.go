@@ -119,7 +119,7 @@ func TestTenantsAreListedOnlyOnceScripted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if dnsprovider.CanListTenants(p) {
+	if dnsprovider.Can(p, dnsprovider.CapTenantLister) {
 		t.Error("an unscripted fake lists Tenants")
 	}
 
@@ -131,17 +131,16 @@ func TestTenantsAreListedOnlyOnceScripted(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	l, ok := p.(dnsprovider.TenantLister)
-	if !ok {
+	if !dnsprovider.Can(p, dnsprovider.CapTenantLister) {
 		t.Fatal("a fake with scripted Tenants does not list them")
 	}
 
-	got, err := l.Tenants(context.Background())
+	got, err := p.ListTenants(context.Background())
 	if err != nil || !reflect.DeepEqual(got, want) {
-		t.Errorf("Tenants = %+v, %v; want %+v", got, err, want)
+		t.Errorf("ListTenants = %+v, %v; want %+v", got, err, want)
 	}
 
-	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpTenants {
+	if calls := fake.Calls(); calls[len(calls)-1].Op != providertest.OpListTenants {
 		t.Errorf("last call = %+v, want Tenants", calls[len(calls)-1])
 	}
 }
@@ -198,7 +197,7 @@ func TestOptionalInterfacesAreScriptedIndependently(t *testing.T) {
 		t.Errorf("Factory proxied extra = %+v, %v; want a writable bool on A Records", s, ok)
 	}
 
-	if !dnsprovider.CanListTenants(p) {
+	if !dnsprovider.Can(p, dnsprovider.CapTenantLister) {
 		t.Error("a fake with scripted options and Tenants does not list Tenants")
 	}
 }
@@ -316,7 +315,7 @@ func TestZoneStatusIsReadOnlyOnceScripted(t *testing.T) {
 	fake.SetTenants(dnsprovider.Tenant{ID: "t1"})
 	p := newFake(t, fake)
 
-	if !readsZoneStatus(p) || !dnsprovider.CanListTenants(p) {
+	if !readsZoneStatus(p) || !dnsprovider.Can(p, dnsprovider.CapTenantLister) {
 		t.Error("a fake with scripted Zone Status and Tenants does not do both")
 	}
 }
@@ -409,15 +408,15 @@ func TestDelegationSignersAreRegisteredOnceScripted(t *testing.T) {
 	other := dnsprovider.Zone{ID: "z2", Name: "example.org"}
 	fake := providertest.New().AddZone(z).AddZone(other)
 
-	if dnsprovider.CanRegisterDS(newFake(t, fake)) {
+	if dnsprovider.Can(newFake(t, fake), dnsprovider.CapDSRegistrar) {
 		t.Error("an unscripted fake registers DS records")
 	}
 
 	fake.SetRegistration("z1")
 
-	r, ok := newFake(t, fake).(dnsprovider.DSRegistrar)
-	if !ok {
-		t.Fatal("a fake with a scripted Registration is no DSRegistrar")
+	r := newFake(t, fake)
+	if !dnsprovider.Can(r, dnsprovider.CapDSRegistrar) {
+		t.Fatal("a fake with a scripted Registration does not register DS records")
 	}
 
 	if got, err := r.ListDelegationSigners(ctx, z); err != nil || len(got) != 0 {
@@ -490,7 +489,7 @@ func TestDelegationSignersAreRegisteredOnceScripted(t *testing.T) {
 	fake.SetZoneUpdater(true)
 	p := newFake(t, fake)
 
-	if !dnsprovider.CanRegisterDS(p) || !readsSigningKeys(p) || !dnsprovider.Can(p, dnsprovider.CapZoneUpdater) {
+	if !dnsprovider.Can(p, dnsprovider.CapDSRegistrar) || !readsSigningKeys(p) || !dnsprovider.Can(p, dnsprovider.CapZoneUpdater) {
 		t.Error("a fake with a scripted Registration, signing keys and Zone writes does not do all three")
 	}
 }
@@ -503,7 +502,7 @@ func TestARegistrationsKeysAreCopiesAndGoWithTheZone(t *testing.T) {
 	fake.SetRegistration("z1", key)
 	key.DS[0] = "changed"
 
-	r, _ := newFake(t, fake).(dnsprovider.DSRegistrar)
+	r := newFake(t, fake)
 
 	got, _ := r.ListDelegationSigners(ctx, z)
 	if got[0].DS[0] != "1 13 2 AA" {
@@ -641,12 +640,12 @@ func TestBatcherIsImplementedOnlyOnceScriptedWithAnyOtherOption(t *testing.T) {
 
 				p := newFake(t, fake)
 
-				_, isBatcher := p.(dnsprovider.Batcher)
+				isBatcher := dnsprovider.Can(p, dnsprovider.CapBatcher)
 				readsStatus := readsZoneStatus(p)
 
-				if isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
+				if isBatcher != batcher || dnsprovider.Can(p, dnsprovider.CapTenantLister) != tenants || readsStatus != status {
 					t.Errorf("tenants %v, status %v, batcher %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v",
-						tenants, status, batcher, dnsprovider.CanListTenants(p), readsStatus, isBatcher)
+						tenants, status, batcher, dnsprovider.Can(p, dnsprovider.CapTenantLister), readsStatus, isBatcher)
 				}
 			}
 		}
@@ -666,9 +665,9 @@ func TestBatcherMakesEachChangeAndReportsTheBumpedSerial(t *testing.T) {
 		return nil
 	})
 
-	b, ok := newFake(t, fake).(dnsprovider.Batcher)
-	if !ok {
-		t.Fatal("the fake is no Batcher")
+	b := newFake(t, fake)
+	if !dnsprovider.Can(b, dnsprovider.CapBatcher) {
+		t.Fatal("the fake does not batch")
 	}
 
 	// The addition takes the place of the Record the modification moves.
@@ -792,13 +791,13 @@ func TestZoneWritersDeclareOnlyScriptedOperationsWithAnyOtherOption(t *testing.T
 			t.Fatal(err)
 		}
 
-		_, isBatcher := p.(dnsprovider.Batcher)
+		isBatcher := dnsprovider.Can(p, dnsprovider.CapBatcher)
 		readsStatus := readsZoneStatus(p)
 
 		if dnsprovider.Can(p, dnsprovider.CapZoneUpdater) != updater || dnsprovider.Can(p, dnsprovider.CapZoneCreator) != creator || dnsprovider.Can(p, dnsprovider.CapZoneDeleter) != deleter ||
-			isBatcher != batcher || dnsprovider.CanListTenants(p) != tenants || readsStatus != status {
+			isBatcher != batcher || dnsprovider.Can(p, dnsprovider.CapTenantLister) != tenants || readsStatus != status {
 			t.Errorf("tenants %v, status %v, batcher %v, updater %v, creator %v, deleter %v: built a Provider listing Tenants %v, reading Zone Status %v, batching %v, updating Zones %v, creating Zones %v, deleting Zones %v",
-				tenants, status, batcher, updater, creator, deleter, dnsprovider.CanListTenants(p), readsStatus, isBatcher, dnsprovider.Can(p, dnsprovider.CapZoneUpdater), dnsprovider.Can(p, dnsprovider.CapZoneCreator), dnsprovider.Can(p, dnsprovider.CapZoneDeleter))
+				tenants, status, batcher, updater, creator, deleter, dnsprovider.Can(p, dnsprovider.CapTenantLister), readsStatus, isBatcher, dnsprovider.Can(p, dnsprovider.CapZoneUpdater), dnsprovider.Can(p, dnsprovider.CapZoneCreator), dnsprovider.Can(p, dnsprovider.CapZoneDeleter))
 		}
 
 		if f.Can(dnsprovider.CapZoneUpdater) != updater || f.Can(dnsprovider.CapZoneCreator) != creator || f.Can(dnsprovider.CapZoneDeleter) != deleter {

@@ -214,8 +214,8 @@ func TestApplyGoesThroughRecordCRUDNotABatcher(t *testing.T) {
 	// a Changeset's changes itself; the atomic batch endpoint is not used.
 	p := newProvider(t, &cfAPI{})
 
-	if _, ok := p.(dnsprovider.Batcher); ok {
-		t.Error("the Cloudflare Provider is a dnsprovider.Batcher, want Apply to go through its Record CRUD")
+	if dnsprovider.Can(p, dnsprovider.CapBatcher) {
+		t.Error("the Cloudflare Provider declares CapBatcher, want Apply to go through its Record CRUD")
 	}
 }
 

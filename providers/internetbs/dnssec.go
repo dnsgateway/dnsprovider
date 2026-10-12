@@ -157,7 +157,7 @@ func (p *Provider) registryKeys(ctx context.Context, z dnsprovider.Zone) ([]sign
 	return records, nil
 }
 
-// ListDelegationSigners implements dnsprovider.DSRegistrar. DS records are grouped
+// ListDelegationSigners implements dnsprovider.Provider (CapDSRegistrar). DS records are grouped
 // by key tag and algorithm, SHA-256 first, with a DNSKEY when returned. A
 // DNSKEY's tag is computed because Internet.bs does not return it separately.
 func (p *Provider) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
@@ -192,7 +192,7 @@ func (p *Provider) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone
 	return keys, nil
 }
 
-// SetDelegationSigners implements dnsprovider.DSRegistrar through
+// SetDelegationSigners implements dnsprovider.Provider (CapDSRegistrar) through
 // replaceDelegationSigners.
 func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	if len(keys) == 0 {
@@ -202,7 +202,7 @@ func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone,
 	return p.replaceDelegationSigners(ctx, z, keys)
 }
 
-// DeleteDelegationSigners implements dnsprovider.DSRegistrar through
+// DeleteDelegationSigners implements dnsprovider.Provider (CapDSRegistrar) through
 // replaceDelegationSigners with no keys.
 func (p *Provider) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
 	return p.replaceDelegationSigners(ctx, z, nil)
@@ -270,5 +270,3 @@ func (p *Provider) replaceDelegationSigners(ctx context.Context, z dnsprovider.Z
 	_, err = p.command(ctx, "Domain/Update", url.Values{"Domain": {names.ZoneName(z.Name)}, "dnssec": {strings.Join(lines, "\n")}}, true)
 	return err
 }
-
-var _ dnsprovider.DSRegistrar = (*Provider)(nil)

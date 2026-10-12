@@ -87,14 +87,40 @@ type Provider interface { //nolint:interfacebloat // Zone and Record CRUD form t
 	// DeleteRecord removes a Record as last read, found as UpdateRecord
 	// finds before.
 	DeleteRecord(ctx context.Context, zone Zone, r Record) error
-}
-
-// Batcher is implemented by a Provider that writes several Records in
-// fewer calls than one per change, or atomically. Apply goes through it.
-type Batcher interface {
-	// ApplyChangeset applies a Changeset and reports the result of each
-	// change, or an error when the Changeset failed as a whole.
+	// ApplyChangeset applies a Changeset in fewer calls than one per
+	// change, or atomically, and reports the result of each change, or an
+	// error when the Changeset failed as a whole. Apply goes through it
+	// when the Traits declare CapBatcher; consumers call Apply.
+	// Adapters that do not batch embed UnimplementedBatch.
 	ApplyChangeset(ctx context.Context, cs Changeset) (ApplyResult, error)
+	// ListTenants lists the Tenants the credentials reach, such as
+	// Cloudflare's accounts. It works before a Tenant is set. Supported
+	// when the Traits declare CapTenantLister; adapters whose credentials
+	// reach one Tenant embed UnimplementedTenants.
+	ListTenants(ctx context.Context) ([]Tenant, error)
+	// ListDelegationSigners, SetDelegationSigners and
+	// DeleteDelegationSigners read and replace the Delegation Signer (DS)
+	// records the registry publishes for a Registration, for a Provider
+	// that registers domains, such as Porkbun or Gandi: a registrar
+	// adapter. Supported when the Traits declare CapDSRegistrar; other
+	// adapters embed UnimplementedDelegationSigners. Writing them changes
+	// the Delegation, so callers should confirm the set first; they never
+	// change the Delegation's NS records. Each returns ErrNotFound when
+	// the Account does not register the domain.
+	//
+	// ListDelegationSigners returns the Signing Keys the registry holds
+	// for the Zone's domain, none when it holds none.
+	ListDelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
+	// SetDelegationSigners replaces the Signing Keys the registry holds
+	// for the Zone's domain with keys, at least one: ErrNoSigningKeys,
+	// without a request, for none. The adapter sends each key in the
+	// form its registrar takes, its DNSKEY or its DS: ErrUnsupported
+	// when the registry refuses the key's algorithm or form for the
+	// domain.
+	SetDelegationSigners(ctx context.Context, zone Zone, keys []SigningKey) error
+	// DeleteDelegationSigners removes every Signing Key the registry
+	// holds for the Zone's domain, taking DNSSEC off the Delegation.
+	DeleteDelegationSigners(ctx context.Context, zone Zone) error
 }
 
 // Can reports whether a Provider declares support for c in its Traits, as
@@ -124,47 +150,45 @@ func (UnimplementedZoneWrites) DeleteZone(context.Context, Zone) error {
 	return ErrNotImplemented
 }
 
-// TenantLister is implemented by a Provider whose credentials can reach
-// several Tenants, such as Cloudflare. It works before a Tenant is set.
-type TenantLister interface {
-	// Tenants lists the Tenants the credentials reach.
-	Tenants(ctx context.Context) ([]Tenant, error)
+// UnimplementedBatch is embedded by an adapter that makes one call per
+// change: ApplyChangeset returns ErrNotImplemented without network
+// traffic, and its Traits do not declare CapBatcher.
+type UnimplementedBatch struct{}
+
+// ApplyChangeset returns ErrNotImplemented.
+func (UnimplementedBatch) ApplyChangeset(context.Context, Changeset) (ApplyResult, error) {
+	return ApplyResult{}, ErrNotImplemented
 }
 
-// CanListTenants reports whether a Provider implements TenantLister.
-func CanListTenants(p Provider) bool {
-	_, ok := p.(TenantLister)
+// UnimplementedTenants is embedded by an adapter whose credentials reach
+// one Tenant: ListTenants returns ErrNotImplemented without network
+// traffic, and its Traits do not declare CapTenantLister.
+type UnimplementedTenants struct{}
 
-	return ok
+// ListTenants returns ErrNotImplemented.
+func (UnimplementedTenants) ListTenants(context.Context) ([]Tenant, error) {
+	return nil, ErrNotImplemented
 }
 
-// DSRegistrar is implemented by a Provider that registers domains and
-// can replace the Delegation Signer (DS) records the registry publishes
-// for them, such as Porkbun or Gandi: a registrar adapter. Writing them
-// changes the Delegation, so callers should confirm the set
-// first; it never changes the Delegation's NS records. Each method
-// returns ErrNotFound when the Account does not register the domain.
-type DSRegistrar interface {
-	// ListDelegationSigners returns the Signing Keys the registry holds
-	// for the Zone's domain, none when it holds none.
-	ListDelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
-	// SetDelegationSigners replaces the Signing Keys the registry holds
-	// for the Zone's domain with keys, at least one: ErrNoSigningKeys,
-	// without a request, for none. The adapter sends each key in the
-	// form its registrar takes, its DNSKEY or its DS: ErrUnsupported
-	// when the registry refuses the key's algorithm or form for the
-	// domain.
-	SetDelegationSigners(ctx context.Context, zone Zone, keys []SigningKey) error
-	// DeleteDelegationSigners removes every Signing Key the registry
-	// holds for the Zone's domain, taking DNSSEC off the Delegation.
-	DeleteDelegationSigners(ctx context.Context, zone Zone) error
+// UnimplementedDelegationSigners is embedded by an adapter that is not a
+// registrar adapter: each Delegation Signer method returns
+// ErrNotImplemented without network traffic, and its Traits do not
+// declare CapDSRegistrar.
+type UnimplementedDelegationSigners struct{}
+
+// ListDelegationSigners returns ErrNotImplemented.
+func (UnimplementedDelegationSigners) ListDelegationSigners(context.Context, Zone) ([]SigningKey, error) {
+	return nil, ErrNotImplemented
 }
 
-// CanRegisterDS reports whether a Provider implements DSRegistrar.
-func CanRegisterDS(p Provider) bool {
-	_, ok := p.(DSRegistrar)
+// SetDelegationSigners returns ErrNotImplemented.
+func (UnimplementedDelegationSigners) SetDelegationSigners(context.Context, Zone, []SigningKey) error {
+	return ErrNotImplemented
+}
 
-	return ok
+// DeleteDelegationSigners returns ErrNotImplemented.
+func (UnimplementedDelegationSigners) DeleteDelegationSigners(context.Context, Zone) error {
+	return ErrNotImplemented
 }
 
 // TTLRangeOf returns the TTLs a Provider takes, as its Traits declare

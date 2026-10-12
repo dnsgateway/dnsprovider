@@ -37,6 +37,9 @@ type Config struct {
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
 	dnsprovider.UnimplementedZoneDetails
+	dnsprovider.UnimplementedBatch
+	dnsprovider.UnimplementedTenants
+	dnsprovider.UnimplementedDelegationSigners
 
 	cfg     Config
 	baseURL string

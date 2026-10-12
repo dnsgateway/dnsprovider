@@ -225,7 +225,7 @@ func batcherFails(t *testing.T, api *ncAPI, msg string, kind error, changes ...d
 
 	p := newProvider(t, api)
 
-	res, err := p.(dnsprovider.Batcher).ApplyChangeset(context.Background(), dnsprovider.Changeset{Zone: example, Changes: changes})
+	res, err := p.ApplyChangeset(context.Background(), dnsprovider.Changeset{Zone: example, Changes: changes})
 	failsWhole(t, res, err, msg, kind)
 }
 

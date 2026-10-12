@@ -119,8 +119,8 @@ func TestDelegationSignersReadTheRegistryDS(t *testing.T) {
 	defer s.Close()
 	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
 
-	if !dnsprovider.CanRegisterDS(p) {
-		t.Fatal("Porkbun is not a DSRegistrar")
+	if !dnsprovider.Can(p, dnsprovider.CapDSRegistrar) {
+		t.Fatal("Porkbun does not declare CapDSRegistrar")
 	}
 
 	keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "Example.COM."})

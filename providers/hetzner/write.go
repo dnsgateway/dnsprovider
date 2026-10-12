@@ -18,10 +18,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
-var (
-	_ dnsprovider.Provider = (*Provider)(nil)
-	_ dnsprovider.Batcher  = (*Provider)(nil)
-)
+var _ dnsprovider.Provider = (*Provider)(nil)
 
 // ttlRange is the TTL policy used by Record writes and reported by
 // its Traits: Hetzner's documented numeric TTL range. Inheritance is

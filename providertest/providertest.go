@@ -37,17 +37,18 @@ const (
 	OpUpdateRecord Op = "UpdateRecord"
 	OpDeleteRecord Op = "DeleteRecord"
 	OpZoneDetails  Op = "ZoneDetails"
-	// OpListDelegationSigners is the DSRegistrar's ListDelegationSigners;
+	// OpListDelegationSigners is the Provider's ListDelegationSigners;
 	// see SetRegistration.
 	OpListDelegationSigners Op = "ListDelegationSigners"
-	// OpSetDelegationSigners is the DSRegistrar's SetDelegationSigners;
+	// OpSetDelegationSigners is the Provider's SetDelegationSigners;
 	// see SetRegistration.
 	OpSetDelegationSigners Op = "SetDelegationSigners"
-	// OpDeleteDelegationSigners is the DSRegistrar's
+	// OpDeleteDelegationSigners is the Provider's
 	// DeleteDelegationSigners; see SetRegistration.
 	OpDeleteDelegationSigners Op = "DeleteDelegationSigners"
 	OpAccount                 Op = "Account"
-	OpTenants                 Op = "Tenants"
+	// OpListTenants is the Provider's ListTenants; see SetTenants.
+	OpListTenants Op = "ListTenants"
 	// OpUpdateZone is the Provider's UpdateZone; see SetZoneUpdater.
 	OpUpdateZone Op = "UpdateZone"
 	// OpCreateZone is the Provider's CreateZone; see SetZoneCreator.
@@ -230,21 +231,15 @@ func (p *Provider) SetAutoTTL(on bool) {
 	p.autoTTL = on
 }
 
-//go:generate go run gen_wrappers.go
+// Every optional operation exists on the Providers New builds: Traits
+// declare the ones scripted when each was built, and an unscripted one
+// returns dnsprovider.ErrNotImplemented, recording nothing.
 
-// TenantLister and DSRegistrar, which a
-// consumer may branch on, and Batcher, which changes how
-// dnsprovider.Apply writes, are implemented by wrapper types, built only
-// once scripted: one type per combination, generated (see
-// gen_wrappers.go) and picked by build. Core Zone writes always exist;
-// Traits declare each as scripted, and an unscripted write returns
-// dnsprovider.ErrNotImplemented, recording nothing.
-
-// traits are the Traits scripted so far: the Zone writes, the TTL range
+// traits are the Traits scripted so far: the optional operations, the TTL range
 // (SetTTLRange, SetAutoTTL), with the default range when none is, and the
 // ExtraProxied types. The caller holds p.mu.
 func (p *Provider) traits() dnsprovider.Traits {
-	t := dnsprovider.Traits{Capabilities: p.zoneWrites(), TTL: dnsprovider.DefaultTTLRange}
+	t := dnsprovider.Traits{Capabilities: p.capabilities(), TTL: dnsprovider.DefaultTTLRange}
 	if p.ttlRange != nil {
 		t.TTL.Min, t.TTL.Max = p.ttlRange[0], p.ttlRange[1]
 	}
@@ -282,12 +277,12 @@ func (p *Provider) SetSigningKeys(zoneID string, keys ...dnsprovider.SigningKey)
 	p.readKeys = true
 }
 
-// SetRegistration scripts a Zone as a Registration and enables the
-// dnsprovider.DSRegistrar methods, recorded as OpListDelegationSigners,
-// OpSetDelegationSigners and OpDeleteDelegationSigners; a
-// SetDelegationSigners with no keys is ErrNoSigningKeys, recording
-// nothing. Other Zones return ErrNotFound; without this
-// script, the Provider does not implement DSRegistrar.
+// SetRegistration scripts a Zone as a Registration and declares
+// dnsprovider.CapDSRegistrar: the Delegation Signer methods are recorded
+// as OpListDelegationSigners, OpSetDelegationSigners and
+// OpDeleteDelegationSigners; a SetDelegationSigners with no keys is
+// ErrNoSigningKeys, recording nothing. Other Zones return ErrNotFound;
+// without this script, the methods return ErrNotImplemented.
 func (p *Provider) SetRegistration(zoneID string, keys ...dnsprovider.SigningKey) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -316,8 +311,9 @@ func (p *Provider) SetAccount(info dnsprovider.AccountInfo) {
 	p.account = info
 }
 
-// SetTenants makes the Providers New builds list these Tenants, through
-// dnsprovider.TenantLister. Unscripted, they do not implement it.
+// SetTenants makes the Providers New builds declare
+// dnsprovider.CapTenantLister and list these Tenants, recorded as
+// OpListTenants. Unscripted, ListTenants returns ErrNotImplemented.
 func (p *Provider) SetTenants(tenants ...dnsprovider.Tenant) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -325,9 +321,9 @@ func (p *Provider) SetTenants(tenants ...dnsprovider.Tenant) {
 	p.tenants = append([]dnsprovider.Tenant{}, tenants...)
 }
 
-// tenantList is the scripted Tenants, for dnsprovider.TenantLister.
+// tenantList is the scripted Tenants, for ListTenants.
 func (p *Provider) tenantList(context.Context) ([]dnsprovider.Tenant, error) {
-	if err := p.record(Call{Op: OpTenants}); err != nil {
+	if err := p.record(Call{Op: OpListTenants}); err != nil {
 		return nil, err
 	}
 
@@ -351,10 +347,10 @@ func (p *Provider) Fail(op Op, err error) {
 	p.fail[op] = err
 }
 
-// SetBatcher makes the Providers New builds implement dnsprovider.Batcher,
-// so dnsprovider.Apply hands them each Changeset whole, recorded as
-// OpApply. Unscripted, they do not, and Apply makes one CRUD call per
-// change.
+// SetBatcher makes the Providers New builds declare
+// dnsprovider.CapBatcher, so dnsprovider.Apply hands them each Changeset
+// whole, recorded as OpApply. Unscripted, they do not, and Apply makes
+// one CRUD call per change.
 func (p *Provider) SetBatcher(on bool) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -466,9 +462,9 @@ func (p *Provider) Factory() dnsprovider.Factory {
 	return fields.Factory("providertest", fs, p.traits(), p.build)
 }
 
-// zoneWrites are the Zone writes scripted; nil when none is. The caller
+// capabilities are the optional operations scripted; nil when none is. The caller
 // holds p.mu.
-func (p *Provider) zoneWrites() []dnsprovider.Capability {
+func (p *Provider) capabilities() []dnsprovider.Capability {
 	var out []dnsprovider.Capability
 
 	if p.updater {
@@ -483,23 +479,36 @@ func (p *Provider) zoneWrites() []dnsprovider.Capability {
 		out = append(out, dnsprovider.CapZoneDeleter)
 	}
 
+	if p.batcher {
+		out = append(out, dnsprovider.CapBatcher)
+	}
+
+	if p.tenants != nil {
+		out = append(out, dnsprovider.CapTenantLister)
+	}
+
+	if p.dsRegistrar {
+		out = append(out, dnsprovider.CapDSRegistrar)
+	}
+
 	return out
 }
 
 // scope is what a Provider the fake built acts within: its Tenant, and
-// the Zone writes scripted when it was built.
+// the optional operations scripted when it was built.
 type scope struct {
 	// unscoped is set for a Provider of a fake scripted with Tenants,
 	// built without one: like Cloudflare's, it acts within no Tenant.
 	unscoped bool
-	// writes are the Zone writes scripted, as the Factory declares them.
-	writes []dnsprovider.Capability
+	// caps are the optional operations scripted, as the Factory declares
+	// them.
+	caps []dnsprovider.Capability
 }
 
-// unscripted refuses a Zone write that was not scripted when the Provider
-// was built. It records nothing.
+// unscripted refuses an optional operation that was not scripted when
+// the Provider was built. It records nothing.
 func (sc scope) unscripted(c dnsprovider.Capability) error {
-	if slices.Contains(sc.writes, c) {
+	if slices.Contains(sc.caps, c) {
 		return nil
 	}
 
@@ -518,23 +527,7 @@ func (p *Provider) build(m map[string]string, _ ...dnsprovider.Option) (dnsprovi
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	var set opts
-
-	if p.tenants != nil {
-		set |= optTenants
-	}
-
-	if p.dsRegistrar {
-		set |= optDSRegistrar
-	}
-
-	if p.batcher {
-		set |= optBatcher
-	}
-
-	writes := p.zoneWrites()
-
-	return wrap(p, set, scope{unscoped: p.tenants != nil && m[FieldTenant] == "", writes: writes}), nil
+	return scopedProvider{p, scope{unscoped: p.tenants != nil && m[FieldTenant] == "", caps: p.capabilities()}}, nil
 }
 
 // record logs a call and returns its scripted failure, if any.
@@ -774,7 +767,7 @@ func (p *Provider) applyChange(records []dnsprovider.Record, c dnsprovider.Chang
 	return records, r, nil
 }
 
-// applyChangeset is the fake's Batcher: it makes each change as the CRUD
+// applyChangeset is the fake's ApplyChangeset: it makes each change as the CRUD
 // methods do, in dnsprovider.ApplyOrder, and
 // reports the serial, bumped once when any change succeeded.
 func (p *Provider) applyChangeset(_ context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
@@ -809,7 +802,7 @@ func (p *Provider) applyChangeset(_ context.Context, cs dnsprovider.Changeset) (
 }
 
 // listDelegationSigners is the DS the registry holds for a Registration, for
-// dnsprovider.DSRegistrar; ErrNotFound for a Zone not scripted as one.
+// ListDelegationSigners; ErrNotFound for a Zone not scripted as one.
 func (p *Provider) listDelegationSigners(_ context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
 	if err := p.record(Call{Op: OpListDelegationSigners, Zone: z}); err != nil {
 		return nil, err
@@ -827,7 +820,7 @@ func (p *Provider) listDelegationSigners(_ context.Context, z dnsprovider.Zone) 
 }
 
 // setDelegationSigners replaces the DS the registry holds for a
-// Registration with keys, at least one, for dnsprovider.DSRegistrar;
+// Registration with keys, at least one, for SetDelegationSigners;
 // ErrNotFound for a Zone not scripted as one.
 func (p *Provider) setDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	if len(keys) == 0 {
@@ -838,7 +831,7 @@ func (p *Provider) setDelegationSigners(ctx context.Context, z dnsprovider.Zone,
 }
 
 // deleteDelegationSigners removes the DS the registry holds for a
-// Registration, for dnsprovider.DSRegistrar; ErrNotFound for a Zone not
+// Registration, for DeleteDelegationSigners; ErrNotFound for a Zone not
 // scripted as one.
 func (p *Provider) deleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
 	return p.replaceDelegationSigners(ctx, OpDeleteDelegationSigners, z, nil)

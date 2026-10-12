@@ -73,7 +73,7 @@ func Factory() dnsprovider.Factory {
 // report: every Zone write, below Enterprise plans a TTL of at least 60
 // seconds besides 1 for automatic, and the proxy flag, comment and tags.
 var traits = dnsprovider.Traits{
-	Capabilities: []dnsprovider.Capability{dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter},
+	Capabilities: []dnsprovider.Capability{dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter, dnsprovider.CapTenantLister},
 	TTL:          dnsprovider.TTLRange{Min: 60, Max: 86400, Auto: true},
 	Extras: []dnsprovider.ExtraSpec{
 		dnsprovider.ProxiedExtra(proxiableTypes...),
@@ -186,6 +186,9 @@ func isAccountID(s string) bool {
 // by its ID: they trust that it came from Zones or Zone and do not read it
 // again to check its Tenant, except DeleteZone, which cannot be undone.
 type Provider struct {
+	dnsprovider.UnimplementedBatch
+	dnsprovider.UnimplementedDelegationSigners
+
 	// tenantID is the Cloudflare account Zone lists are scoped to; empty
 	// for every account the API token reaches.
 	tenantID string
@@ -200,11 +203,7 @@ type Provider struct {
 	dnssec        *cfdns.DNSSECService
 }
 
-var (
-	_ dnsprovider.Provider = (*Provider)(nil)
-
-	_ dnsprovider.TenantLister = (*Provider)(nil)
-)
+var _ dnsprovider.Provider = (*Provider)(nil)
 
 // ListZones implements dnsprovider.Provider: the Zones of the configured
 // Tenant, or without one every Zone the API token reaches, whose names
@@ -1356,7 +1355,7 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 
 	tenant := dnsprovider.Tenant{ID: p.tenantID}
 
-	tenants, err := p.Tenants(ctx)
+	tenants, err := p.ListTenants(ctx)
 	if errors.Is(err, dnsprovider.ErrUnauthorized) {
 		return dnsprovider.AccountInfo{Tenant: tenant}, nil
 	}
@@ -1420,9 +1419,9 @@ func tokenActive(status string) error {
 	}
 }
 
-// Tenants implements dnsprovider.TenantLister: every Cloudflare account
+// ListTenants implements dnsprovider.Provider: every Cloudflare account
 // the API token reaches, whether a Tenant is set or not.
-func (p *Provider) Tenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
+func (p *Provider) ListTenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
 	all, err := listAll(ctx, accountsPerPage, func(opts ...option.RequestOption) (*pagination.V4PagePaginationArray[accounts.Account], error) {
 		return p.accounts.List(ctx, accounts.AccountListParams{}, opts...)
 	})

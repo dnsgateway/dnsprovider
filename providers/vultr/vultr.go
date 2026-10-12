@@ -60,6 +60,9 @@ func (p *Provider) Traits() dnsprovider.Traits {
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
 	dnsprovider.UnimplementedZoneDetails
+	dnsprovider.UnimplementedBatch
+	dnsprovider.UnimplementedTenants
+	dnsprovider.UnimplementedDelegationSigners
 
 	key, baseURL string
 	client       *http.Client

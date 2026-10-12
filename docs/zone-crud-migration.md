@@ -70,8 +70,9 @@ the TTL range (with `Auto`) as `Traits.TTL` and the proxiable types as a
 `ProxiableTypesOf` read them from `Traits()`. A `Factory` literal's
 `Capabilities`, `TTL`, and `Extras` now sit in its embedded `Traits`.
 
-Tenant listing, Zone Status reads, Signing Key reads, registrar DS writes,
-and batching continue to use their existing optional interfaces.
+Tenant listing, registrar DS writes and batching are now `Provider` methods
+too, declared in Traits like Zone writes; see "Optional operations in
+Traits" below.
 
 `ZoneDetails(ctx, zone, request)` is now part of `Provider`; an adapter that
 reads no Zone property embeds `dnsprovider.UnimplementedZoneDetails`. The
@@ -89,6 +90,31 @@ with `DeleteDelegationSigners(ctx, zone)`. `SetDelegationSigners` returns
 `providertest`, `OpDelegationSigners` is now `OpListDelegationSigners`, and a
 delete records `OpDeleteDelegationSigners`. Record CRUD and `Apply` retain their names
 and behavior.
+
+## Optional operations in Traits
+
+The `Batcher`, `TenantLister`, and `DSRegistrar` interfaces and the
+`CanListTenants` and `CanRegisterDS` helpers are removed. Their methods are
+part of `Provider`, and Traits declare support:
+
+| Was | Now |
+| --- | --- |
+| `p.(dnsprovider.Batcher)` | `dnsprovider.Can(p, dnsprovider.CapBatcher)` |
+| `p.(dnsprovider.TenantLister)`, `CanListTenants(p)` | `dnsprovider.Can(p, dnsprovider.CapTenantLister)` |
+| `TenantLister.Tenants(ctx)` | `p.ListTenants(ctx)` |
+| `p.(dnsprovider.DSRegistrar)`, `CanRegisterDS(p)` | `dnsprovider.Can(p, dnsprovider.CapDSRegistrar)` |
+
+An undeclared operation returns `ErrNotImplemented` without network
+traffic. External adapters embed `dnsprovider.UnimplementedBatch`,
+`UnimplementedTenants`, and `UnimplementedDelegationSigners` for the
+operations they do not support, and add `CapBatcher`, `CapTenantLister`, or
+`CapDSRegistrar` to their Traits for those they do. `Apply` goes through
+`ApplyChangeset` only when the Traits declare `CapBatcher`, so an adapter
+that implements the method without declaring it keeps the CRUD path.
+
+In `providertest`, `OpTenants` is now `OpListTenants` (value
+`"ListTenants"`), and the generated wrapper types are gone: every built
+Provider has every method, its Traits declare what was scripted.
 
 ## Preserved behavior
 

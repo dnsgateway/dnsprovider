@@ -9,7 +9,8 @@ import (
 
 // Apply rechecks Records modified or deleted by the Changeset and refuses
 // writes with *StaleError (ErrStale) if any differ from their Before. It
-// then uses the Provider's Batcher or applies changes in deletion,
+// then hands the Changeset to ApplyChangeset when the Provider's Traits
+// declare CapBatcher, or else applies changes in deletion,
 // modification, and addition order. Individual failures do not stop other
 // changes, except ErrNoTenant. Results follow Changeset order.
 func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
@@ -17,8 +18,8 @@ func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
 		return ApplyResult{}, err
 	}
 
-	if b, ok := p.(Batcher); ok {
-		return b.ApplyChangeset(ctx, cs)
+	if Can(p, CapBatcher) {
+		return p.ApplyChangeset(ctx, cs)
 	}
 
 	res := ApplyResult{Results: make([]ChangeResult, len(cs.Changes))}
@@ -39,7 +40,7 @@ func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error) {
 // ApplyOrder is the order Apply makes changes in, as indexes into
 // changes: deletions, then modifications, then additions, each in
 // Changeset order; a change of no known kind goes with the additions. It
-// is exported for providertest, whose fake Batcher makes one change at a
+// is exported for providertest, whose fake ApplyChangeset makes one change at a
 // time in the same order.
 func ApplyOrder(changes []Change) []int {
 	rank := func(k ChangeKind) int {

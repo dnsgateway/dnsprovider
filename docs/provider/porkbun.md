@@ -34,7 +34,7 @@ Creates and updates read the stored Record back. `dnsprovider.Apply` provides
 stale checking and ordered CRUD with per-change results; changes are not atomic.
 Mutations are never automatically retried, including after an uncertain reply.
 
-The Provider is a registrar adapter (`dnsprovider.DSRegistrar`); its DS
+The Provider is a registrar adapter (`dnsprovider.CapDSRegistrar`); its DS
 writes need the `domains` scope (or `full`), which `Account` does not check. `ListDelegationSigners` reads the registry's DS records with
 `getDnssecRecords`, one Signing Key per key tag, without the DNSKEY, which
 Porkbun does not return. `SetDelegationSigners` sends each key's SHA-256 DS

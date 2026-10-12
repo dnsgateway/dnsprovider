@@ -142,7 +142,11 @@ func Factory() dnsprovider.Factory {
 
 // traits are the Traits of every Provider, which Traits and Factory
 // report.
-var traits = dnsprovider.Traits{TTL: ttlRange, Extras: []dnsprovider.ExtraSpec{{Key: ExtraNotes, Label: "Notes", Kind: dnsprovider.ExtraString, Writable: true}}}
+var traits = dnsprovider.Traits{
+	Capabilities: []dnsprovider.Capability{dnsprovider.CapDSRegistrar},
+	TTL:          ttlRange,
+	Extras:       []dnsprovider.ExtraSpec{{Key: ExtraNotes, Label: "Notes", Kind: dnsprovider.ExtraString, Writable: true}},
+}
 
 // Traits implements dnsprovider.Provider.
 func (p *Provider) Traits() dnsprovider.Traits {

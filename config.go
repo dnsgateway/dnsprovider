@@ -72,7 +72,7 @@ type Field struct {
 	// Secret marks a field to hide on screen and keep sealed.
 	Secret bool
 	// Tenant marks the field holding the ID of the Tenant the Provider
-	// acts within, one of those its TenantLister lists. A consumer that
+	// acts within, one of those its ListTenants lists. A consumer that
 	// picks the Tenant sets it.
 	Tenant bool
 	// Default makes the field optional: New fills it in when the field
@@ -98,12 +98,13 @@ type Factory struct {
 	New func(fields map[string]string, opts ...Option) (Provider, error)
 }
 
-// Traits are what a Provider type supports: its Zone writes, its Record
-// TTLs and its Record extras. Its Factory and every Provider it builds
+// Traits are what a Provider type supports: its optional operations, its
+// Record TTLs and its Record extras. Its Factory and every Provider it builds
 // declare the same Traits, from one declaration in the adapter.
 type Traits struct {
-	// Capabilities are the supported Zone writes. Support does not imply
-	// permission or a selected Tenant.
+	// Capabilities are the supported optional operations: Zone writes,
+	// batching, Tenant listing and DS registrar writes. Support does not
+	// imply permission or a selected Tenant.
 	Capabilities []Capability
 	// TTL is the TTLRange of the Provider's Records, as TTLRangeOf
 	// reports it. The zero TTLRange stands for DefaultTTLRange; read it
@@ -244,7 +245,9 @@ func (t Traits) TTLRange() TTLRange {
 	return t.TTL
 }
 
-// Capability names a supported Zone write declared in Traits.
+// Capability names a supported optional operation declared in Traits. A
+// Provider method whose Capability its Traits do not declare returns
+// ErrNotImplemented without network traffic.
 type Capability string
 
 // The capabilities Traits declare.
@@ -255,6 +258,14 @@ const (
 	CapZoneUpdater Capability = "ZoneUpdater"
 	// CapZoneDeleter declares support for Offboarding Zones.
 	CapZoneDeleter Capability = "ZoneDeleter"
+	// CapBatcher declares that ApplyChangeset applies a Changeset whole;
+	// Apply goes through it.
+	CapBatcher Capability = "Batcher"
+	// CapTenantLister declares support for ListTenants.
+	CapTenantLister Capability = "TenantLister"
+	// CapDSRegistrar declares support for reading and replacing a
+	// Registration's Delegation Signer records.
+	CapDSRegistrar Capability = "DSRegistrar"
 )
 
 // Can reports whether t declares support for c.

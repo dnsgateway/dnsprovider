@@ -38,7 +38,7 @@ func Factory() dnsprovider.Factory {
 
 // traits are the Traits of every Provider, which Traits and Factory
 // report.
-var traits = dnsprovider.Traits{TTL: ttlRange}
+var traits = dnsprovider.Traits{Capabilities: []dnsprovider.Capability{dnsprovider.CapBatcher}, TTL: ttlRange}
 
 // Traits implements dnsprovider.Provider.
 func (p *Provider) Traits() dnsprovider.Traits {
@@ -49,6 +49,8 @@ func (p *Provider) Traits() dnsprovider.Traits {
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
 	dnsprovider.UnimplementedZoneDetails
+	dnsprovider.UnimplementedTenants
+	dnsprovider.UnimplementedDelegationSigners
 
 	key, project, baseURL string
 	client                *http.Client

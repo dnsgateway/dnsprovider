@@ -271,9 +271,9 @@ reports a Partial View.
 `AccountInfo{Tenant, Nameservers}`. Nameservers are supplied at account level
 only when shared across Zones. Cloudflare supplies them per Zone.
 
-A Tenant is a Provider-side account. Cloudflare implements `TenantLister`;
-`CanListTenants` detects it. `Tenants` lists accessible accounts with or
-without a configured Tenant. With TenantID, `ListZones` and `GetZone` are scoped to
+A Tenant is a Provider-side account. Cloudflare declares `CapTenantLister`;
+`Can(p, CapTenantLister)` detects it. `ListTenants` lists accessible accounts
+with or without a configured Tenant; other adapters return `ErrNotImplemented`. With TenantID, `ListZones` and `GetZone` are scoped to
 that account. Without it, they reach every Zone the token can access.
 Record and setting calls address a Zone by ID in either mode, without an
 additional Tenant ownership check. `DeleteZone` checks ownership when scoped;
@@ -313,7 +313,7 @@ Provider.
 Cloudflare's `ZoneDetails` reads Zone Status and Signing Keys; every other
 built-in adapter embeds `dnsprovider.UnimplementedZoneDetails`, which reports
 each property unsupported without a request. Porkbun, Gandi, and Internet.bs
-implement `DSRegistrar`.
+declare `CapDSRegistrar`.
 
 `CreateZone(ctx, name)` Onboards a name with `type: full` in the configured
 Tenant. It returns `ErrNoTenant` without a request when unscoped and
@@ -375,16 +375,16 @@ case. Cloudflare returns the key of its DNSSEC status while the Zone is
 signed, pending or pending-disabled.
 
 ```go
-type DSRegistrar interface {
-    ListDelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
-    SetDelegationSigners(ctx context.Context, zone Zone, keys []SigningKey) error
-    DeleteDelegationSigners(ctx context.Context, zone Zone) error
-}
+// Provider methods, supported when Traits declare CapDSRegistrar.
+ListDelegationSigners(ctx context.Context, zone Zone) ([]SigningKey, error)
+SetDelegationSigners(ctx context.Context, zone Zone, keys []SigningKey) error
+DeleteDelegationSigners(ctx context.Context, zone Zone) error
 ```
 
 A registrar adapter, a Provider that registers domains and can replace the
-DS records the registry publishes for them, implements `DSRegistrar`;
-`CanRegisterDS(p)` detects it. Each method returns `ErrNotFound` when the
+DS records the registry publishes for them, declares `CapDSRegistrar`;
+`Can(p, CapDSRegistrar)` detects it. Other adapters embed
+`UnimplementedDelegationSigners` and return `ErrNotImplemented`. Each method returns `ErrNotFound` when the
 Account does not register the domain: a consumer looking for the registrar
 of a zone name skips that Account. `ListDelegationSigners` returns the
 Signing Keys the registry holds for the Zone's domain, none when it holds
@@ -452,12 +452,11 @@ writes DS records, or establishes end-to-end DNSSEC validity.
 ```go
 func Apply(ctx context.Context, p Provider, cs Changeset) (ApplyResult, error)
 
-type Batcher interface {
-    ApplyChangeset(context.Context, Changeset) (ApplyResult, error)
-}
+// Provider method, supported when Traits declare CapBatcher.
+ApplyChangeset(context.Context, Changeset) (ApplyResult, error)
 ```
 
-Use `Apply` for its common stale check, including on adapters with a Batcher.
+Use `Apply` for its common stale check, including on adapters that batch.
 Direct CRUD and direct `ApplyChangeset` calls bypass that check. GoDaddy and
 Namecheap still require the Before content to exist when updating or deleting;
 Cloudflare finds Records by ID and patches their current state.
@@ -468,7 +467,7 @@ Cloudflare finds Records by ID and patches their current state.
 2. Compare each Before with the current Record, including TTL and Extras.
    An absent proxy flag and `proxied=false` are equivalent. If any differs,
    return `*StaleError` (matching `ErrStale`) without writing anything.
-3. Use `Batcher` if present. Otherwise run deletions, modifications, then
+3. Use `ApplyChangeset` when the Traits declare `CapBatcher`. Otherwise run deletions, modifications, then
    additions, preserving order within each group through `ApplyOrder`.
 
 The stale check is an additional read even when a Batcher reads again for
@@ -600,15 +599,14 @@ suite and `go vet ./...` for static checks.
 `providertest.New()` creates a scriptable fake with call recording, Zones,
 Records, account data, failures, withheld results or serials, and Partial
 Views (`SetPartialZones`, `SetPartialRecords`). Its
-`Factory` builds Providers sharing the script. Configure optional interfaces
+`Factory` builds Providers sharing the script. Configure optional operations
 before building: `SetTenants`, `SetZoneStatus`, `SetSigningKeys`,
 `SetRegistration`, `SetZoneDetails`, and `SetBatcher`. Configure supported Zone writes with
 `SetZoneCreator`, `SetZoneUpdater`, and `SetZoneDeleter`. `SetRegistration`
 makes a Zone one the Account registers,
 with the DS records the registry holds; any other Zone is `ErrNotFound` to
-the `DSRegistrar`. Unscripted Providers
-omit those optional interfaces. Every built Provider exposes Zone CRUD;
-unscripted writes
+the Delegation Signer methods. Every built Provider exposes every method;
+its Traits declare the operations scripted, and unscripted ones
 return `ErrNotImplemented` without recording a call. Factory and Provider
 Traits declare only scripted writes. A built Provider keeps the write
 support and Tenant scope captured at construction, while sharing mutable

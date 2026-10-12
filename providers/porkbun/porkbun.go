@@ -30,6 +30,8 @@ type (
 	Provider struct {
 		dnsprovider.UnimplementedZoneWrites
 		dnsprovider.UnimplementedZoneDetails
+		dnsprovider.UnimplementedBatch
+		dnsprovider.UnimplementedTenants
 
 		cfg Config
 		api rest.Client

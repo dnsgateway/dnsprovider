@@ -1445,5 +1445,5 @@ func batcherApply(t *testing.T, api *gdAPI, cs dnsprovider.Changeset) (dnsprovid
 		t.Fatalf("dnsprovider.Apply wrote %v, want nothing", got)
 	}
 
-	return newProvider(t, api).(dnsprovider.Batcher).ApplyChangeset(context.Background(), cs)
+	return newProvider(t, api).ApplyChangeset(context.Background(), cs)
 }

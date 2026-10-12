@@ -40,6 +40,8 @@ type Config struct{ Token string }
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
 	dnsprovider.UnimplementedZoneDetails
+	dnsprovider.UnimplementedTenants
+	dnsprovider.UnimplementedDelegationSigners
 
 	token, baseURL string
 	client         *http.Client
@@ -77,7 +79,8 @@ func Factory() dnsprovider.Factory {
 // Writes keep each value's comment and the RRset's labels and
 // protection as Hetzner holds them.
 var traits = dnsprovider.Traits{
-	TTL: ttlRange,
+	Capabilities: []dnsprovider.Capability{dnsprovider.CapBatcher},
+	TTL:          ttlRange,
 	Extras: []dnsprovider.ExtraSpec{
 		{Key: ExtraComment, Label: "Comment", Kind: dnsprovider.ExtraString},
 		{Key: ExtraProtected, Label: "Change protection", Kind: dnsprovider.ExtraBool},

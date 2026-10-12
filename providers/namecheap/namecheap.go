@@ -73,7 +73,7 @@ func Factory() dnsprovider.Factory {
 
 // traits are the Traits of every Provider, which Traits and Factory
 // report.
-var traits = dnsprovider.Traits{TTL: ttlRange}
+var traits = dnsprovider.Traits{Capabilities: []dnsprovider.Capability{dnsprovider.CapBatcher}, TTL: ttlRange}
 
 // Traits implements dnsprovider.Provider.
 func (p *Provider) Traits() dnsprovider.Traits {
@@ -135,6 +135,8 @@ const RequestsPerMinute = 20
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
 	dnsprovider.UnimplementedZoneDetails
+	dnsprovider.UnimplementedTenants
+	dnsprovider.UnimplementedDelegationSigners
 
 	// api sends the Account's commands.
 	api *rest.Client
@@ -142,10 +144,7 @@ type Provider struct {
 	auth url.Values
 }
 
-var (
-	_ dnsprovider.Provider = (*Provider)(nil)
-	_ dnsprovider.Batcher  = (*Provider)(nil)
-)
+var _ dnsprovider.Provider = (*Provider)(nil)
 
 // ttlRange is the TTLRange of every Provider, which its Traits
 // report. Namecheap's "Automatic" TTL is 1799 seconds, an ordinary TTL

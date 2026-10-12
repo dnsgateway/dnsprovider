@@ -29,7 +29,7 @@ type sendHost struct {
 	TTL    uint32
 }
 
-// ApplyChangeset implements dnsprovider.Batcher. setHosts replaces a
+// ApplyChangeset implements dnsprovider.Provider (CapBatcher). setHosts replaces a
 // domain's whole host list, so it reads the list and the EmailType with
 // getHosts, makes the Changeset's changes to it, and sends the result in
 // one call.

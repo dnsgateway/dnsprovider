@@ -14,52 +14,30 @@ type oneTenant struct{ dnsprovider.Provider }
 
 func (oneTenant) Traits() dnsprovider.Traits { return dnsprovider.Traits{} }
 
-func TestZoneMethodsAloneDoNotDeclareSupport(t *testing.T) {
-	if dnsprovider.Can(oneTenant{}, dnsprovider.CapZoneCreator) || dnsprovider.Can(oneTenant{}, dnsprovider.CapZoneUpdater) || dnsprovider.Can(oneTenant{}, dnsprovider.CapZoneDeleter) {
-		t.Fatal("Zone methods alone must not declare supported operations")
+func TestMethodsAloneDoNotDeclareSupport(t *testing.T) {
+	for _, c := range []dnsprovider.Capability{
+		dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter,
+		dnsprovider.CapBatcher, dnsprovider.CapTenantLister, dnsprovider.CapDSRegistrar,
+	} {
+		if dnsprovider.Can(oneTenant{}, c) {
+			t.Errorf("methods alone declare %s", c)
+		}
 	}
 }
 
-// manyTenants is a Provider whose credentials can reach several Tenants.
-type manyTenants struct{ dnsprovider.Provider }
+func TestUnimplementedOptionalOperationsReturnErrNotImplemented(t *testing.T) {
+	ctx, z := context.Background(), dnsprovider.Zone{ID: "z", Name: "example.com"}
 
-func (manyTenants) Tenants(context.Context) ([]dnsprovider.Tenant, error) {
-	return []dnsprovider.Tenant{{ID: "acc1", Name: "Acme Ltd"}}, nil
-}
+	_, batch := dnsprovider.UnimplementedBatch{}.ApplyChangeset(ctx, dnsprovider.Changeset{Zone: z})
+	_, tenants := dnsprovider.UnimplementedTenants{}.ListTenants(ctx)
+	_, list := dnsprovider.UnimplementedDelegationSigners{}.ListDelegationSigners(ctx, z)
+	set := dnsprovider.UnimplementedDelegationSigners{}.SetDelegationSigners(ctx, z, []dnsprovider.SigningKey{{}})
+	del := dnsprovider.UnimplementedDelegationSigners{}.DeleteDelegationSigners(ctx, z)
 
-func TestCanListTenantsOnlyForATenantLister(t *testing.T) {
-	if dnsprovider.CanListTenants(oneTenant{}) {
-		t.Error("a Provider without Tenants lists them")
-	}
-
-	if !dnsprovider.CanListTenants(manyTenants{}) {
-		t.Error("a TenantLister does not list Tenants")
-	}
-}
-
-// registrar is a Provider that registers domains and can replace the DS
-// records the registry publishes for them.
-type registrar struct{ dnsprovider.Provider }
-
-func (registrar) ListDelegationSigners(context.Context, dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
-	return nil, dnsprovider.ErrNotFound
-}
-
-func (registrar) SetDelegationSigners(context.Context, dnsprovider.Zone, []dnsprovider.SigningKey) error {
-	return dnsprovider.ErrUnsupported
-}
-
-func (registrar) DeleteDelegationSigners(context.Context, dnsprovider.Zone) error {
-	return dnsprovider.ErrNotFound
-}
-
-func TestCanRegisterDSOnlyForADSRegistrar(t *testing.T) {
-	if dnsprovider.CanRegisterDS(oneTenant{}) {
-		t.Error("a Provider that cannot write DS records registers them")
-	}
-
-	if !dnsprovider.CanRegisterDS(registrar{}) {
-		t.Error("a DSRegistrar does not register DS records")
+	for name, err := range map[string]error{"ApplyChangeset": batch, "ListTenants": tenants, "ListDelegationSigners": list, "SetDelegationSigners": set, "DeleteDelegationSigners": del} {
+		if !errors.Is(err, dnsprovider.ErrNotImplemented) {
+			t.Errorf("%s = %v, want ErrNotImplemented", name, err)
+		}
 	}
 }
 

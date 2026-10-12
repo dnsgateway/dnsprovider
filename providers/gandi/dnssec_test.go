@@ -140,8 +140,8 @@ func TestDelegationSignersReadTheRegistryKeys(t *testing.T) {
 		heldKey(7, 40000, 8, "zsk", pubB, strings.ToLower(digestA)),
 		heldKey(3, 2371, 13, "ksk", pubA, digestA),
 	)
-	if !dnsprovider.CanRegisterDS(p) {
-		t.Fatal("Gandi is not a DSRegistrar")
+	if !dnsprovider.Can(p, dnsprovider.CapDSRegistrar) {
+		t.Fatal("Gandi does not declare CapDSRegistrar")
 	}
 	keys, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "Example.COM."})
 	want := []dnsprovider.SigningKey{

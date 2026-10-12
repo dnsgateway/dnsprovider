@@ -20,36 +20,35 @@ func (p *Provider) Traits() dnsprovider.Traits {
 	return p.traits()
 }
 
-// Traits declare the Zone writes scripted when this Provider was built,
-// and the TTL range and proxiable types scripted so far.
+// Traits declare the optional operations scripted when this Provider was
+// built, and the TTL range and proxiable types scripted so far.
 func (p scopedProvider) Traits() dnsprovider.Traits {
 	t := p.Provider.Traits()
-	t.Capabilities = slices.Clone(p.writes)
+	t.Capabilities = slices.Clone(p.caps)
 	return t
+}
+
+// scope is the scope of a call on the fake itself: the operations
+// scripted so far.
+func (p *Provider) scope() scope {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return scope{caps: p.capabilities(), unscoped: p.tenants != nil}
 }
 
 // CreateZone starts scripted DNS hosting.
 func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
-	p.mu.Lock()
-	sc := scope{writes: p.zoneWrites(), unscoped: p.tenants != nil}
-	p.mu.Unlock()
-	return (scopedProvider{p, sc}).CreateZone(ctx, name)
+	return (scopedProvider{p, p.scope()}).CreateZone(ctx, name)
 }
 
 // UpdateZone changes scripted settings.
 func (p *Provider) UpdateZone(ctx context.Context, z dnsprovider.Zone, u dnsprovider.ZoneUpdate) (dnsprovider.ZoneStatus, error) {
-	p.mu.Lock()
-	sc := scope{writes: p.zoneWrites()}
-	p.mu.Unlock()
-	return (scopedProvider{p, sc}).UpdateZone(ctx, z, u)
+	return (scopedProvider{p, p.scope()}).UpdateZone(ctx, z, u)
 }
 
 // DeleteZone removes scripted DNS hosting.
 func (p *Provider) DeleteZone(ctx context.Context, z dnsprovider.Zone) error {
-	p.mu.Lock()
-	sc := scope{writes: p.zoneWrites()}
-	p.mu.Unlock()
-	return (scopedProvider{p, sc}).DeleteZone(ctx, z)
+	return (scopedProvider{p, p.scope()}).DeleteZone(ctx, z)
 }
 
 func (p scopedProvider) CreateZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
@@ -72,6 +71,71 @@ func (p scopedProvider) DeleteZone(ctx context.Context, z dnsprovider.Zone) erro
 	}
 	return p.deleteZone(ctx, z)
 }
+
+// ApplyChangeset applies a Changeset whole, when scripted (SetBatcher).
+func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	return (scopedProvider{p, p.scope()}).ApplyChangeset(ctx, cs)
+}
+
+// ListTenants lists the scripted Tenants (SetTenants).
+func (p *Provider) ListTenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
+	return (scopedProvider{p, p.scope()}).ListTenants(ctx)
+}
+
+// ListDelegationSigners reads a scripted Registration's DS (SetRegistration).
+func (p *Provider) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	return (scopedProvider{p, p.scope()}).ListDelegationSigners(ctx, z)
+}
+
+// SetDelegationSigners replaces a scripted Registration's DS (SetRegistration).
+func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+	return (scopedProvider{p, p.scope()}).SetDelegationSigners(ctx, z, keys)
+}
+
+// DeleteDelegationSigners removes a scripted Registration's DS (SetRegistration).
+func (p *Provider) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	return (scopedProvider{p, p.scope()}).DeleteDelegationSigners(ctx, z)
+}
+
+func (p scopedProvider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	if err := p.unscripted(dnsprovider.CapBatcher); err != nil {
+		return dnsprovider.ApplyResult{}, err
+	}
+	return p.applyChangeset(ctx, cs)
+}
+
+func (p scopedProvider) ListTenants(ctx context.Context) ([]dnsprovider.Tenant, error) {
+	if err := p.unscripted(dnsprovider.CapTenantLister); err != nil {
+		return nil, err
+	}
+	return p.tenantList(ctx)
+}
+
+func (p scopedProvider) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
+	if err := p.unscripted(dnsprovider.CapDSRegistrar); err != nil {
+		return nil, err
+	}
+	return p.listDelegationSigners(ctx, z)
+}
+
+func (p scopedProvider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
+	if err := p.unscripted(dnsprovider.CapDSRegistrar); err != nil {
+		return err
+	}
+	return p.setDelegationSigners(ctx, z, keys)
+}
+
+func (p scopedProvider) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
+	if err := p.unscripted(dnsprovider.CapDSRegistrar); err != nil {
+		return err
+	}
+	return p.deleteDelegationSigners(ctx, z)
+}
+
+var (
+	_ dnsprovider.Provider = (*Provider)(nil)
+	_ dnsprovider.Provider = scopedProvider{}
+)
 
 // Zone reads a scripted Zone by name.
 //

@@ -119,7 +119,7 @@ or automatic TTL capability.
 
 ## Registration Signing Keys
 
-The Provider implements `dnsprovider.DSRegistrar`. `ListDelegationSigners` reads
+The Provider declares `dnsprovider.CapDSRegistrar`. `ListDelegationSigners` reads
 `Domain/Info`, grouping DS records by key tag and algorithm with any returned
 DNSKEY, and ordering SHA-256 DS records first. A DNSKEY's tag is computed from
 its content. Missing or malformed data fails explicitly; `disabled` means no keys.

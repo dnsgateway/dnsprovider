@@ -66,6 +66,8 @@ type Config struct {
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
 	dnsprovider.UnimplementedZoneDetails
+	dnsprovider.UnimplementedTenants
+	dnsprovider.UnimplementedDelegationSigners
 
 	creds   credentials
 	baseURL string
@@ -199,7 +201,7 @@ func Factory() dnsprovider.Factory {
 
 // traits are the Traits of every Provider, which Traits and Factory
 // report.
-var traits = dnsprovider.Traits{}
+var traits = dnsprovider.Traits{Capabilities: []dnsprovider.Capability{dnsprovider.CapBatcher}}
 
 // Traits implements dnsprovider.Provider.
 func (p *Provider) Traits() dnsprovider.Traits {

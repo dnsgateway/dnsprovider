@@ -98,7 +98,7 @@ func TestDelegationSignersReadRegistrationSigningKeys(t *testing.T) {
 		"example.com. 600 IN DS 2371 13 2 ABCD",
 		"example.com. 600 IN DS 2371 8 2 EE",
 	})
-	if !dnsprovider.CanRegisterDS(p) {
+	if !dnsprovider.Can(p, dnsprovider.CapDSRegistrar) {
 		t.Fatal("Provider does not implement DSRegistrar")
 	}
 	got, err := p.ListDelegationSigners(context.Background(), dnsprovider.Zone{Name: "Example.COM."})

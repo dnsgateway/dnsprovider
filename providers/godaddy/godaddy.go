@@ -61,7 +61,7 @@ func Factory() dnsprovider.Factory {
 
 // traits are the Traits of every Provider, which Traits and Factory
 // report.
-var traits = dnsprovider.Traits{TTL: ttlRange}
+var traits = dnsprovider.Traits{Capabilities: []dnsprovider.Capability{dnsprovider.CapBatcher}, TTL: ttlRange}
 
 // Traits implements dnsprovider.Provider.
 func (p *Provider) Traits() dnsprovider.Traits {
@@ -115,6 +115,8 @@ const RequestsPerMinute = 60
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
 	dnsprovider.UnimplementedZoneDetails
+	dnsprovider.UnimplementedTenants
+	dnsprovider.UnimplementedDelegationSigners
 
 	baseURL string
 	auth    string
@@ -140,10 +142,7 @@ func (p *Provider) api() *rest.Client {
 	}
 }
 
-var (
-	_ dnsprovider.Provider = (*Provider)(nil)
-	_ dnsprovider.Batcher  = (*Provider)(nil)
-)
+var _ dnsprovider.Provider = (*Provider)(nil)
 
 // ttlRange is the TTLRange of every Provider, which its Traits
 // report: a GoDaddy TTL is at least 600 seconds.
@@ -496,7 +495,7 @@ type rrGroup struct {
 	ops []rrOp
 }
 
-// ApplyChangeset implements dnsprovider.Batcher. GoDaddy has no record
+// ApplyChangeset implements dnsprovider.Provider (CapBatcher). GoDaddy has no record
 // IDs, so each RRset a Changeset touches is one call: it is read, has the
 // changes made to it, and is replaced, or deleted when they leave it
 // empty. RRsets left with only deletions go first, so a Record that takes

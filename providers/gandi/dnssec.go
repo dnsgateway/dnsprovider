@@ -108,7 +108,7 @@ func (p *Provider) heldKeys(ctx context.Context, z dnsprovider.Zone) ([]heldKey,
 	return held, nil
 }
 
-// ListDelegationSigners implements dnsprovider.DSRegistrar: the keys Gandi
+// ListDelegationSigners implements dnsprovider.Provider (CapDSRegistrar): the keys Gandi
 // holds at the registry for the Zone's domain, ordered by key tag, each
 // with the DS Gandi computed for it. The list holds every key Gandi has,
 // so a key of type "zsk" or none reads too, its DNSKEY with flags 256.
@@ -176,7 +176,7 @@ func byComparedKey(a, b comparedKey) int {
 	return cmp.Or(cmp.Compare(a.Algorithm, b.Algorithm), cmp.Compare(a.PublicKey, b.PublicKey), cmp.Compare(a.Type, b.Type))
 }
 
-// SetDelegationSigners implements dnsprovider.DSRegistrar through
+// SetDelegationSigners implements dnsprovider.Provider (CapDSRegistrar) through
 // replaceDelegationSigners.
 func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	if len(keys) == 0 {
@@ -186,7 +186,7 @@ func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone,
 	return p.replaceDelegationSigners(ctx, z, keys)
 }
 
-// DeleteDelegationSigners implements dnsprovider.DSRegistrar through
+// DeleteDelegationSigners implements dnsprovider.Provider (CapDSRegistrar) through
 // replaceDelegationSigners with no keys.
 func (p *Provider) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
 	return p.replaceDelegationSigners(ctx, z, nil)
@@ -249,5 +249,3 @@ func refusedAsUnsupported(err error) error {
 	}
 	return err
 }
-
-var _ dnsprovider.DSRegistrar = (*Provider)(nil)

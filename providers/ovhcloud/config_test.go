@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,8 +35,8 @@ func TestFactoryDescribesCredentialsAndEndpoint(t *testing.T) {
 		}
 	}
 
-	if len(f.Capabilities) != 0 {
-		t.Errorf("Capabilities = %v; no Zone writes are implemented", f.Capabilities)
+	if !slices.Equal(f.Capabilities, []dnsprovider.Capability{dnsprovider.CapBatcher}) {
+		t.Errorf("Capabilities = %v; want Batcher alone, no Zone writes are implemented", f.Capabilities)
 	}
 }
 

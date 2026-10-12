@@ -35,6 +35,7 @@ type Config struct{ Token string }
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
 	dnsprovider.UnimplementedZoneDetails
+	dnsprovider.UnimplementedTenants
 
 	token, baseURL string
 	// domainURL is the Domain API, the sibling of the LiveDNS baseURL.
@@ -73,7 +74,7 @@ func Factory() dnsprovider.Factory {
 
 // traits are the Traits of every Provider, which Traits and Factory
 // report.
-var traits = dnsprovider.Traits{TTL: ttlRange}
+var traits = dnsprovider.Traits{Capabilities: []dnsprovider.Capability{dnsprovider.CapBatcher, dnsprovider.CapDSRegistrar}, TTL: ttlRange}
 
 // Traits implements dnsprovider.Provider.
 func (p *Provider) Traits() dnsprovider.Traits {

@@ -91,7 +91,7 @@ func (p *Provider) registryDS(ctx context.Context, z dnsprovider.Zone) ([]dsValu
 	return out, nil
 }
 
-// ListDelegationSigners implements dnsprovider.DSRegistrar: the DS records
+// ListDelegationSigners implements dnsprovider.Provider (CapDSRegistrar): the DS records
 // the registry holds for the Zone's domain, one Signing Key per key tag,
 // without its DNSKEY, which Porkbun does not return.
 func (p *Provider) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone) ([]dnsprovider.SigningKey, error) {
@@ -162,7 +162,7 @@ func diffDS(want, held []dsValue) (added, changed, gone []dsValue) {
 	return added, changed, gone
 }
 
-// SetDelegationSigners implements dnsprovider.DSRegistrar through
+// SetDelegationSigners implements dnsprovider.Provider (CapDSRegistrar) through
 // replaceDelegationSigners.
 func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	if len(keys) == 0 {
@@ -172,7 +172,7 @@ func (p *Provider) SetDelegationSigners(ctx context.Context, z dnsprovider.Zone,
 	return p.replaceDelegationSigners(ctx, z, keys)
 }
 
-// DeleteDelegationSigners implements dnsprovider.DSRegistrar through
+// DeleteDelegationSigners implements dnsprovider.Provider (CapDSRegistrar) through
 // replaceDelegationSigners with no keys.
 func (p *Provider) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zone) error {
 	return p.replaceDelegationSigners(ctx, z, nil)
@@ -245,5 +245,3 @@ func (p *Provider) createDS(ctx context.Context, z dnsprovider.Zone, d dsValue) 
 func (p *Provider) deleteDS(ctx context.Context, z dnsprovider.Zone, tag uint16) error {
 	return p.call(ctx, http.MethodPost, "/dns/deleteDnssecRecord/"+zonePath(z)+"/"+strconv.Itoa(int(tag)), nil, map[string]any{}, nil)
 }
-
-var _ dnsprovider.DSRegistrar = (*Provider)(nil)

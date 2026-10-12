@@ -42,6 +42,8 @@ type Config struct {
 type Provider struct {
 	dnsprovider.UnimplementedZoneWrites
 	dnsprovider.UnimplementedZoneDetails
+	dnsprovider.UnimplementedBatch
+	dnsprovider.UnimplementedTenants
 
 	api  *rest.Client
 	auth url.Values

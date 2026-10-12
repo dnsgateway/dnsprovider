@@ -18,10 +18,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
-var (
-	_ dnsprovider.Provider = (*Provider)(nil)
-	_ dnsprovider.Batcher  = (*Provider)(nil)
-)
+var _ dnsprovider.Provider = (*Provider)(nil)
 
 // ttlRange is the TTLRange of every Provider, which its Traits
 // report: the current official Terraform provider validation.

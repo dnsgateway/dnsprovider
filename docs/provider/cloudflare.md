@@ -5,9 +5,9 @@ Import `providers/cloudflare`, or select Registry key `cloudflare`.
 ## Accounts and Tenants
 
 A Cloudflare token can reach several Tenants (Cloudflare accounts). The
-Provider implements `TenantLister`, whose `Tenants(ctx)` works with or
-without `TenantID`; `dnsprovider.CanListTenants(p)` says whether a Provider
-does. With `TenantID` set, a 32-hex-digit account ID, `ListZones` and `GetZone`
+Provider declares `CapTenantLister`, and its `ListTenants(ctx)` works with or
+without `TenantID`; `dnsprovider.Can(p, dnsprovider.CapTenantLister)` says
+whether a Provider does. With `TenantID` set, a 32-hex-digit account ID, `ListZones` and `GetZone`
 list that Tenant's Zones alone. Without it the Provider is unscoped: it
 lists every Zone the token reaches, in any account, and `Account` verifies
 the token alone, with an empty Tenant. The calls on a Zone work by its ID

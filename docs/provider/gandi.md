@@ -59,7 +59,7 @@ succeeded. Concurrent edits between the read and replacement can overwrite each
 other: LiveDNS has no conditional write used by this adapter. Coordinate external
 writers. Mutations are never automatically retried, including RRset PUTs.
 
-The Provider is a registrar adapter (`dnsprovider.DSRegistrar`) through the
+The Provider is a registrar adapter (`dnsprovider.CapDSRegistrar`) through the
 Domain API's `dnskeys` routes, at the sibling of the LiveDNS endpoint
 (`/v5/domain` next to `/v5/livedns`, or `/domain` appended to a base URL
 without `/livedns`). Its token needs permission to manage the domain's

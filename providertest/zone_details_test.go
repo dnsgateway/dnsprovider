@@ -47,7 +47,7 @@ func TestScriptedZoneDetailsTakePrecedenceOverZoneStatusAndKeys(t *testing.T) {
 	if err != nil || got.Status.DNSSEC != dnsprovider.Pending || len(got.SigningKeys) != 0 || got.Properties.SigningKeys.State != dnsprovider.PropertyNotRequested {
 		t.Fatalf("details = %+v, %v", got, err)
 	}
-	if _, ok := p.(dnsprovider.DSRegistrar); !ok {
+	if !dnsprovider.Can(p, dnsprovider.CapDSRegistrar) {
 		t.Fatal("missing registrar reader")
 	}
 }

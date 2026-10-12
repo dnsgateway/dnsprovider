@@ -25,8 +25,8 @@ var (
 	// such as a Record identical to one the Zone has.
 	ErrConflict = errors.New("conflicts with what the Provider holds")
 	// ErrNoTenant means a call scoped to a Tenant was made before the
-	// Provider's Config set one. A Provider that returns it implements
-	// TenantLister, which lists the Tenants to pick from.
+	// Provider's Config set one. A Provider that returns it declares
+	// CapTenantLister: ListTenants lists the Tenants to pick from.
 	ErrNoTenant = errors.New("no Tenant set; pick one of Tenants")
 	// ErrStale means a Changeset was built from Records the Provider no
 	// longer holds as they were, so Apply refused it and wrote nothing.

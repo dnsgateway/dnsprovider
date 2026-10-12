@@ -17,10 +17,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
-var (
-	_ dnsprovider.Provider = (*Provider)(nil)
-	_ dnsprovider.Batcher  = (*Provider)(nil)
-)
+var _ dnsprovider.Provider = (*Provider)(nil)
 
 func (p *Provider) CreateRecord(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
 	return batch.Create(ctx, p, z, r)

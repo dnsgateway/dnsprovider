@@ -93,7 +93,8 @@ func (p *Provider) Traits() dnsprovider.Traits {
 func (p *Provider) api() *rest.Client {
 	return &rest.Client{
 		Provider: "hetzner", BaseURL: p.baseURL, HTTP: p.client, Limit: p.limit, Log: p.log,
-		Auth: func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+p.token) }, Decode: p.apiError,
+		Auth:    func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+p.token) },
+		Secrets: []string{p.token}, Decode: p.apiError,
 	}
 }
 
@@ -104,7 +105,7 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 	_ = json.Unmarshal(body, &payload)
 	e := &dnsprovider.APIError{Provider: "hetzner", StatusCode: res.StatusCode}
 	if payload.Error.Code != "" || payload.Error.Message != "" {
-		e.Messages = []string{p.redact(strings.TrimSpace(payload.Error.Code + ": " + payload.Error.Message))}
+		e.Messages = []string{strings.TrimSpace(payload.Error.Code + ": " + payload.Error.Message)}
 	}
 	e.Kind = errorKind(payload.Error.Code)
 	if res.StatusCode == http.StatusConflict {
@@ -118,7 +119,6 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 	}
 	return e
 }
-func (p *Provider) redact(s string) string { return strings.ReplaceAll(s, p.token, "[redacted]") }
 
 // Account verifies authenticated DNS read access, including empty projects.
 // The API supplies no project identity or Account-wide nameservers.

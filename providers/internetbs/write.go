@@ -128,7 +128,7 @@ func (p *Provider) stored(ctx context.Context, zone dnsprovider.Zone, want dnspr
 func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
 	r, err := prepare(zone, r)
 	if err != nil {
-		return dnsprovider.Record{}, p.cleanError(err)
+		return dnsprovider.Record{}, p.api.RedactError(err)
 	}
 	if len(metadata(r)) > 0 {
 		return dnsprovider.Record{}, errors.New("internetbs: cannot create record metadata")
@@ -174,7 +174,7 @@ func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, befo
 func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
 	after, err := prepare(zone, after)
 	if err != nil {
-		return dnsprovider.Record{}, p.cleanError(err)
+		return dnsprovider.Record{}, p.api.RedactError(err)
 	}
 	records, err := p.listRecords(ctx, zone)
 	if err != nil {

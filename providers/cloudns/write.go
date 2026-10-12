@@ -23,10 +23,10 @@ var ttlRange = dnsprovider.TTLRange{Min: 60, Max: 2592000}
 
 func (p *Provider) writeParams(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) (url.Values, error) {
 	if !slices.Contains([]string{"A", "AAAA", "CNAME", "MX", "NS", "SRV", "TXT", "CAA"}, r.Type) {
-		return nil, fmt.Errorf("cloudns: unsupported record type %s", p.redact(r.Type))
+		return nil, fmt.Errorf("cloudns: unsupported record type %s", p.api().Redact(r.Type))
 	}
 	if err := dnsprovider.CheckValue(r.Type, r.Value); err != nil {
-		return nil, &redactedError{message: p.redact(err.Error()), cause: err}
+		return nil, p.api().RedactError(err)
 	}
 	if err := dnsprovider.TTLRangeOf(p).Check(r.TTL); err != nil {
 		return nil, err
@@ -243,11 +243,11 @@ func (p *Provider) moveType(ctx context.Context, z dnsprovider.Zone, raw wireRec
 	}
 	if note := raw["note"]; note != "" {
 		if err = p.ack(ctx, "/dns/set-record-note.json", url.Values{"domain-name": {z.Name}, "record-id": {created.ID}, "note": {note}}); err != nil {
-			return dnsprovider.Record{}, fmt.Errorf("cloudns: replacement %s created, note failed; original %s remains: %w", p.redact(created.ID), p.redact(raw["id"]), err)
+			return dnsprovider.Record{}, p.api().RedactError(fmt.Errorf("cloudns: replacement %s created, note failed; original %s remains: %w", created.ID, raw["id"], err))
 		}
 	}
 	if err = p.ack(ctx, "/dns/delete-record.json", url.Values{"domain-name": {z.Name}, "record-id": {raw["id"]}}); err != nil {
-		return dnsprovider.Record{}, fmt.Errorf("cloudns: replacement %s created, original %s deletion failed: %w", p.redact(created.ID), p.redact(raw["id"]), err)
+		return dnsprovider.Record{}, p.api().RedactError(fmt.Errorf("cloudns: replacement %s created, original %s deletion failed: %w", created.ID, raw["id"], err))
 	}
 	stored, err := p.stored(ctx, z, created.ID)
 	if err != nil {

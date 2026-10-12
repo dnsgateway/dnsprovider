@@ -101,8 +101,9 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 func (p *Provider) api() *rest.Client {
 	return &rest.Client{
 		Provider: "digitalocean", BaseURL: p.baseURL, HTTP: p.client, Limit: p.limit, Log: p.log,
-		Auth:   func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+p.token) },
-		Decode: p.apiError,
+		Auth:    func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+p.token) },
+		Secrets: []string{p.token},
+		Decode:  p.apiError,
 	}
 }
 
@@ -121,11 +122,11 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 
 	msg := strings.TrimSpace(strings.Join(nonEmpty(payload.ID, payload.Message), ": "))
 	if msg != "" {
-		e.Messages = append(e.Messages, p.redact(msg))
+		e.Messages = append(e.Messages, msg)
 	}
 
 	if payload.RequestID != "" {
-		e.Messages = append(e.Messages, "request "+p.redact(payload.RequestID))
+		e.Messages = append(e.Messages, "request "+payload.RequestID)
 	}
 
 	switch {
@@ -146,8 +147,6 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 
 	return e
 }
-
-func (p *Provider) redact(s string) string { return strings.ReplaceAll(s, p.token, "[redacted]") }
 
 func nonEmpty(s ...string) []string {
 	var out []string

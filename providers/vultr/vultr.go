@@ -115,8 +115,9 @@ func endpointLimit(endpoint string) *rate.Limiter {
 func (p *Provider) api() *rest.Client {
 	return &rest.Client{
 		Provider: "vultr", BaseURL: p.baseURL, HTTP: p.client, Limit: p.limit, Log: p.log,
-		Auth:   func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+p.key) },
-		Decode: p.apiError,
+		Auth:    func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+p.key) },
+		Secrets: []string{p.key},
+		Decode:  p.apiError,
 	}
 }
 
@@ -132,13 +133,11 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 
 	e := &dnsprovider.APIError{Provider: "vultr", StatusCode: res.StatusCode}
 	if msg := strings.TrimSpace(payload.Error); msg != "" {
-		e.Messages = append(e.Messages, p.redact(msg))
+		e.Messages = append(e.Messages, msg)
 	}
 
 	return e
 }
-
-func (p *Provider) redact(s string) string { return strings.ReplaceAll(s, p.key, "[redacted]") }
 
 // Account reads the key's own Account, which proves the key works even
 // with no DNS Domains. Vultr's answer names no Account ID: the Tenant is

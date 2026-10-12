@@ -557,6 +557,12 @@ A `url.Values` body is form-encoded; other bodies are JSON. A `*[]byte`
 output receives raw bytes for Namecheap's XML decoder. Any 2xx status is a
 success. Response bodies default to a 64 MiB limit; Namecheap uses 4 MiB.
 
+Set `Secrets` to the Account's credentials. No error `Do` returns or logs
+shows one, raw or URL-escaped, including an `APIError`'s Messages and a
+transport `*url.Error`'s URL; `errors.Is` still matches. Decode needs no
+redaction of its own. For text or errors made outside `Do`, such as an
+error read from a 2xx body, use `Redact` and `RedactError`.
+
 Only GET, PUT, and DELETE retry HTTP 429/5xx responses; transport errors
 are returned. Defaults are three attempts, 250 ms exponential backoff, and
 a ten-second maximum wait. Retry-After accepts seconds or an HTTP date;

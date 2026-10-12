@@ -51,29 +51,15 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 		client = &http.Client{Timeout: DefaultRequestTimeout}
 	}
 	p := &Provider{cfg: cfg}
-	p.api = rest.Client{Provider: "porkbun", BaseURL: strings.TrimRight(base, "/"), HTTP: client, Limit: keyLimit(strings.TrimRight(base, "/"), cfg.Key), Log: o.Logger, Auth: func(r *http.Request) {
+	p.api = rest.Client{Provider: "porkbun", BaseURL: strings.TrimRight(base, "/"), HTTP: client, Limit: keyLimit(strings.TrimRight(base, "/"), cfg.Key), Log: o.Logger}
+	p.api.Secrets = []string{cfg.Key, cfg.Secret}
+	p.api.Auth = func(r *http.Request) {
 		r.Header.Set("X-Api-Key", cfg.Key)
 		r.Header.Set("X-Secret-Api-Key", cfg.Secret)
-	}}
+	}
 	p.api.Decode = func(r *http.Response, b []byte) error { return p.apiError(r.StatusCode, b) }
 	return p, nil
 }
-
-func (p *Provider) redact(s string) string {
-	for _, v := range []string{p.cfg.Key, p.cfg.Secret} {
-		s = strings.ReplaceAll(s, v, "[redacted]")
-		s = strings.ReplaceAll(s, url.QueryEscape(v), "[redacted]")
-	}
-	return s
-}
-
-type safeError struct {
-	message string
-	cause   error
-}
-
-func (e *safeError) Error() string { return e.message }
-func (e *safeError) Unwrap() error { return e.cause }
 
 type codedError struct {
 	*dnsprovider.APIError
@@ -113,7 +99,7 @@ func (p *Provider) apiError(status int, b []byte) error {
 		kind = dnsprovider.ErrRateLimited
 	}
 	return &codedError{code: env.Code, APIError: &dnsprovider.APIError{
-		Provider: "porkbun", StatusCode: status, Messages: []string{p.redact(env.Code + ": " + env.Message)},
+		Provider: "porkbun", StatusCode: status, Messages: []string{p.api.Redact(env.Code + ": " + env.Message)},
 		Kind: kind, RetryAfter: rest.RetryAfter(fmt.Sprint(env.TTLRemaining), time.Now()),
 	}}
 }
@@ -121,7 +107,7 @@ func (p *Provider) apiError(status int, b []byte) error {
 func (p *Provider) call(ctx context.Context, method, path string, q url.Values, in, out any) error {
 	var b []byte
 	if err := p.api.Do(ctx, method, path, q, in, &b); err != nil {
-		return &safeError{message: p.redact(err.Error()), cause: err}
+		return err
 	}
 	var env struct{ Status string }
 	if json.Unmarshal(b, &env) != nil {

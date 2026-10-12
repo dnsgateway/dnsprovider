@@ -90,7 +90,8 @@ func domainAPI(endpoint string) string {
 func (p *Provider) api(base string) *rest.Client {
 	return &rest.Client{
 		Provider: "gandi", BaseURL: base, HTTP: p.client, Log: p.log, Limit: p.limit,
-		Auth: func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+p.token) }, Decode: p.apiError, Attempts: 1,
+		Auth:    func(r *http.Request) { r.Header.Set("Authorization", "Bearer "+p.token) },
+		Secrets: []string{p.token}, Decode: p.apiError, Attempts: 1,
 	}
 }
 
@@ -106,11 +107,11 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 	_ = json.Unmarshal(body, &payload)
 	e := &dnsprovider.APIError{Provider: "gandi", StatusCode: res.StatusCode}
 	if payload.Message != "" {
-		e.Messages = []string{strings.ReplaceAll(payload.Message, p.token, "[redacted]")}
+		e.Messages = []string{payload.Message}
 	}
 	for _, d := range payload.Errors {
 		if d.Description != "" {
-			e.Messages = append(e.Messages, strings.ReplaceAll(d.Description, p.token, "[redacted]"))
+			e.Messages = append(e.Messages, d.Description)
 		}
 	}
 	code := res.StatusCode

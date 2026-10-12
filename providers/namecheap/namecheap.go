@@ -116,6 +116,7 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 			Limit:    rest.AccountPerMinute("namecheap "+baseURL+" "+cfg.User, RequestsPerMinute),
 			MaxBody:  maxResponseBytes,
 			Log:      o.Logger,
+			Secrets:  []string{cfg.Key},
 		},
 		auth: url.Values{
 			"ApiUser":  {cfg.User},

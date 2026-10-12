@@ -100,6 +100,7 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 	return &Provider{
 		baseURL: baseURL,
 		auth:    "sso-key " + cfg.Key + ":" + cfg.Secret,
+		secrets: []string{cfg.Key, cfg.Secret},
 		client:  client,
 		limit:   rest.AccountPerMinute("godaddy "+baseURL+" "+hex.EncodeToString(keyHash[:]), RequestsPerMinute),
 		log:     o.Logger,
@@ -117,6 +118,7 @@ type Provider struct {
 
 	baseURL string
 	auth    string
+	secrets []string
 	client  *http.Client
 	limit   *rest.Window
 	log     *slog.Logger
@@ -131,6 +133,7 @@ func (p *Provider) api() *rest.Client {
 		BaseURL:  p.baseURL,
 		HTTP:     p.client,
 		Auth:     func(r *http.Request) { r.Header.Set("Authorization", p.auth) },
+		Secrets:  p.secrets,
 		Limit:    p.limit,
 		Decode:   apiError,
 		Log:      p.log,

@@ -92,15 +92,6 @@ func (c credentials) sign(r *http.Request, body []byte, ts int64) {
 	r.Header.Set("X-Ovh-Signature", "$1$"+hex.EncodeToString(sum[:]))
 }
 
-// redact removes every credential from s.
-func (c credentials) redact(s string) string {
-	for _, secret := range []string{c.appSecret, c.consumerKey, c.appKey} {
-		s = strings.ReplaceAll(s, secret, "[redacted]")
-	}
-
-	return s
-}
-
 // clock is the lazily read difference between the local and the API's
 // clock, shared by every request of a Provider.
 type clock struct {
@@ -273,7 +264,10 @@ func (p *Provider) sign(r *http.Request) {
 // time lookup. An Auth signs every try again, so a retry carries a
 // fresh timestamp.
 func (p *Provider) restClient(auth func(*http.Request)) *rest.Client {
-	return &rest.Client{Provider: "ovhcloud", BaseURL: p.baseURL, HTTP: p.client, Log: p.log, Auth: auth, Decode: p.apiError}
+	return &rest.Client{
+		Provider: "ovhcloud", BaseURL: p.baseURL, HTTP: p.client, Log: p.log, Auth: auth, Decode: p.apiError,
+		Secrets: []string{p.creds.appSecret, p.creds.consumerKey, p.creds.appKey},
+	}
 }
 
 // do sends one authenticated call once the clock is known. When the API
@@ -314,7 +308,7 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 	e := &dnsprovider.APIError{Provider: "ovhcloud", StatusCode: res.StatusCode, RetryAfter: rest.RetryAfter(res.Header.Get("Retry-After"), time.Now())}
 	if err := json.Unmarshal(body, &payload); err != nil {
 		if text := strings.TrimSpace(string(body)); text != "" {
-			e.Messages = []string{p.creds.redact("malformed error response: " + truncate(text))}
+			e.Messages = []string{"malformed error response: " + truncate(text)}
 		}
 
 		return e
@@ -344,7 +338,7 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 	}
 
 	if msg != "" {
-		e.Messages = []string{p.creds.redact(msg)}
+		e.Messages = []string{msg}
 	}
 
 	e.Kind = errorKind(res.StatusCode, payload.Class, payload.ErrorCode)

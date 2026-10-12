@@ -91,13 +91,9 @@ func (p *Provider) call(ctx context.Context, path string, params url.Values, out
 	default:
 		params.Set("sub-auth-user", p.cfg.SubAuthUser)
 	}
-	api := rest.Client{
-		Provider: "cloudns", BaseURL: p.baseURL, HTTP: p.client, Limit: p.limit, Log: p.log,
-		Decode: func(res *http.Response, body []byte) error { return p.apiError(res.StatusCode, body) },
-	}
 	var body []byte
-	if err := api.Do(ctx, http.MethodPost, path, nil, params, &body); err != nil {
-		return &redactedError{message: p.redact(err.Error()), cause: err}
+	if err := p.api().Do(ctx, http.MethodPost, path, nil, params, &body); err != nil {
+		return err
 	}
 	var envelope struct {
 		Status      json.RawMessage `json:"status"`
@@ -121,22 +117,14 @@ func (p *Provider) call(ctx context.Context, path string, params url.Values, out
 	return nil
 }
 
-type redactedError struct {
-	message string
-	cause   error
-}
-
-func (e *redactedError) Error() string { return e.message }
-func (e *redactedError) Unwrap() error { return e.cause }
-
-func (p *Provider) redact(message string) string {
-	for _, secret := range []string{p.cfg.Password, p.cfg.AuthID, p.cfg.SubAuthID, p.cfg.SubAuthUser} {
-		if secret != "" {
-			message = strings.ReplaceAll(message, secret, "[redacted]")
-			message = strings.ReplaceAll(message, url.QueryEscape(secret), "[redacted]")
-		}
+// api is the client for the Account. The auth parameters go in each
+// request's form, and the auth IDs are Secrets too.
+func (p *Provider) api() *rest.Client {
+	return &rest.Client{
+		Provider: "cloudns", BaseURL: p.baseURL, HTTP: p.client, Limit: p.limit, Log: p.log,
+		Decode:  func(res *http.Response, body []byte) error { return p.apiError(res.StatusCode, body) },
+		Secrets: []string{p.cfg.Password, p.cfg.AuthID, p.cfg.SubAuthID, p.cfg.SubAuthUser},
 	}
-	return message
 }
 
 func (p *Provider) apiError(status int, body []byte) error {
@@ -144,7 +132,7 @@ func (p *Provider) apiError(status int, body []byte) error {
 		Description string `json:"statusDescription"`
 	}
 	_ = json.Unmarshal(body, &env)
-	msg := p.redact(env.Description)
+	msg := p.api().Redact(env.Description)
 	lower := strings.ToLower(env.Description)
 	var kind error
 	switch {

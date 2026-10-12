@@ -55,7 +55,7 @@ func (p *Provider) zoneList(ctx context.Context, f dnsprovider.ZoneFilter) ([]dn
 		}
 		z := dnsprovider.Zone{ID: name, Name: name, State: dnsprovider.HostingUnknown}
 		if err := checkZone(z); err != nil {
-			return nil, p.cleanError(err)
+			return nil, p.api.RedactError(err)
 		}
 		for ns := range strings.SplitSeq(d.NSList, ",") {
 			if ns = names.ZoneName(strings.TrimSpace(ns)); ns != "" {
@@ -119,7 +119,7 @@ func (p *Provider) ListRecords(ctx context.Context, zone dnsprovider.Zone, f dns
 
 func (p *Provider) listRecords(ctx context.Context, zone dnsprovider.Zone) ([]dnsprovider.Record, error) {
 	if err := checkZone(zone); err != nil {
-		return nil, p.cleanError(err)
+		return nil, p.api.RedactError(err)
 	}
 	body, err := p.call(ctx, "Domain/DnsRecord/List", url.Values{"Domain": {names.ZoneName(zone.Name)}})
 	if err != nil {
@@ -142,7 +142,7 @@ func (p *Provider) listRecords(ctx context.Context, zone dnsprovider.Zone) ([]dn
 		}
 		r, err := toRecord(zone.Name, w)
 		if err != nil {
-			return nil, p.cleanError(err)
+			return nil, p.api.RedactError(err)
 		}
 		var fields map[string]json.RawMessage
 		_ = json.Unmarshal(raw, &fields)

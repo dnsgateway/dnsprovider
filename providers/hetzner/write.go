@@ -469,7 +469,7 @@ func (p *Provider) action(ctx context.Context, method, path string, body any) er
 				msg = a.Error.Code + ": " + a.Error.Message
 				kind = errorKind(a.Error.Code)
 			}
-			return &dnsprovider.APIError{Provider: "hetzner", Messages: []string{p.redact(msg)}, Kind: kind}
+			return &dnsprovider.APIError{Provider: "hetzner", Messages: []string{api.Redact(msg)}, Kind: kind}
 		case "running":
 		default:
 			return uncertain("action", errors.New("invalid action status"))

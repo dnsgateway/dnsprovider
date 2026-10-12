@@ -84,7 +84,7 @@ func parseSigningRecord(typ, value string) (signingRecord, error) {
 // registryKeys reads only Registration data, never the hosted Zone's Records.
 func (p *Provider) registryKeys(ctx context.Context, z dnsprovider.Zone) ([]signingRecord, error) {
 	if err := checkZone(z); err != nil {
-		return nil, p.cleanError(err)
+		return nil, p.api.RedactError(err)
 	}
 	body, err := p.call(ctx, "Domain/Info", url.Values{"Domain": {names.ZoneName(z.Name)}})
 	if err != nil {
@@ -214,7 +214,7 @@ func (p *Provider) DeleteDelegationSigners(ctx context.Context, z dnsprovider.Zo
 // the set. SUCCESS or PENDING acknowledges the update, not DNS propagation.
 func (p *Provider) replaceDelegationSigners(ctx context.Context, z dnsprovider.Zone, keys []dnsprovider.SigningKey) error {
 	if err := checkZone(z); err != nil {
-		return p.cleanError(err)
+		return p.api.RedactError(err)
 	}
 	var want []signingRecord
 	for _, k := range keys {

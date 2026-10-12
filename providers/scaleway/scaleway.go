@@ -81,7 +81,8 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 func (p *Provider) api() *rest.Client {
 	return &rest.Client{
 		Provider: "scaleway", BaseURL: p.baseURL, HTTP: p.client, Log: p.log, Limit: p.limit,
-		Auth: func(r *http.Request) { r.Header.Set("X-Auth-Token", p.key) }, Decode: p.apiError,
+		Auth:    func(r *http.Request) { r.Header.Set("X-Auth-Token", p.key) },
+		Secrets: []string{p.key}, Decode: p.apiError,
 	}
 }
 
@@ -96,7 +97,7 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 		e.Kind = dnsprovider.ErrConflict
 	}
 	if payload.Message != "" {
-		e.Messages = []string{strings.ReplaceAll(payload.Message, p.key, "[redacted]")}
+		e.Messages = []string{payload.Message}
 	}
 	return e
 }

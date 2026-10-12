@@ -41,6 +41,9 @@ type Client struct {
 	HTTP *http.Client
 	// Auth puts the Account's credentials on a request; nil adds none.
 	Auth func(*http.Request)
+	// Secrets are the Account's credentials. No error Do returns or logs
+	// shows one, as written or URL-escaped; see Redact.
+	Secrets []string
 	// Limit is the Provider's published rate limit, per Account, such as
 	// AccountPerMinute or a *rate.Limiter; nil sends without waiting.
 	Limit Limiter
@@ -76,7 +79,13 @@ type Client struct {
 // the Provider asked for (Retry-After) or else a doubling backoff. A POST
 // is never tried again: a lost answer would create twice. A retried DELETE
 // answered 404 succeeds: an earlier try deleted it and its answer was lost.
+//
+// No Secret shows in the error, nor in any cause errors.As finds in it.
 func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body, out any) error {
+	return c.RedactError(c.do(ctx, method, path, q, body, out))
+}
+
+func (c *Client) do(ctx context.Context, method, path string, q url.Values, body, out any) error {
 	var (
 		data        []byte
 		contentType string
@@ -141,7 +150,7 @@ func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body
 		}
 
 		if c.Log != nil {
-			c.Log.DebugContext(ctx, "retry", "provider", c.Provider, "method", method, "path", path, "try", try, "wait", wait, "err", err)
+			c.Log.DebugContext(ctx, "retry", "provider", c.Provider, "method", method, "path", c.Redact(path), "try", try, "wait", wait, "err", c.RedactError(err))
 		}
 
 		t := time.NewTimer(wait)

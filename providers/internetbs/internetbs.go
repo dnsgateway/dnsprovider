@@ -10,8 +10,6 @@ import (
 	"maps"
 	"net/http"
 	"net/url"
-	"regexp"
-	"slices"
 	"strings"
 	"time"
 
@@ -65,7 +63,10 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 	}
 	identity := sha256.Sum256([]byte(cfg.Key + "\x00" + cfg.Password))
 	p := &Provider{auth: url.Values{"ApiKey": {cfg.Key}, "Password": {cfg.Password}, "ResponseFormat": {"json"}}}
-	p.api = &rest.Client{Provider: "internetbs", BaseURL: base, HTTP: client, Limit: rest.AccountPerMinute(fmt.Sprintf("internetbs %s %x", base, identity), RequestsPerMinute), Log: o.Logger}
+	p.api = &rest.Client{
+		Provider: "internetbs", BaseURL: base, HTTP: client, Log: o.Logger, Secrets: []string{cfg.Key, cfg.Password},
+		Limit: rest.AccountPerMinute(fmt.Sprintf("internetbs %s %x", base, identity), RequestsPerMinute),
+	}
 	p.api.Decode = func(res *http.Response, data []byte) error {
 		var body map[string]json.RawMessage
 		_ = json.Unmarshal(data, &body)
@@ -112,7 +113,7 @@ func (p *Provider) command(ctx context.Context, command string, params url.Value
 	maps.Copy(form, p.auth)
 	var data []byte
 	if err := p.api.Do(ctx, http.MethodPost, "/"+command, nil, form, &data); err != nil {
-		return nil, p.cleanError(err)
+		return nil, err
 	}
 	var body map[string]json.RawMessage
 	if err := json.Unmarshal(data, &body); err != nil {
@@ -148,119 +149,6 @@ func requiredList(body map[string]json.RawMessage, field string, out any) error 
 	return nil
 }
 
-func (p *Provider) redact(s string) string {
-	type representation struct {
-		text    string
-		encoded bool
-	}
-	values := make([]representation, 0, 6)
-	for _, key := range []string{"ApiKey", "Password"} {
-		secret := p.auth.Get(key)
-		values = append(values, representation{text: secret}, representation{text: url.QueryEscape(secret), encoded: true}, representation{text: url.PathEscape(secret), encoded: true})
-	}
-	slices.SortFunc(values, func(a, b representation) int { return len(b.text) - len(a.text) })
-	patterns := make([]string, 0, len(values))
-	for _, form := range values {
-		value := form.text
-		if value == "" {
-			continue
-		}
-		var pattern strings.Builder
-		for i := 0; i < len(value); i++ {
-			if form.encoded && value[i] == '%' && i+2 < len(value) {
-				pattern.WriteString("(?i:")
-				pattern.WriteString(regexp.QuoteMeta(value[i : i+3]))
-				pattern.WriteString(")")
-				i += 2
-			} else {
-				pattern.WriteString(regexp.QuoteMeta(value[i : i+1]))
-			}
-		}
-		patterns = append(patterns, pattern.String())
-	}
-	if len(patterns) > 0 {
-		s = regexp.MustCompile(strings.Join(patterns, "|")).ReplaceAllString(s, "[redacted]")
-	}
-
-	return s
-}
-
-// cleanError preserves APIError and transport causes while hiding secret text.
-func (p *Provider) cleanError(err error) error {
-	if p.secretFree(err) {
-		return err
-	}
-	var apiErr *dnsprovider.APIError
-	if errors.As(err, &apiErr) {
-		copyErr := *apiErr
-		copyErr.Messages = make([]string, len(apiErr.Messages))
-		for i, msg := range apiErr.Messages {
-			copyErr.Messages[i] = p.redact(msg)
-		}
-		return &copyErr
-	}
-	if uerr, ok := err.(*url.Error); ok {
-		copyErr := *uerr
-		copyErr.URL = p.redact(copyErr.URL)
-		copyErr.Op = p.redact(copyErr.Op)
-		copyErr.Err = p.cleanError(copyErr.Err)
-		return &copyErr
-	}
-	if multi, ok := err.(interface{ Unwrap() []error }); ok {
-		causes := multi.Unwrap()
-		safe := make([]error, len(causes))
-		for i, cause := range causes {
-			safe[i] = p.cleanError(cause)
-		}
-		return &redactedError{text: p.redact(err.Error()), cause: errors.Join(safe...), original: err}
-	}
-	if cause := errors.Unwrap(err); cause != nil {
-		return &redactedError{text: p.redact(err.Error()), cause: p.cleanError(cause), original: err}
-	}
-	if text := p.redact(err.Error()); text != err.Error() {
-		return &redactedError{text: text, original: err}
-	}
-	return err
-}
-
-// Inspect every exposed cause, including wrappers that hide their cause text.
-func (p *Provider) secretFree(err error) bool {
-	if err == nil {
-		return true
-	}
-	if p.redact(err.Error()) != err.Error() {
-		return false
-	}
-	if uerr, ok := err.(*url.Error); ok && (p.redact(uerr.URL) != uerr.URL || p.redact(uerr.Op) != uerr.Op) {
-		return false
-	}
-	if api, ok := err.(*dnsprovider.APIError); ok {
-		for _, message := range api.Messages {
-			if p.redact(message) != message {
-				return false
-			}
-		}
-	}
-	if multi, ok := err.(interface{ Unwrap() []error }); ok {
-		for _, cause := range multi.Unwrap() {
-			if !p.secretFree(cause) {
-				return false
-			}
-		}
-		return true
-	}
-	return p.secretFree(errors.Unwrap(err))
-}
-
-type redactedError struct {
-	text     string
-	cause    error
-	original error
-}
-
-func (e *redactedError) Unwrap() error        { return e.cause }
-func (e *redactedError) Error() string        { return e.text }
-func (e *redactedError) Is(target error) bool { return errors.Is(e.original, target) }
 func (p *Provider) apiError(status int, body map[string]json.RawMessage) error {
 	var message string
 	_ = json.Unmarshal(body["message"], &message)
@@ -277,5 +165,5 @@ func (p *Provider) apiError(status int, body map[string]json.RawMessage) error {
 			kind = dnsprovider.ErrRateLimited
 		}
 	}
-	return &dnsprovider.APIError{Provider: "internetbs", StatusCode: status, Messages: []string{p.redact(message)}, Kind: kind}
+	return &dnsprovider.APIError{Provider: "internetbs", StatusCode: status, Messages: []string{p.api.Redact(message)}, Kind: kind}
 }

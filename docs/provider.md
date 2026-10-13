@@ -83,7 +83,7 @@ type Record struct {
 }
 ```
 
-Cloudflare and OVHcloud assign record IDs. GoDaddy, Namecheap, Gandi, Hetzner, and Internet.bs use content-derived
+Cloudflare, OVHcloud and GoDaddy assign record IDs. Namecheap, Gandi, Hetzner, and Internet.bs use content-derived
 keys, which change when the Record changes. Keep the whole Record as read
 for updates and deletions.
 
@@ -165,7 +165,7 @@ validates configuration without making a network call.
 | Adapter | Config fields | Factory field names |
 | --- | --- | --- |
 | Cloudflare | `Token`, optional `TenantID` | `token`, `tenant_id` |
-| GoDaddy | `Key`, `Secret` | `key`, `secret` |
+| GoDaddy | `Token` (personal access token) | `token` |
 | Namecheap | `User`, `Key`, `ClientIP` | `user`, `key`, `client_ip` |
 | Gandi | `Token` | `token` |
 | Hetzner | `Token` | `token` (secret, project scoped) |
@@ -484,16 +484,16 @@ Serial is zero when unknown; the non-batch path never supplies one.
 
 ## Adapter operations and write granularity
 
-| Operation | Cloudflare (v4 REST) | GoDaddy (v1 REST) | Namecheap (XML API) |
+| Operation | Cloudflare (v4 REST) | GoDaddy (v3 REST) | Namecheap (XML API) |
 | --- | --- | --- | --- |
-| Account / Tenants | account/user token verification; `GET /accounts` | `GET /v1/domains?statuses=ACTIVE` | `users.getBalances` |
-| ListZones | `GET /zones`, optional account and name filter | marker-paged active domain list, local filter | paged `domains.getList`, SearchTerm and local filter |
+| Account / Tenants | account/user token verification; `GET /accounts` | `GET /domain-names?statuses=ACTIVE` | `users.getBalances` |
+| ListZones | `GET /zones`, optional account and name filter | token-paged active domain list, local filter | paged `domains.getList`, SearchTerm and local filter |
 | GetZone | exact-name list, preferring Active then Pending | domain detail, list fallback on 403/422 | domain list searched to an exact match |
 | CreateZone / DeleteZone | `POST /zones`; `DELETE /zones/{id}` | Unsupported | Unsupported |
 | ZoneStatus / UpdateZone | DNSSEC, `security_header`, `min_tls_version` reads and PATCHes | Unsupported | Unsupported |
-| ListRecords | paged DNS record list with type/name filters | paged records, optional type endpoint, local filters | `domains.dns.getHosts`, local filters |
-| Record writes | POST, PATCH (GET + PUT on type change), DELETE by ID | read and replace affected RRsets, DELETE empty RRsets | read and replace all hosts |
-| Batcher | None | Changes grouped by RRset | One getHosts, one setHosts, one getHosts read-back |
+| ListRecords | paged DNS record list with type/name filters | paged records, optional type filter, local filters | `domains.dns.getHosts`, local filters |
+| Record writes | POST, PATCH (GET + PUT on type change), DELETE by ID | POST, PUT (TTL) and DELETE of single records by `recordId` | read and replace all hosts |
+| Batcher | None | Per-record writes planned by RRset, read back | One getHosts, one setHosts, one getHosts read-back |
 
 Cloudflare updates preserve unmodeled fields through PATCH. A type change
 uses GET then PUT, preserving comment and tags and the proxy flag when
@@ -505,13 +505,13 @@ Creates are never retried. A retried record delete treats the specific
 record-missing error as success, while other not-found errors remain errors.
 Cloudflare currently applies Changesets through individual CRUD calls.
 
-GoDaddy writes whole RRsets (type and name). Its CRUD methods use a
-one-change batch; its Batcher groups reads and writes by RRset and reports
-per-change failures. Moving a Record between RRsets requires multiple
-writes. If only one half succeeds, the adapter attempts to undo it; a failed
-undo is reported and can leave a partial change. Successful Records are
-constructed from the sent data, without a post-write read. Concurrent writers
-of the same RRset can overwrite each other's changes.
+GoDaddy writes single records on the v3 API: a POST for each value added, a
+DELETE by `recordId` for each value removed, and a PUT of each kept record
+for a shared TTL change, so concurrent Changesets on one RRset keep each
+other's values. Its CRUD methods use a one-change batch. A modification adds
+before it removes; a move that fails partway is reported, not undone. Writes
+are read back and checked for the Changeset's own effects; a miss is
+`ErrConflict`.
 
 Namecheap writes all hosts at once. Its CRUD methods use a one-change batch.
 The Batcher preserves untouched hosts and EmailType, refusing the whole
@@ -645,7 +645,7 @@ Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:
 | --- | --- |
 | Cloudflare | `DNSPROVIDER_CLOUDFLARE_TOKEN`, optional `DNSPROVIDER_CLOUDFLARE_TENANT_ID` |
 | DigitalOcean | `DNSPROVIDER_DIGITALOCEAN_TOKEN` |
-| GoDaddy | `DNSPROVIDER_GODADDY_KEY`, `DNSPROVIDER_GODADDY_SECRET` |
+| GoDaddy | `DNSPROVIDER_GODADDY_TOKEN` |
 | Hetzner | `DNSPROVIDER_HETZNER_TOKEN` |
 | Internet.bs | `DNSPROVIDER_INTERNETBS_KEY`, `DNSPROVIDER_INTERNETBS_PASSWORD` |
 | Namecheap | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |

@@ -1,7 +1,7 @@
 package godaddy_test
 
 // Seam 2: the GoDaddy Provider against an httptest server that speaks
-// the GoDaddy v1 Domains API's JSON shapes.
+// the GoDaddy v3 Domains API's JSON shapes.
 
 import (
 	"context"
@@ -9,7 +9,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -25,58 +24,73 @@ import (
 	"github.com/dnsgateway/dnsprovider/providers/godaddy"
 )
 
-const (
-	testKey    = "test-key"
-	testSecret = "test-secret"
-	// testToken is the key and secret as GoDaddy's Authorization header
-	// carries them.
-	testToken = testKey + ":" + testSecret
-)
+const testToken = "test-token"
 
-var testConfig = godaddy.Config{Key: testKey, Secret: testSecret}
+var testConfig = godaddy.Config{Token: testToken}
 
-// gdAPI is a scripted GoDaddy v1 Domains API. Domain lists are paged
-// pageSize domains at a time by marker, the last domain of the page
-// before; record lists pageSize records at a time by offset, the page.
+// gdAPI is a scripted GoDaddy v3 Domains API. Domain lists are paged
+// pageSize domains at a time by an opaque pageToken; record lists
+// pageSize records at a time by page number. Each list links its next
+// page with rel=next.
 type gdAPI struct {
 	// pageSize is the page size the Provider asks for; zero leaves its own.
 	pageSize int
 	// ignorePaging answers every list with its first page, whatever the
-	// offset or marker.
+	// page or pageToken, linking the same next page.
 	ignorePaging bool
 	domains      []map[string]any
 	records      map[string][]map[string]any // by domain
 
-	// missing, when set, is the error GET /v1/domains/{domain} answers
-	// for a domain not in domains, instead of 404 NOT_FOUND.
+	// missing, when set, is the error GET /domain-names/{domain} answers
+	// for a domain not in domains, instead of 404.
 	missing *apiErr
 	// deny answers every request with this error, as GoDaddy does for a
-	// key it refuses.
+	// token it refuses.
 	deny *apiErr
+	// reject, when it returns a message, fails the write with 422.
+	reject func(method string, body map[string]any) string
+	// acknowledgeOnly makes writes answer success but change nothing.
+	acknowledgeOnly bool
+	// onWrite, when set, runs once before the next write is applied: a
+	// change by another writer after the Changeset read the records.
+	onWrite func(api *gdAPI)
+	// barrier, when set, holds every write until snapshots record lists
+	// have been answered.
+	barrier   chan struct{}
+	snapshots int
 
-	// reject, when it returns a message, fails the RRset write with that
-	// message, as GoDaddy does for records it will not take.
-	reject func(method, typ, name string, body []map[string]any) string
-
-	mu sync.Mutex
-	// writes records each RRset write.
+	mu     sync.Mutex
+	nextID int
+	// writes records each write.
 	writes []write
 	// requests records each request's URL.
 	requests []*url.URL
 }
 
-// write is one RRset replace or delete the API received.
+// write is one record write the API received.
 type write struct {
 	Method, Path string
-	Body         []map[string]any
+	Body         map[string]any
 }
 
-// Writes returns the RRset writes received, in order.
+func (w write) String() string { return w.Method + " " + w.Path }
+
+// Writes returns the writes received, in order.
 func (api *gdAPI) Writes() []write {
 	api.mu.Lock()
 	defer api.mu.Unlock()
 
 	return slices.Clone(api.writes)
+}
+
+// WriteLines returns the writes received as "METHOD path" lines.
+func (api *gdAPI) WriteLines() []string {
+	var out []string
+	for _, w := range api.Writes() {
+		out = append(out, w.String())
+	}
+
+	return out
 }
 
 // Requests returns each request's URL, in order.
@@ -87,8 +101,20 @@ func (api *gdAPI) Requests() []*url.URL {
 	return slices.Clone(api.requests)
 }
 
+// holdWritesUntil makes writes wait until n record lists are answered.
+func (api *gdAPI) holdWritesUntil(n int) {
+	api.barrier = make(chan struct{})
+	api.snapshots = n
+}
+
 func newProvider(t *testing.T, api *gdAPI) dnsprovider.Provider {
 	t.Helper()
+
+	for _, recs := range api.records {
+		for _, rec := range recs {
+			api.id(rec)
+		}
+	}
 
 	srv := httptest.NewServer(api.handler(t))
 	t.Cleanup(srv.Close)
@@ -105,111 +131,110 @@ func newProvider(t *testing.T, api *gdAPI) dnsprovider.Provider {
 	return p
 }
 
+// id gives a record without one its recordId.
+func (api *gdAPI) id(rec map[string]any) {
+	if rec["recordId"] == nil {
+		api.nextID++
+		rec["recordId"] = "rec-" + strconv.Itoa(api.nextID)
+	}
+}
+
 func (api *gdAPI) handler(t *testing.T) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("GET /v1/domains", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v3/domains/domain-names", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("statuses"); got != "ACTIVE" {
+			t.Errorf("statuses = %q, want ACTIVE", got)
+		}
+
 		start := 0
-		if marker := r.URL.Query().Get("marker"); marker != "" && !api.ignorePaging {
-			start = slices.IndexFunc(api.domains, func(d map[string]any) bool { return d["domain"] == marker }) + 1
+		if tok := r.URL.Query().Get("pageToken"); tok != "" && !api.ignorePaging {
+			start, _ = strconv.Atoi(strings.TrimPrefix(tok, "t"))
 		}
 
-		writeJSON(w, http.StatusOK, api.domains[start:min(start+api.size(r), len(api.domains))])
+		size := api.size(r)
+		end := min(start+size, len(api.domains))
+
+		var links []map[string]string
+		if end < len(api.domains) || api.ignorePaging {
+			links = append(links, map[string]string{"rel": "next", "href": "https://api.godaddy.com/v3/domains/domain-names?pageToken=t" + strconv.Itoa(end)})
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{"items": append([]map[string]any{}, api.domains[start:end]...), "links": links})
 	})
 
-	mux.HandleFunc("GET /v1/domains/{domain}", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /v3/domains/domain-names/{domain}", func(w http.ResponseWriter, r *http.Request) {
 		i := slices.IndexFunc(api.domains, func(d map[string]any) bool { return d["domain"] == r.PathValue("domain") })
-		if i < 0 && api.missing != nil {
-			writeError(w, api.missing.status, api.missing.code, api.missing.message)
-
-			return
-		}
-
-		if i < 0 {
+		switch {
+		case i < 0 && api.missing != nil:
+			writeError(w, api.missing.status, api.missing.name, api.missing.message)
+		case i < 0:
 			writeError(w, http.StatusNotFound, "NOT_FOUND", "Domain not found")
-
-			return
+		default:
+			writeJSON(w, http.StatusOK, api.domains[i])
 		}
-
-		writeJSON(w, http.StatusOK, api.domains[i])
 	})
 
-	listRecords := func(w http.ResponseWriter, r *http.Request) {
-		records, ok := api.records[r.PathValue("domain")]
+	mux.HandleFunc("GET /v3/domains/zones/{zone}/dns-records", func(w http.ResponseWriter, r *http.Request) {
+		api.mu.Lock()
+		defer api.mu.Unlock()
+
+		if api.barrier != nil && api.snapshots > 0 {
+			if api.snapshots--; api.snapshots == 0 {
+				close(api.barrier)
+			}
+		}
+
+		records, ok := api.records[r.PathValue("zone")]
 		if !ok {
-			writeError(w, http.StatusNotFound, "UNKNOWN_DOMAIN", "The given domain is not registered, or does not have a zone file")
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "The zone does not exist")
 
 			return
 		}
 
-		// The list of one type leaves the type out of its records, and
-		// GoDaddy answers 422 for a type it does not hold.
-		if typ := r.PathValue("type"); typ != "" {
-			if !slices.Contains([]string{"A", "AAAA", "CAA", "CNAME", "MX", "NS", "SOA", "SRV", "TXT"}, typ) {
-				writeError(w, http.StatusUnprocessableEntity, "INVALID_BODY", "type is not one of the allowed values")
-
-				return
+		var out []map[string]any
+		for _, rec := range records {
+			if typ := r.URL.Query().Get("type"); typ == "" || rec["type"] == typ {
+				out = append(out, maps.Clone(rec))
 			}
-
-			var typed []map[string]any
-			for _, rec := range records {
-				if rec["type"] == typ {
-					rec = maps.Clone(rec)
-					delete(rec, "type")
-					typed = append(typed, rec)
-				}
-			}
-
-			records = typed
 		}
 
-		// offset is the page, from 1; GoDaddy answers 422 past the last one.
-		page, err := strconv.Atoi(r.URL.Query().Get("offset"))
+		page, err := strconv.Atoi(r.URL.Query().Get("page"))
 		if err != nil || page < 1 || api.ignorePaging {
 			page = 1
 		}
 
 		size := api.size(r)
-		start := (page - 1) * size
+		start := min((page-1)*size, len(out))
+		end := min(start+size, len(out))
 
-		if start > 0 && start >= len(records) {
-			writeError(w, http.StatusUnprocessableEntity, "INVALID_OFFSET", "offset is past the last record")
-
-			return
+		var links []map[string]string
+		if end < len(out) || api.ignorePaging {
+			links = append(links, map[string]string{"rel": "next", "href": "?page=" + strconv.Itoa(page+1)})
 		}
 
-		writeJSON(w, http.StatusOK, append([]map[string]any{}, records[start:min(start+size, len(records))]...))
-	}
-	mux.HandleFunc("GET /v1/domains/{domain}/records", listRecords)
-	mux.HandleFunc("GET /v1/domains/{domain}/records/{type}", listRecords)
-
-	mux.HandleFunc("GET /v1/domains/{domain}/records/{type}/{name}", func(w http.ResponseWriter, r *http.Request) {
-		api.mu.Lock()
-		defer api.mu.Unlock()
-
-		var out []map[string]any
-		for _, rec := range api.records[r.PathValue("domain")] {
-			if rec["type"] == r.PathValue("type") && srvHost(rec) == r.PathValue("name") {
-				out = append(out, rec)
-			}
-		}
-
-		writeJSON(w, http.StatusOK, append([]map[string]any{}, out...))
+		writeJSON(w, http.StatusOK, map[string]any{"items": append([]map[string]any{}, out[start:end]...), "links": links})
 	})
-	mux.HandleFunc("PUT /v1/domains/{domain}/records/{type}/{name}", api.writeRRset)
-	mux.HandleFunc("DELETE /v1/domains/{domain}/records/{type}/{name}", api.writeRRset)
+
+	mux.HandleFunc("POST /v3/domains/zones/{zone}/dns-records", api.writeRecord)
+	mux.HandleFunc("PUT /v3/domains/zones/{zone}/dns-records/{id}", api.writeRecord)
+	mux.HandleFunc("DELETE /v3/domains/zones/{zone}/dns-records/{id}", api.writeRecord)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && api.barrier != nil {
+			<-api.barrier
+		}
+
 		api.mu.Lock()
 		api.requests = append(api.requests, r.URL)
 		api.mu.Unlock()
 
-		if got := r.Header.Get("Authorization"); got != "sso-key "+testToken {
-			t.Errorf("Authorization = %q, want the Account's key and secret", got)
+		if got := r.Header.Get("Authorization"); got != "Bearer "+testToken {
+			t.Errorf("Authorization = %q, want the personal access token", got)
 		}
 
 		if api.deny != nil {
-			writeError(w, api.deny.status, api.deny.code, api.deny.message)
+			writeError(w, api.deny.status, api.deny.name, api.deny.message)
 
 			return
 		}
@@ -218,10 +243,22 @@ func (api *gdAPI) handler(t *testing.T) http.Handler {
 	})
 }
 
-// writeRRset replaces or deletes an RRset as GoDaddy does.
-func (api *gdAPI) writeRRset(w http.ResponseWriter, r *http.Request) {
-	var body []map[string]any
-	if r.Method == http.MethodPut {
+// sameRecord reports whether two fixture records are one resource record.
+func sameRecord(a, b map[string]any) bool {
+	for _, k := range []string{"type", "name", "data", "service", "protocol"} {
+		if fmt.Sprint(a[k]) != fmt.Sprint(b[k]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+// writeRecord creates, replaces or deletes one record as GoDaddy does. A
+// POST of a record the zone holds answers 409 (an assumption).
+func (api *gdAPI) writeRecord(w http.ResponseWriter, r *http.Request) {
+	var body map[string]any
+	if r.Method != http.MethodDelete {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			writeError(w, http.StatusBadRequest, "INVALID_BODY", "Request body doesn't fulfill schema")
 
@@ -229,54 +266,88 @@ func (api *gdAPI) writeRRset(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	d, typ, name := r.PathValue("domain"), r.PathValue("type"), r.PathValue("name")
+	zone, id := r.PathValue("zone"), r.PathValue("id")
 
 	api.mu.Lock()
 	defer api.mu.Unlock()
 
-	api.writes = append(api.writes, write{Method: r.Method, Path: r.URL.Path, Body: body})
+	api.writes = append(api.writes, write{Method: r.Method, Path: strings.TrimPrefix(r.URL.Path, "/v3/domains/zones/"+zone), Body: maps.Clone(body)})
 
 	if api.reject != nil {
-		if msg := api.reject(r.Method, typ, name, body); msg != "" {
+		if msg := api.reject(r.Method, body); msg != "" {
 			writeError(w, http.StatusUnprocessableEntity, "INVALID_BODY", msg)
 
 			return
 		}
 	}
 
+	if api.onWrite != nil {
+		onWrite := api.onWrite
+		api.onWrite = nil
+		onWrite(api)
+	}
+
 	if api.records == nil {
 		api.records = map[string][]map[string]any{}
 	}
 
-	kept := slices.DeleteFunc(slices.Clone(api.records[d]), func(rec map[string]any) bool {
-		return rec["type"] == typ && srvHost(rec) == name
-	})
+	records := api.records[zone]
+	at := slices.IndexFunc(records, func(rec map[string]any) bool { return rec["recordId"] == id })
 
-	for _, rec := range body {
-		rec = maps.Clone(rec)
-		rec["type"], rec["name"] = typ, name
-		kept = append(kept, rec)
-	}
+	switch r.Method {
+	case http.MethodPost:
+		if slices.ContainsFunc(records, func(rec map[string]any) bool { return sameRecord(rec, body) }) {
+			writeError(w, http.StatusConflict, "DUPLICATE_RECORD", "The record already exists")
 
-	api.records[d] = kept
+			return
+		}
 
-	if r.Method == http.MethodDelete {
+		api.id(body)
+
+		if !api.acknowledgeOnly {
+			api.records[zone] = append(slices.Clone(records), body)
+		}
+
+		writeJSON(w, http.StatusCreated, body)
+	case http.MethodPut:
+		if at < 0 {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "The record does not exist")
+
+			return
+		}
+
+		body["recordId"] = id
+
+		if !api.acknowledgeOnly {
+			records = slices.Clone(records)
+			records[at] = body
+			api.records[zone] = records
+		}
+
+		writeJSON(w, http.StatusOK, body)
+	case http.MethodDelete:
+		if at < 0 {
+			writeError(w, http.StatusNotFound, "NOT_FOUND", "The record does not exist")
+
+			return
+		}
+
+		if !api.acknowledgeOnly {
+			api.records[zone] = slices.Delete(slices.Clone(records), at, at+1)
+		}
+
 		w.WriteHeader(http.StatusNoContent)
-
-		return
 	}
-
-	w.WriteHeader(http.StatusOK)
 }
 
-// size is a list's page size: the client's limit.
+// size is a list's page size: the client's pageSize.
 func (api *gdAPI) size(r *http.Request) int {
-	limit, err := strconv.Atoi(r.URL.Query().Get("limit"))
-	if err != nil || limit < 1 {
-		return 100
+	size, err := strconv.Atoi(r.URL.Query().Get("pageSize"))
+	if err != nil || size < 1 {
+		return 25
 	}
 
-	return limit
+	return size
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
@@ -285,40 +356,37 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-// srvHost is a record's name, without the _service._protocol labels an
-// SRV record's name may start with: GoDaddy names an SRV RRset by its host.
-func srvHost(rec map[string]any) string {
-	name, _ := rec["name"].(string)
-	if rec["type"] != "SRV" {
-		return name
-	}
-
-	labels := strings.SplitN(name, ".", 3)
-	if len(labels) < 2 || !strings.HasPrefix(labels[0], "_") || !strings.HasPrefix(labels[1], "_") {
-		return name
-	}
-
-	if len(labels) == 2 {
-		return "@"
-	}
-
-	return labels[2]
-}
-
 // apiErr is a scripted GoDaddy error answer.
 type apiErr struct {
 	status        int
-	code, message string
+	name, message string
 }
 
-// writeError answers with a GoDaddy error body.
-func writeError(w http.ResponseWriter, status int, code, message string) {
-	writeJSON(w, status, map[string]any{"code": code, "message": message})
+// writeError answers with a GoDaddy v3 error body.
+func writeError(w http.ResponseWriter, status int, name, message string) {
+	writeJSON(w, status, map[string]any{"name": name, "correlationId": "c-1", "message": message})
 }
 
 func domain(name string, ns ...string) map[string]any {
-	return map[string]any{"domain": name, "domainId": len(name), "status": "ACTIVE", "nameServers": ns}
+	return map[string]any{"domain": name, "status": "ACTIVE", "nameServers": ns}
 }
+
+// noIDs is records without their IDs, which the fixture assigns.
+func noIDs(rs []dnsprovider.Record) []dnsprovider.Record {
+	out := make([]dnsprovider.Record, 0, len(rs))
+	for _, r := range rs {
+		if r.ID == "" {
+			panic("a Record without its recordId")
+		}
+
+		r.ID = ""
+		out = append(out, r)
+	}
+
+	return out
+}
+
+var example = dnsprovider.Zone{Name: "example.com", ID: "example.com"}
 
 func TestZonesAreTheAccountsActiveDomainsOnEveryPage(t *testing.T) {
 	api := &gdAPI{pageSize: 2, domains: []map[string]any{
@@ -334,10 +402,8 @@ func TestZonesAreTheAccountsActiveDomainsOnEveryPage(t *testing.T) {
 		t.Error("Zones is a Partial View, want a Full View")
 	}
 
-	zones := set.Zones
-
 	var names []string
-	for _, z := range zones {
+	for _, z := range set.Zones {
 		names = append(names, z.Name+"="+z.ID)
 	}
 
@@ -345,10 +411,8 @@ func TestZonesAreTheAccountsActiveDomainsOnEveryPage(t *testing.T) {
 		t.Errorf("Zones = %v, want %v", names, want)
 	}
 
-	for _, u := range api.Requests() {
-		if got := u.Query().Get("statuses"); got != "ACTIVE" {
-			t.Errorf("request %s asks for statuses %q, want ACTIVE only", u, got)
-		}
+	if reqs := api.Requests(); len(reqs) != 2 || reqs[1].Query().Get("pageToken") != "t2" {
+		t.Errorf("requests = %v, want two pages, the second by its pageToken", reqs)
 	}
 }
 
@@ -362,19 +426,13 @@ func TestZonesFilteredByNameKeepOnlyMatchesFromEveryPage(t *testing.T) {
 		t.Fatalf("Zones: %v", err)
 	}
 
-	zones := set.Zones
-
 	var names []string
-	for _, z := range zones {
+	for _, z := range set.Zones {
 		names = append(names, z.Name)
 	}
 
 	if want := []string{"a.example", "Shop.EXAMPLE"}; !reflect.DeepEqual(names, want) {
 		t.Errorf("Zones = %v, want %v", names, want)
-	}
-
-	if n := len(api.Requests()); n != 3 {
-		t.Errorf("sent %d requests, want every page read", n)
 	}
 }
 
@@ -391,11 +449,12 @@ func TestZonesAreActiveOnlyWhileDelegationNamesGoDaddy(t *testing.T) {
 		t.Fatalf("Zones: %v", err)
 	}
 
-	zones := set.Zones
-
 	got := map[string]dnsprovider.HostingState{}
-	for _, z := range zones {
+	nameservers := map[string][]string{}
+
+	for _, z := range set.Zones {
 		got[z.Name] = z.State
+		nameservers[z.Name] = z.Nameservers
 	}
 
 	want := map[string]dnsprovider.HostingState{
@@ -409,6 +468,16 @@ func TestZonesAreActiveOnlyWhileDelegationNamesGoDaddy(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Hosting States = %v, want %v", got, want)
+	}
+
+	wantNS := map[string][]string{
+		"hosted.example":    {"ns43.domaincontrol.com", "ns44.domaincontrol.com"},
+		"mixed.example":     nil,
+		"elsewhere.example": nil,
+		"unknown.example":   nil,
+	}
+	if !reflect.DeepEqual(nameservers, wantNS) {
+		t.Errorf("Zone nameservers = %v, want %v", nameservers, wantNS)
 	}
 }
 
@@ -428,8 +497,8 @@ func TestZoneReadsOneActiveDomainByName(t *testing.T) {
 		t.Errorf("Zone = %+v, want %+v", got, want)
 	}
 
-	if reqs := api.Requests(); len(reqs) != 1 || reqs[0].Path != "/v1/domains/example.com" {
-		t.Errorf("requests = %v, want one GET /v1/domains/example.com", reqs)
+	if reqs := api.Requests(); len(reqs) != 1 || reqs[0].Path != "/v3/domains/domain-names/example.com" {
+		t.Errorf("requests = %v, want one GET /v3/domains/domain-names/example.com", reqs)
 	}
 }
 
@@ -447,514 +516,106 @@ func TestZoneOfADomainTheAccountDoesNotServeIsNotFound(t *testing.T) {
 }
 
 func TestZoneOfADomainOfAnotherAccountIsNotFound(t *testing.T) {
-	answers := []*apiErr{
+	for _, a := range []*apiErr{
 		{http.StatusForbidden, "ACCESS_DENIED", "Authenticated user is not allowed access"},
 		{http.StatusUnprocessableEntity, "INVALID_DOMAIN", "domain is not valid"},
 		{http.StatusNotFound, "NOT_FOUND", "Domain not found"},
-	}
-
-	for _, a := range answers {
+	} {
 		api := &gdAPI{missing: a, domains: []map[string]any{domain("example.com")}}
 
 		if _, err := newProvider(t, api).GetZone(context.Background(), "example.org"); !errors.Is(err, dnsprovider.ErrNotFound) || errors.Is(err, dnsprovider.ErrUnauthorized) {
-			t.Errorf("Zone on %d %s: err = %v, want ErrNotFound alone", a.status, a.code, err)
+			t.Errorf("Zone on %d %s: err = %v, want ErrNotFound alone", a.status, a.name, err)
 		}
 	}
 }
 
-func TestZoneWithAKeyGoDaddyRefusesIsUnauthorized(t *testing.T) {
-	refusals := []*apiErr{
+func TestZoneWithATokenGoDaddyRefusesIsUnauthorized(t *testing.T) {
+	for _, a := range []*apiErr{
 		{http.StatusUnauthorized, "UNABLE_TO_AUTHENTICATE", "Unable to authenticate"},
 		{http.StatusForbidden, "ACCESS_DENIED", "Authenticated user is not allowed access"},
-	}
-
-	for _, a := range refusals {
+	} {
 		api := &gdAPI{deny: a, domains: []map[string]any{domain("example.com")}}
 
 		if _, err := newProvider(t, api).GetZone(context.Background(), "example.com"); !errors.Is(err, dnsprovider.ErrUnauthorized) {
-			t.Errorf("Zone on %d %s: err = %v, want ErrUnauthorized", a.status, a.code, err)
+			t.Errorf("Zone on %d %s: err = %v, want ErrUnauthorized", a.status, a.name, err)
 		}
-	}
-}
-
-func TestZonesCarryTheirNameserversOnlyWhenGoDaddyAnswersForThem(t *testing.T) {
-	api := &gdAPI{pageSize: 10, domains: []map[string]any{
-		domain("hosted.example", "NS43.DOMAINCONTROL.COM", "ns44.domaincontrol.com"),
-		domain("elsewhere.example", "cruz.ns.cloudflare.com", "dee.ns.cloudflare.com"),
-		domain("mixed.example", "ns43.domaincontrol.com", "ns1.example.net"),
-		domain("unknown.example"),
-	}}
-
-	set, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{})
-	if err != nil {
-		t.Fatalf("Zones: %v", err)
-	}
-
-	zones := set.Zones
-
-	got := map[string][]string{}
-	for _, z := range zones {
-		got[z.Name] = z.Nameservers
-	}
-
-	want := map[string][]string{
-		"hosted.example":    {"ns43.domaincontrol.com", "ns44.domaincontrol.com"},
-		"elsewhere.example": nil,
-		"mixed.example":     nil,
-		"unknown.example":   nil,
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Zone nameservers = %v, want %v", got, want)
 	}
 }
 
 func TestRecordsListsEveryPageWithAbsoluteNamesAndThePriorityFirst(t *testing.T) {
 	api := &gdAPI{pageSize: 2, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "@", "data": "192.0.2.1", "ttl": 600},
-		{"type": "CNAME", "name": "www", "data": "@", "ttl": 3600},
-		{"type": "MX", "name": "@", "data": "mail.example.com", "priority": 10, "ttl": 3600},
-		{"type": "TXT", "name": "@", "data": "v=spf1 -all", "ttl": 3600},
-		{"type": "SRV", "name": "@", "service": "_sip", "protocol": "_tcp", "data": "sip.example.com", "priority": 10, "weight": 5, "port": 5060, "ttl": 3600},
-		{"type": "CAA", "name": "@", "data": "0 issue \"letsencrypt.org\"", "ttl": 3600},
+		{"recordId": "r1", "type": "A", "name": "@", "data": "192.0.2.1", "ttl": 600},
+		{"recordId": "r2", "type": "CNAME", "name": "www", "data": "@", "ttl": 3600},
+		{"recordId": "r3", "type": "MX", "name": "@", "data": "mail.example.com", "priority": 10, "ttl": 3600},
+		{"recordId": "r4", "type": "TXT", "name": "@", "data": "v=spf1 -all", "ttl": 3600},
+		{"recordId": "r5", "type": "SRV", "name": "@", "service": "_sip", "protocol": "_tcp", "data": "sip.example.com", "priority": 10, "weight": 5, "port": 5060, "ttl": 3600},
+		{"recordId": "r6", "type": "CAA", "name": "@", "flag": 0, "tag": "issue", "data": "letsencrypt.org", "ttl": 3600},
 	}}}
 
-	set, err := newProvider(t, api).ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com", ID: "example.com"}, dnsprovider.RecordFilter{})
-	if err != nil {
-		t.Fatalf("Records: %v", err)
-	}
-
-	if set.Partial {
-		t.Error("Records is a Partial View, want a Full View")
-	}
-
-	want := withIDs(
-		dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 600},
-		dnsprovider.Record{Type: "CNAME", Name: "www.example.com", Value: "example.com", TTL: 3600},
-		dnsprovider.Record{Type: "MX", Name: "example.com", Value: "10 mail.example.com", TTL: 3600},
-		dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "v=spf1 -all", TTL: 3600},
-		dnsprovider.Record{Type: "SRV", Name: "_sip._tcp.example.com", Value: "10 5 5060 sip.example.com", TTL: 3600},
-		dnsprovider.Record{Type: "CAA", Name: "example.com", Value: "0 issue \"letsencrypt.org\"", TTL: 3600},
-	)
-	if !reflect.DeepEqual(set.Records, want) {
-		t.Errorf("Records =\n%v\nwant\n%v", set.Records, want)
-	}
-
-	if set.Serial != 0 {
-		t.Errorf("Serial = %d, want 0: GoDaddy does not report it", set.Serial)
-	}
-}
-
-var example = dnsprovider.Zone{Name: "example.com", ID: "example.com"}
-
-// withIDs gives Records the Provider IDs GoDaddy's Records carry.
-func withIDs(rs ...dnsprovider.Record) []dnsprovider.Record {
-	out := make([]dnsprovider.Record, 0, len(rs))
-	for _, r := range rs {
-		out = append(out, godaddy.WithID(r))
-	}
-
-	return out
-}
-
-func TestApplyAddsARecordToItsRRsetKeepingTheOthers(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "@", "data": "192.0.2.1", "ttl": 600},
-		{"type": "A", "name": "www", "data": "192.0.2.9", "ttl": 600},
-	}}}
-
-	add := dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.2", TTL: 3600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeAdd, After: add},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	if got := res.Results[0]; got.Err != nil || !reflect.DeepEqual(got.Record, godaddy.WithID(add)) {
-		t.Errorf("result = %+v, want the Record added, with its ID", got)
-	}
-
-	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/@", Body: []map[string]any{
-		{"data": "192.0.2.1", "ttl": 600.0},
-		{"data": "192.0.2.2", "ttl": 3600.0},
-	}}}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestApplyDeletesAnRRsetItLeavesEmptyBeforeWritingTheOthers(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-	}}}
-
-	del := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
-	add := dnsprovider.Record{Type: "CNAME", Name: "www.example.com", Value: "example.com", TTL: 600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeAdd, After: add},
-		{Kind: dnsprovider.ChangeDelete, Before: del},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	for i, r := range res.Results {
-		if r.Err != nil {
-			t.Errorf("result %d: %v", i, r.Err)
-		}
-	}
-
-	if !reflect.DeepEqual(res.Results[1].Record, dnsprovider.Record{}) {
-		t.Errorf("deletion result Record = %+v, want none", res.Results[1].Record)
-	}
-
-	want := []write{
-		{Method: "DELETE", Path: "/v1/domains/example.com/records/A/www"},
-		{Method: "PUT", Path: "/v1/domains/example.com/records/CNAME/www", Body: []map[string]any{{"data": "example.com", "ttl": 600.0}}},
-	}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestApplyMakesTwoChangesToOneRRsetInOneCall(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "TXT", "name": "@", "data": "keep", "ttl": 600},
-		{"type": "TXT", "name": "@", "data": "old", "ttl": 600},
-		{"type": "TXT", "name": "@", "data": "gone", "ttl": 600},
-	}}}
-
-	txt := func(v string, ttl uint32) dnsprovider.Record {
-		return dnsprovider.Record{Type: "TXT", Name: "example.com", Value: v, TTL: ttl}
-	}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeModify, Before: txt("old", 600), After: txt("new", 3600)},
-		{Kind: dnsprovider.ChangeDelete, Before: txt("gone", 600)},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	if !reflect.DeepEqual(res.Results[0].Record, godaddy.WithID(txt("new", 3600))) || res.Results[0].Err != nil || res.Results[1].Err != nil {
-		t.Errorf("results = %+v", res.Results)
-	}
-
-	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/TXT/@", Body: []map[string]any{
-		{"data": "keep", "ttl": 600.0},
-		{"data": "new", "ttl": 3600.0},
-	}}}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestApplyMovesARecordRenamedByAModification(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "old", "data": "192.0.2.1", "ttl": 600},
-	}}}
-
-	before := dnsprovider.Record{Type: "A", Name: "old.example.com", Value: "192.0.2.1", TTL: 600}
-	after := dnsprovider.Record{Type: "A", Name: "new.example.com", Value: "192.0.2.1", TTL: 600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeModify, Before: before, After: after},
-	}})
-	if err != nil || res.Results[0].Err != nil {
-		t.Fatalf("Apply: %v, %+v", err, res.Results)
-	}
-
-	want := []write{
-		{Method: "DELETE", Path: "/v1/domains/example.com/records/A/old"},
-		{Method: "PUT", Path: "/v1/domains/example.com/records/A/new", Body: []map[string]any{{"data": "192.0.2.1", "ttl": 600.0}}},
-	}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestApplyKeepsGoingAfterAnRRsetFails(t *testing.T) {
-	api := &gdAPI{
-		pageSize: 500,
-		records: map[string][]map[string]any{"example.com": {
-			{"type": "A", "name": "@", "data": "192.0.2.1", "ttl": 600},
-		}},
-		reject: func(_, typ, _ string, _ []map[string]any) string {
-			if typ == "TXT" {
-				return "Record data is invalid"
-			}
-
-			return ""
-		},
-	}
-
-	gone := dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.7", TTL: 600}
-	bad := dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "x", TTL: 600}
-	good := dnsprovider.Record{Type: "AAAA", Name: "example.com", Value: "2001:db8::1", TTL: 600}
-
-	res, err := batcherApply(t, api, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeDelete, Before: gone},
-		{Kind: dnsprovider.ChangeAdd, After: bad},
-		{Kind: dnsprovider.ChangeAdd, After: good},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	if !errors.Is(res.Results[0].Err, dnsprovider.ErrNotFound) {
-		t.Errorf("deleting a Record that is not there: err = %v, want ErrNotFound", res.Results[0].Err)
-	}
-
-	var apiErr *dnsprovider.APIError
-	if !errors.As(res.Results[1].Err, &apiErr) || apiErr.StatusCode != http.StatusUnprocessableEntity || !reflect.DeepEqual(res.Results[1].Record, dnsprovider.Record{}) {
-		t.Errorf("rejected add: %+v, want a 422 APIError and no Record", res.Results[1])
-	}
-
-	if res.Results[2].Err != nil {
-		t.Errorf("the other add failed: %v", res.Results[2].Err)
-	}
-
-	// The A RRset is not written: its only change failed.
-	for _, w := range api.Writes() {
-		if w.Path == "/v1/domains/example.com/records/A/@" {
-			t.Errorf("wrote the A RRset whose deletion failed: %v", w)
-		}
-	}
-}
-
-func TestApplySplitsThePriorityAndSRVFieldsOutOfTheValue(t *testing.T) {
-	api := &gdAPI{pageSize: 500}
-
-	mx := dnsprovider.Record{Type: "MX", Name: "example.com", Value: "10 mail.example.com", TTL: 600}
-	srv := dnsprovider.Record{Type: "SRV", Name: "_sip._tcp.example.com", Value: "10 5 5060 sip.example.com", TTL: 600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeAdd, After: mx},
-		{Kind: dnsprovider.ChangeAdd, After: srv},
-	}})
-	if err != nil || res.Results[0].Err != nil || res.Results[1].Err != nil {
-		t.Fatalf("Apply: %v, %+v", err, res.Results)
-	}
-
-	want := []write{
-		{Method: "PUT", Path: "/v1/domains/example.com/records/MX/@", Body: []map[string]any{
-			{"data": "mail.example.com", "priority": 10.0, "ttl": 600.0},
-		}},
-		{Method: "PUT", Path: "/v1/domains/example.com/records/SRV/@", Body: []map[string]any{
-			{"data": "sip.example.com", "priority": 10.0, "weight": 5.0, "port": 5060.0, "service": "_sip", "protocol": "_tcp", "ttl": 600.0},
-		}},
-	}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-
-	// The records read back as they were written.
 	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
 	if err != nil {
 		t.Fatalf("Records: %v", err)
 	}
 
-	if want := withIDs(mx, srv); !reflect.DeepEqual(set.Records, want) {
-		t.Errorf("Records = %v, want %v", set.Records, want)
+	if set.Partial || set.Serial != 0 {
+		t.Errorf("Records is Partial %v with serial %d, want a Full View and no serial", set.Partial, set.Serial)
+	}
+
+	want := []dnsprovider.Record{
+		{ID: "r1", Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 600},
+		{ID: "r2", Type: "CNAME", Name: "www.example.com", Value: "example.com", TTL: 3600},
+		{ID: "r3", Type: "MX", Name: "example.com", Value: "10 mail.example.com", TTL: 3600},
+		{ID: "r4", Type: "TXT", Name: "example.com", Value: "v=spf1 -all", TTL: 3600},
+		{ID: "r5", Type: "SRV", Name: "_sip._tcp.example.com", Value: "10 5 5060 sip.example.com", TTL: 3600},
+		{ID: "r6", Type: "CAA", Name: "example.com", Value: `0 issue "letsencrypt.org"`, TTL: 3600},
+	}
+	if !reflect.DeepEqual(set.Records, want) {
+		t.Errorf("Records =\n%v\nwant\n%v", set.Records, want)
 	}
 }
 
-func TestGoDaddyTakesTTLsFrom600SecondsWithoutAutomatic(t *testing.T) {
-	p := newProvider(t, &gdAPI{})
-
-	if got, want := dnsprovider.TTLRangeOf(p), (dnsprovider.TTLRange{Min: 600, Max: 86400}); got != want {
-		t.Errorf("TTL range = %+v, want %+v", got, want)
-	}
-
-	if dnsprovider.AutoTTLOf(p) || dnsprovider.ProxiableTypesOf(p) != nil {
-		t.Error("GoDaddy has no automatic TTL and no proxy")
-	}
-}
-
-func TestErrorResponsesAreTypedErrors(t *testing.T) {
-	cases := []struct {
-		name   string
-		status int
-		body   string
-		kind   error // nil: classified by nothing
-		retry  time.Duration
-		msg    string // a message the error must hold
+func TestRecordsFilteredByTypeAskGoDaddyForTheTypeAndByNameFilterHere(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		filter   dnsprovider.RecordFilter
+		wantType string
+		want     []string
 	}{
-		{"bad key", 401, `{"code":"UNABLE_TO_AUTHENTICATE","message":"Unable to authenticate"}`, dnsprovider.ErrUnauthorized, 0, "Unable to authenticate"},
-		{"no API access", 403, `{"code":"ACCESS_DENIED","message":"Authenticated user is not allowed access"}`, dnsprovider.ErrUnauthorized, 0, "ACCESS_DENIED"},
-		{"unknown domain", 404, `{"code":"UNKNOWN_DOMAIN","message":"The given domain is not registered"}`, dnsprovider.ErrNotFound, 0, "UNKNOWN_DOMAIN"},
-		{"rate limited", 429, `{"code":"TOO_MANY_REQUESTS","message":"Too many requests","retryAfterSec":42}`, dnsprovider.ErrRateLimited, 42 * time.Second, "Too many requests"},
-		{"rate limited for longer than a Duration holds", 429, `{"code":"TOO_MANY_REQUESTS","message":"Too many requests","retryAfterSec":9223372036854775807}`, dnsprovider.ErrRateLimited, math.MaxInt64, "Too many requests"},
-		{"rate limited past int64", 429, `{"code":"TOO_MANY_REQUESTS","message":"Too many requests","retryAfterSec":99999999999999999999}`, dnsprovider.ErrRateLimited, math.MaxInt64, "Too many requests"},
-		{"rate limited with a negative wait", 429, `{"code":"TOO_MANY_REQUESTS","message":"Too many requests","retryAfterSec":-5}`, dnsprovider.ErrRateLimited, 0, "Too many requests"},
-		{"invalid record", 422, `{"code":"INVALID_BODY","message":"Request body doesn't fulfill schema","fields":[{"code":"INVALID_VALUE","message":"data must be an IPv4 address","path":"records[0].data"}]}`, nil, 0, "records[0].data: data must be an IPv4 address"},
-		{"edge page", 502, `<html>Bad Gateway</html>`, nil, 0, ""},
-	}
-
-	for _, c := range cases {
+		{"type", dnsprovider.RecordFilter{Type: "mx"}, "MX", []string{"MX example.com"}},
+		{"name", dnsprovider.RecordFilter{Contains: "WWW."}, "", []string{"A www.example.com", "AAAA www.example.com"}},
+		{"type GoDaddy does not hold", dnsprovider.RecordFilter{Type: "HTTPS"}, "", []string{}},
+	} {
 		t.Run(c.name, func(t *testing.T) {
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-				w.WriteHeader(c.status)
-				_, _ = w.Write([]byte(c.body))
-			}))
-			t.Cleanup(srv.Close)
+			api := &gdAPI{records: map[string][]map[string]any{"example.com": {
+				{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
+				{"type": "AAAA", "name": "www", "data": "2001:db8::1", "ttl": 600},
+				{"type": "MX", "name": "@", "data": "mail.example.com", "priority": 10, "ttl": 3600},
+				{"type": "A", "name": "@", "data": "192.0.2.3", "ttl": 600},
+			}}}
 
-			p, err := godaddy.New(testConfig, dnsprovider.WithBaseURL(srv.URL))
+			set, err := newProvider(t, api).ListRecords(context.Background(), example, c.filter)
 			if err != nil {
-				t.Fatalf("New: %v", err)
+				t.Fatalf("Records: %v", err)
 			}
 
-			_, err = p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
-
-			var apiErr *dnsprovider.APIError
-			if !errors.As(err, &apiErr) || apiErr.StatusCode != c.status {
-				t.Fatalf("err = %v, want an APIError with HTTP %d", err, c.status)
+			got := []string{}
+			for _, r := range set.Records {
+				got = append(got, r.Type+" "+r.Name)
 			}
 
-			for _, kind := range []error{dnsprovider.ErrUnauthorized, dnsprovider.ErrNotFound, dnsprovider.ErrRateLimited} {
-				if errors.Is(err, kind) != (kind == c.kind) {
-					t.Errorf("errors.Is(%v, %v) = %v", err, kind, kind != c.kind)
+			if !slices.Equal(got, c.want) {
+				t.Errorf("Records = %v, want %v", got, c.want)
+			}
+
+			for _, u := range api.Requests() {
+				if u.Query().Get("type") != c.wantType {
+					t.Errorf("request %s, want type %q", u, c.wantType)
 				}
-			}
-
-			if apiErr.RetryAfter != c.retry {
-				t.Errorf("RetryAfter = %v, want %v", apiErr.RetryAfter, c.retry)
-			}
-
-			if !strings.Contains(err.Error(), c.msg) {
-				t.Errorf("err = %q, want it to hold %q", err, c.msg)
 			}
 		})
 	}
 }
 
-// rrset returns the domain's records of a type and name, as data/ttl pairs.
-func (api *gdAPI) rrset(domain, typ, name string) []string {
-	api.mu.Lock()
-	defer api.mu.Unlock()
-
-	var out []string
-	for _, rec := range api.records[domain] {
-		if rec["type"] == typ && rec["name"] == name {
-			out = append(out, fmt.Sprintf("%v/%v", rec["data"], rec["ttl"]))
-		}
-	}
-
-	return out
-}
-
-func TestApplyRestoresARenamedRecordWhoseNewRRsetFails(t *testing.T) {
-	api := &gdAPI{
-		records: map[string][]map[string]any{"example.com": {
-			{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-		}},
-		reject: func(method, _, name string, _ []map[string]any) string {
-			if method == http.MethodPut && name == "api" {
-				return "Record name is invalid"
-			}
-
-			return ""
-		},
-	}
-
-	before := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
-	after := dnsprovider.Record{Type: "A", Name: "api.example.com", Value: "192.0.2.1", TTL: 600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeModify, Before: before, After: after},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	if res.Results[0].Err == nil {
-		t.Error("the rename was reported applied, but its new RRset was refused")
-	}
-
-	if got, want := api.rrset("example.com", "A", "www"), []string{"192.0.2.1/600"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("www after a failed rename = %v, want the Record back: %v", got, want)
-	}
-}
-
-func TestApplyTakesBackARenamedRecordWhoseOldOneIsGone(t *testing.T) {
-	api := &gdAPI{records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "old", "data": "192.0.2.9", "ttl": 600},
-	}}}
-
-	a := func(name, ip string) dnsprovider.Record {
-		return dnsprovider.Record{Type: "A", Name: name + ".example.com", Value: ip, TTL: 600}
-	}
-
-	// The new RRset is written first: the old one has an addition too,
-	// so it is not left with deletions only.
-	res, err := batcherApply(t, api, dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeAdd, After: a("new", "192.0.2.8")},
-		{Kind: dnsprovider.ChangeAdd, After: a("old", "192.0.2.5")},
-		{Kind: dnsprovider.ChangeModify, Before: a("old", "192.0.2.1"), After: a("new", "192.0.2.1")},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	if !errors.Is(res.Results[2].Err, dnsprovider.ErrNotFound) {
-		t.Errorf("renaming a Record that is gone: err = %v, want ErrNotFound", res.Results[2].Err)
-	}
-
-	if got, want := api.rrset("example.com", "A", "new"), []string{"192.0.2.8/600"}; !reflect.DeepEqual(got, want) {
-		t.Errorf("new after a failed rename = %v, want only the other addition: %v", got, want)
-	}
-}
-
-func TestApplyDeletesTheSRVRecordOfItsOwnService(t *testing.T) {
-	api := &gdAPI{records: map[string][]map[string]any{"example.com": {
-		{"type": "SRV", "name": "@", "service": "_imaps", "protocol": "_tcp", "data": ".", "priority": 0, "weight": 0, "port": 0, "ttl": 3600},
-		{"type": "SRV", "name": "@", "service": "_imap", "protocol": "_tcp", "data": ".", "priority": 0, "weight": 0, "port": 0, "ttl": 3600},
-	}}}
-
-	imap := dnsprovider.Record{Type: "SRV", Name: "_imap._tcp.example.com", Value: "0 0 0 .", TTL: 3600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeDelete, Before: imap},
-	}})
-	if err != nil || res.Results[0].Err != nil {
-		t.Fatalf("Apply: %v, %+v", err, res.Results)
-	}
-
-	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
-	if err != nil {
-		t.Fatalf("Records: %v", err)
-	}
-
-	if want := withIDs(dnsprovider.Record{Type: "SRV", Name: "_imaps._tcp.example.com", Value: "0 0 0 .", TTL: 3600}); !reflect.DeepEqual(set.Records, want) {
-		t.Errorf("Records = %v, want only _imaps left: %v", set.Records, want)
-	}
-}
-
-func TestApplyKeepsTheServiceOfSRVRecordsNamedWithoutServiceFields(t *testing.T) {
-	api := &gdAPI{records: map[string][]map[string]any{"example.com": {
-		{"type": "SRV", "name": "_sip._tcp", "data": "sip.example.com", "priority": 10, "weight": 5, "port": 5060, "ttl": 3600},
-	}}}
-
-	add := dnsprovider.Record{Type: "SRV", Name: "_xmpp._tcp.example.com", Value: "5 0 5222 xmpp.example.com", TTL: 3600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeAdd, After: add},
-	}})
-	if err != nil || res.Results[0].Err != nil {
-		t.Fatalf("Apply: %v, %+v", err, res.Results)
-	}
-
-	w := api.Writes()
-	if len(w) != 1 || len(w[0].Body) != 2 || w[0].Body[0]["service"] != "_sip" || w[0].Body[0]["protocol"] != "_tcp" {
-		t.Errorf("writes = %v, want the _sip._tcp Record kept with its service and protocol", w)
-	}
-}
-
-// GoDaddy keeps no zone file for a domain it registers while its Delegation
-// names other nameservers: its records are not served, not found. A
-// domain the Account no longer holds stays not found.
 func TestRecordsOfADomainWithoutAZoneFileAreNotServed(t *testing.T) {
 	api := &gdAPI{domains: []map[string]any{domain("example.com", "ns1.elsewhere.example")}}
 
@@ -982,30 +643,30 @@ func TestRecordsTurnAnAtTargetIntoTheZoneName(t *testing.T) {
 		t.Fatalf("Records: %v", err)
 	}
 
-	want := withIDs(
-		dnsprovider.Record{Type: "MX", Name: "example.com", Value: "10 example.com", TTL: 3600},
-		dnsprovider.Record{Type: "SRV", Name: "_sip._tcp.example.com", Value: "1 2 5060 example.com", TTL: 3600},
-	)
-	if !reflect.DeepEqual(set.Records, want) {
-		t.Errorf("Records = %v, want %v", set.Records, want)
+	want := []dnsprovider.Record{
+		{Type: "MX", Name: "example.com", Value: "10 example.com", TTL: 3600},
+		{Type: "SRV", Name: "_sip._tcp.example.com", Value: "1 2 5060 example.com", TTL: 3600},
+	}
+	if got := noIDs(set.Records); !reflect.DeepEqual(got, want) {
+		t.Errorf("Records = %v, want %v", got, want)
 	}
 }
 
-func TestRecordsStopAtAShortPage(t *testing.T) {
+func TestListsStopAtTheLastPage(t *testing.T) {
 	var recs []map[string]any
-	for i := range 3 {
+	for i := range 4 {
 		recs = append(recs, map[string]any{"type": "A", "name": fmt.Sprint("h", i), "data": "192.0.2.1", "ttl": 600})
 	}
 
 	api := &gdAPI{pageSize: 2, records: map[string][]map[string]any{"example.com": recs}}
 
 	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
-	if err != nil || len(set.Records) != 3 {
-		t.Fatalf("Records = %v, %v; want 3 Records", set.Records, err)
+	if err != nil || len(set.Records) != 4 {
+		t.Fatalf("Records = %v, %v; want 4 Records", set.Records, err)
 	}
 
 	if n := len(api.Requests()); n != 2 {
-		t.Errorf("sent %d requests, want 2: a page of 1 is the last", n)
+		t.Errorf("sent %d requests, want 2: the second page links no next one", n)
 	}
 }
 
@@ -1035,415 +696,72 @@ func TestListsThatIgnorePagingFailInsteadOfLoopingForever(t *testing.T) {
 	}
 }
 
-func TestZonesStopAtAShortPage(t *testing.T) {
-	api := &gdAPI{pageSize: 2, domains: []map[string]any{domain("a.example"), domain("b.example"), domain("c.example")}}
+func TestGoDaddyTakesTTLsFrom600SecondsWithoutAutomatic(t *testing.T) {
+	p := newProvider(t, &gdAPI{})
 
-	if _, err := newProvider(t, api).ListZones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
-		t.Fatalf("Zones: %v", err)
+	if got, want := dnsprovider.TTLRangeOf(p), (dnsprovider.TTLRange{Min: 600, Max: 86400}); got != want {
+		t.Errorf("TTL range = %+v, want %+v", got, want)
 	}
 
-	if n := len(api.Requests()); n != 2 {
-		t.Errorf("sent %d requests, want 2: a page of 1 is the last", n)
-	}
-}
-
-func TestApplySaysWhenARenamedRecordCouldNotBeRestored(t *testing.T) {
-	api := &gdAPI{
-		records: map[string][]map[string]any{"example.com": {
-			{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-		}},
-		// Every PUT fails: the new RRset and the restore of the old one.
-		reject: func(method, _, _ string, _ []map[string]any) string {
-			if method == http.MethodPut {
-				return "Service unavailable"
-			}
-
-			return ""
-		},
-	}
-
-	before := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
-	after := dnsprovider.Record{Type: "A", Name: "api.example.com", Value: "192.0.2.1", TTL: 600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeModify, Before: before, After: after},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	if msg := fmt.Sprint(res.Results[0].Err); !strings.Contains(msg, "A www.example.com 192.0.2.1 is gone") {
-		t.Errorf("err = %q, want it to say the old Record is gone", msg)
+	if dnsprovider.AutoTTLOf(p) || dnsprovider.ProxiableTypesOf(p) != nil {
+		t.Error("GoDaddy has no automatic TTL and no proxy")
 	}
 }
 
-func TestRecordsCarryAProviderIDThatTellsThemApartInTheirRRset(t *testing.T) {
-	api := &gdAPI{records: map[string][]map[string]any{"example.com": {
-		{"type": "TXT", "name": "@", "data": "one", "ttl": 600},
-		{"type": "TXT", "name": "@", "data": "two", "ttl": 600},
-		{"type": "TXT", "name": "@", "data": "one", "ttl": 3600},
-		{"type": "A", "name": "WWW", "data": "192.0.2.1", "ttl": 600},
-	}}}
-
-	set, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
-	if err != nil {
-		t.Fatalf("Records: %v", err)
-	}
-
-	seen := map[string]bool{}
-	for _, r := range set.Records {
-		if r.ID == "" || seen[r.ID] {
-			t.Errorf("%v: Provider ID %q is empty or shared", r, r.ID)
-		}
-
-		seen[r.ID] = true
-	}
-
-	// The ID survives a change of case in the name.
-	if www := set.Records[3]; www.ID != godaddy.WithID(dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}).ID {
-		t.Errorf("www ID = %q, want it the same whatever the name's case", www.ID)
-	}
-}
-
-func TestRecordsFilteredByTypeAskGoDaddyForTheTypeAndByNameFilterHere(t *testing.T) {
-	cases := []struct {
-		name     string
-		filter   dnsprovider.RecordFilter
-		wantPath string
-		want     []string // type and name of each Record
+func TestErrorResponsesAreTypedErrors(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		status int
+		header string
+		body   string
+		kind   error // nil: classified by nothing
+		retry  time.Duration
+		msg    string // a message the error must hold
 	}{
-		{"type", dnsprovider.RecordFilter{Type: "mx"}, "/v1/domains/example.com/records/MX", []string{"MX example.com"}},
-		{"name", dnsprovider.RecordFilter{Contains: "WWW."}, "/v1/domains/example.com/records", []string{"A www.example.com", "AAAA www.example.com"}},
-		{"type and name", dnsprovider.RecordFilter{Type: "A", Contains: "www.example.com."}, "/v1/domains/example.com/records/A", []string{"A www.example.com"}},
-		{"type GoDaddy does not hold", dnsprovider.RecordFilter{Type: "HTTPS"}, "/v1/domains/example.com/records", []string{}},
-		{"malformed type", dnsprovider.RecordFilter{Type: "A B"}, "/v1/domains/example.com/records", []string{}},
-	}
-
-	for _, c := range cases {
+		{"bad token", 401, "", `{"name":"UNAUTHORIZED","correlationId":"c","message":"Unable to authenticate"}`, dnsprovider.ErrUnauthorized, 0, "Unable to authenticate"},
+		{"not eligible", 403, "", `{"name":"ACCESS_DENIED","correlationId":"c","message":"Account is not eligible"}`, dnsprovider.ErrUnauthorized, 0, "ACCESS_DENIED"},
+		{"unknown domain", 404, "", `{"name":"NOT_FOUND","correlationId":"c","message":"Not found"}`, dnsprovider.ErrNotFound, 0, "NOT_FOUND"},
+		{"managed record", 409, "", `{"name":"dns_record_not_mutable","correlationId":"c","message":"SOA records are read-only"}`, dnsprovider.ErrConflict, 0, "dns_record_not_mutable"},
+		{"rate limited", 429, "42", `{"name":"TOO_MANY_REQUESTS","correlationId":"c","message":"Too many requests"}`, dnsprovider.ErrRateLimited, 42 * time.Second, "Too many requests"},
+		{"invalid record", 422, "", `{"name":"INVALID_BODY","correlationId":"c","message":"Invalid","details":[{"field":"/data","issue":"INVALID_VALUE","description":"data must be an IPv4 address"}]}`, nil, 0, "/data: INVALID_VALUE: data must be an IPv4 address"},
+		{"edge page", 502, "", `<html>Bad Gateway</html>`, nil, 0, ""},
+	} {
 		t.Run(c.name, func(t *testing.T) {
-			api := &gdAPI{pageSize: 2, records: map[string][]map[string]any{"example.com": {
-				{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-				{"type": "AAAA", "name": "www", "data": "2001:db8::1", "ttl": 600},
-				{"type": "MX", "name": "@", "data": "mail.example.com", "priority": 10, "ttl": 3600},
-				{"type": "A", "name": "wwwx", "data": "192.0.2.2", "ttl": 600},
-				{"type": "A", "name": "@", "data": "192.0.2.3", "ttl": 600},
-			}}}
-
-			set, err := newProvider(t, api).ListRecords(context.Background(), example, c.filter)
-			if err != nil {
-				t.Fatalf("Records: %v", err)
-			}
-
-			got := make([]string, 0, len(set.Records))
-			for _, r := range set.Records {
-				got = append(got, r.Type+" "+r.Name)
-			}
-
-			if !slices.Equal(got, c.want) {
-				t.Errorf("Records = %v, want %v", got, c.want)
-			}
-
-			if set.Records == nil {
-				t.Error("Records = nil, want an empty list")
-			}
-
-			for _, u := range api.Requests() {
-				if u.Path != c.wantPath {
-					t.Errorf("request %s, want only %s", u, c.wantPath)
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				if c.header != "" {
+					w.Header().Set("Retry-After", c.header)
 				}
+
+				w.WriteHeader(c.status)
+				_, _ = w.Write([]byte(c.body))
+			}))
+			t.Cleanup(srv.Close)
+
+			p, err := godaddy.New(testConfig, dnsprovider.WithBaseURL(srv.URL))
+			if err != nil {
+				t.Fatalf("New: %v", err)
+			}
+
+			_, err = p.ListZones(context.Background(), dnsprovider.ZoneFilter{})
+
+			var apiErr *dnsprovider.APIError
+			if !errors.As(err, &apiErr) || apiErr.StatusCode != c.status {
+				t.Fatalf("err = %v, want an APIError with HTTP %d", err, c.status)
+			}
+
+			for _, kind := range []error{dnsprovider.ErrUnauthorized, dnsprovider.ErrNotFound, dnsprovider.ErrRateLimited, dnsprovider.ErrConflict} {
+				if errors.Is(err, kind) != (kind == c.kind) {
+					t.Errorf("errors.Is(%v, %v) = %v", err, kind, kind != c.kind)
+				}
+			}
+
+			if apiErr.RetryAfter != c.retry {
+				t.Errorf("RetryAfter = %v, want %v", apiErr.RetryAfter, c.retry)
+			}
+
+			if !strings.Contains(err.Error(), c.msg) {
+				t.Errorf("err = %q, want it to hold %q", err, c.msg)
 			}
 		})
 	}
-}
-
-func TestCreateRecordAddsItToItsRRsetAndReturnsItWithItsID(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-	}}}
-
-	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 600}
-
-	got, err := newProvider(t, api).CreateRecord(context.Background(), example, add)
-	if err != nil {
-		t.Fatalf("CreateRecord: %v", err)
-	}
-
-	if want := godaddy.WithID(add); !reflect.DeepEqual(got, want) {
-		t.Errorf("CreateRecord = %+v, want %+v", got, want)
-	}
-
-	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
-		{"data": "192.0.2.1", "ttl": 600.0},
-		{"data": "192.0.2.2", "ttl": 600.0},
-	}}}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestUpdateRecordReplacesItInItsRRset(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-		{"type": "A", "name": "www", "data": "192.0.2.2", "ttl": 600},
-	}}}
-
-	before := godaddy.WithID(dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600})
-	after := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.3", TTL: 600}
-
-	got, err := newProvider(t, api).UpdateRecord(context.Background(), example, before, after)
-	if err != nil {
-		t.Fatalf("UpdateRecord: %v", err)
-	}
-
-	if want := godaddy.WithID(after); !reflect.DeepEqual(got, want) {
-		t.Errorf("UpdateRecord = %+v, want %+v", got, want)
-	}
-
-	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
-		{"data": "192.0.2.2", "ttl": 600.0},
-		{"data": "192.0.2.3", "ttl": 600.0},
-	}}}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestDeleteRecordDeletesTheRRsetItLeavesEmpty(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "TXT", "name": "@", "data": "v=spf1 -all", "ttl": 600},
-	}}}
-
-	r := godaddy.WithID(dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "v=spf1 -all", TTL: 600})
-
-	if err := newProvider(t, api).DeleteRecord(context.Background(), example, r); err != nil {
-		t.Fatalf("DeleteRecord: %v", err)
-	}
-
-	want := []write{{Method: "DELETE", Path: "/v1/domains/example.com/records/TXT/@"}}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestUpdateAndDeleteOfARecordGoDaddyNoLongerHoldsAreNotFound(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-	}}}
-
-	p := newProvider(t, api)
-	gone := godaddy.WithID(dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.9", TTL: 600})
-
-	if _, err := p.UpdateRecord(context.Background(), example, gone, dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.3", TTL: 600}); !errors.Is(err, dnsprovider.ErrNotFound) {
-		t.Errorf("UpdateRecord: err = %v, want ErrNotFound", err)
-	}
-
-	if err := p.DeleteRecord(context.Background(), example, gone); !errors.Is(err, dnsprovider.ErrNotFound) {
-		t.Errorf("DeleteRecord: err = %v, want ErrNotFound", err)
-	}
-
-	if got := api.Writes(); len(got) != 0 {
-		t.Errorf("writes = %v, want none", got)
-	}
-}
-
-func TestCreateRecordOfARecordItsRRsetHoldsIsAConflict(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-	}}}
-
-	// The same Value with another TTL is the same resource record.
-	dup := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 3600}
-
-	if _, err := newProvider(t, api).CreateRecord(context.Background(), example, dup); !errors.Is(err, dnsprovider.ErrConflict) {
-		t.Errorf("CreateRecord: err = %v, want ErrConflict", err)
-	}
-
-	if got := api.Writes(); len(got) != 0 {
-		t.Errorf("writes = %v, want none", got)
-	}
-}
-
-func TestApplyFailsADuplicateAdditionAloneAndWritesTheRestOfItsRRset(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-	}}}
-
-	dup := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
-	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeAdd, After: dup},
-		{Kind: dnsprovider.ChangeAdd, After: add},
-		{Kind: dnsprovider.ChangeAdd, After: add},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	for i, want := range []error{dnsprovider.ErrConflict, nil, dnsprovider.ErrConflict} {
-		if got := res.Results[i].Err; !errors.Is(got, want) || (want == nil && got != nil) {
-			t.Errorf("result %d: err = %v, want %v", i, got, want)
-		}
-	}
-
-	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
-		{"data": "192.0.2.1", "ttl": 600.0},
-		{"data": "192.0.2.2", "ttl": 600.0},
-	}}}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestUpdateRecordIntoAnotherRecordOfItsRRsetIsAConflictAndKeepsIt(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-		{"type": "A", "name": "www", "data": "192.0.2.2", "ttl": 600},
-	}}}
-
-	p := newProvider(t, api)
-	before := godaddy.WithID(dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600})
-	after := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 600}
-
-	if _, err := p.UpdateRecord(context.Background(), example, before, after); !errors.Is(err, dnsprovider.ErrConflict) {
-		t.Errorf("UpdateRecord: err = %v, want ErrConflict", err)
-	}
-
-	if got := api.Writes(); len(got) != 0 {
-		t.Errorf("writes = %v, want none", got)
-	}
-}
-
-func TestApplyWritesNamesThatDifferOnlyInCaseAsOneRRset(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-	}}}
-
-	del := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
-	add := dnsprovider.Record{Type: "A", Name: "WWW.example.com", Value: "192.0.2.2", TTL: 600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeDelete, Before: del},
-		{Kind: dnsprovider.ChangeAdd, After: add},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	for i, r := range res.Results {
-		if r.Err != nil {
-			t.Errorf("result %d: %v", i, r.Err)
-		}
-	}
-
-	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
-		{"data": "192.0.2.2", "ttl": 600.0},
-	}}}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestApplyAddingTheRecordAFailedModificationKeepsIsAConflict(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {
-		{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 600},
-		{"type": "A", "name": "www", "data": "192.0.2.2", "ttl": 600},
-		{"type": "A", "name": "www", "data": "192.0.2.3", "ttl": 600},
-	}}}
-
-	a := func(v string) dnsprovider.Record {
-		return dnsprovider.Record{Type: "A", Name: "www.example.com", Value: v, TTL: 600}
-	}
-
-	// The modification into 192.0.2.2 fails, so 192.0.2.1 stays, and
-	// adding it again is a conflict, not a second copy.
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{Kind: dnsprovider.ChangeAdd, After: a("192.0.2.1")},
-		{Kind: dnsprovider.ChangeModify, Before: a("192.0.2.1"), After: a("192.0.2.2")},
-		{Kind: dnsprovider.ChangeDelete, Before: a("192.0.2.3")},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	for i, want := range []error{dnsprovider.ErrConflict, dnsprovider.ErrConflict, nil} {
-		if got := res.Results[i].Err; !errors.Is(got, want) || (want == nil && got != nil) {
-			t.Errorf("result %d: err = %v, want %v", i, got, want)
-		}
-	}
-
-	want := []write{{Method: "PUT", Path: "/v1/domains/example.com/records/A/www", Body: []map[string]any{
-		{"data": "192.0.2.2", "ttl": 600.0},
-		{"data": "192.0.2.1", "ttl": 600.0},
-	}}}
-	if got := api.Writes(); !reflect.DeepEqual(got, want) {
-		t.Errorf("writes = %v, want %v", got, want)
-	}
-}
-
-func TestCreateRecordReturnsTheRecordAsRecordsReadsItBack(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {}}}
-	p := newProvider(t, api)
-
-	for _, add := range []dnsprovider.Record{
-		{Type: "A", Name: "WWW.Example.com", Value: "192.0.2.1", TTL: 600},
-		{Type: "SRV", Name: "_SIP._TCP.Example.com", Value: "10 20 5060 sip.example.com", TTL: 600},
-	} {
-		got, err := p.CreateRecord(context.Background(), example, add)
-		if err != nil {
-			t.Fatalf("CreateRecord %s: %v", add.Name, err)
-		}
-
-		set, err := p.ListRecords(context.Background(), example, dnsprovider.RecordFilter{Type: add.Type})
-		if err != nil {
-			t.Fatalf("Records: %v", err)
-		}
-
-		if len(set.Records) != 1 || !reflect.DeepEqual(got, set.Records[0]) {
-			t.Errorf("CreateRecord = %+v, want it as ListRecords reads it: %+v", got, set.Records)
-		}
-	}
-}
-
-func TestApplyFailsAChangeOfNoKnownKindAlone(t *testing.T) {
-	api := &gdAPI{pageSize: 500, records: map[string][]map[string]any{"example.com": {}}}
-
-	add := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 600}
-
-	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: []dnsprovider.Change{
-		{After: add},
-		{Kind: 99, After: add},
-		{Kind: dnsprovider.ChangeAdd, After: add},
-	}})
-	if err != nil {
-		t.Fatalf("Apply: %v", err)
-	}
-
-	for i, fails := range []bool{true, true, false} {
-		if got := res.Results[i].Err; (got != nil) != fails {
-			t.Errorf("result %d: err = %v, want failure %v", i, got, fails)
-		}
-	}
-
-	if got := api.Writes(); len(got) != 1 {
-		t.Errorf("writes = %v, want the addition alone", got)
-	}
-}
-
-// batcherApply applies a Changeset built from a Record that is gone
-// through the Batcher alone, so a test sees the Batcher's own handling of
-// it; dnsprovider.Apply, checked here too, refuses it as stale, writing
-// nothing.
-func batcherApply(t *testing.T, api *gdAPI, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	t.Helper()
-
-	if _, err := dnsprovider.Apply(context.Background(), newProvider(t, api), cs); !errors.Is(err, dnsprovider.ErrStale) {
-		t.Fatalf("dnsprovider.Apply: err = %v, want ErrStale", err)
-	}
-
-	if got := api.Writes(); len(got) != 0 {
-		t.Fatalf("dnsprovider.Apply wrote %v, want nothing", got)
-	}
-
-	return newProvider(t, api).ApplyChangeset(context.Background(), cs)
 }

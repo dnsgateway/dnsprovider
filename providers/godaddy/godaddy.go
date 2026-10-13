@@ -1,4 +1,4 @@
-// Package godaddy is the GoDaddy Provider, on the v1 Domains API over
+// Package godaddy is the GoDaddy Provider, on the v3 Domains API over
 // the shared rest client: GoDaddy has no maintained Go SDK.
 package godaddy
 
@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/dnsgateway/dnsprovider"
-	"github.com/dnsgateway/dnsprovider/internal/batch"
 	"github.com/dnsgateway/dnsprovider/internal/fields"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 	"github.com/dnsgateway/dnsprovider/rest"
@@ -29,33 +28,30 @@ const DefaultBaseURL = "https://api.godaddy.com"
 // DefaultRequestTimeout bounds each request to the GoDaddy API.
 const DefaultRequestTimeout = 30 * time.Second
 
+// apiPath is where the v3 Domains API is, below the base URL.
+const apiPath = "/v3/domains"
+
 // domainsPerPage is the largest page GoDaddy serves for domains.
-var domainsPerPage = 1000
+var domainsPerPage = 200
 
 // Config is a GoDaddy Account's credentials.
 type Config struct {
-	// Key is the API key. Required.
-	Key string
-	// Secret is the API secret. Required.
-	Secret string
+	// Token is a personal access token with the domains.domain:read
+	// scope, and domains.dns:update for writes. Required. The v3 API
+	// takes no API key and secret.
+	Token string
 }
 
-// Field names in Factory's field map.
-const (
-	FieldKey    = "key"
-	FieldSecret = "secret"
-)
+// FieldToken is the field name of Config.Token in Factory's field map.
+const FieldToken = "token"
 
 // Factory builds the GoDaddy Provider from a field map, for a
 // dnsprovider.Registry.
 func Factory() dnsprovider.Factory {
-	fs := []dnsprovider.Field{
-		{Name: FieldKey, Label: "API key", Secret: true},
-		{Name: FieldSecret, Label: "API secret", Secret: true},
-	}
+	fs := []dnsprovider.Field{{Name: FieldToken, Label: "Personal access token", Secret: true}}
 
 	return fields.Factory("godaddy", fs, traits, func(m map[string]string, opts ...dnsprovider.Option) (*Provider, error) {
-		return New(Config{Key: m[FieldKey], Secret: m[FieldSecret]}, opts...)
+		return New(Config{Token: m[FieldToken]}, opts...)
 	})
 }
 
@@ -72,12 +68,8 @@ func (p *Provider) Traits() dnsprovider.Traits {
 // Without WithBaseURL it talks to DefaultBaseURL; without WithHTTPClient
 // each request times out after DefaultRequestTimeout.
 func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
-	if cfg.Key == "" || cfg.Secret == "" {
-		return nil, errors.New("godaddy: the API key and secret are both required")
-	}
-
-	if strings.Contains(cfg.Key, ":") {
-		return nil, errors.New("godaddy: the API key holds a colon")
+	if cfg.Token == "" {
+		return nil, errors.New("godaddy: the personal access token is required")
 	}
 
 	o := dnsprovider.NewOptions(opts...)
@@ -94,21 +86,21 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 
 	baseURL = strings.TrimSuffix(baseURL, "/")
 
-	// The key is marked secret: the Account is named by its hash.
-	keyHash := sha256.Sum256([]byte(cfg.Key))
+	// The token is marked secret: the Account is named by its hash.
+	tokenHash := sha256.Sum256([]byte(cfg.Token))
 
 	return &Provider{
 		baseURL: baseURL,
-		auth:    "sso-key " + cfg.Key + ":" + cfg.Secret,
-		secrets: []string{cfg.Key, cfg.Secret},
+		auth:    "Bearer " + cfg.Token,
+		secrets: []string{cfg.Token},
 		client:  client,
-		limit:   rest.AccountPerMinute("godaddy "+baseURL+" "+hex.EncodeToString(keyHash[:]), RequestsPerMinute),
+		limit:   rest.AccountPerMinute("godaddy "+baseURL+" "+hex.EncodeToString(tokenHash[:]), RequestsPerMinute),
 		log:     o.Logger,
 	}, nil
 }
 
-// RequestsPerMinute is GoDaddy's published rate limit for an Account.
-// Every Provider built for the same API key and endpoint shares it.
+// RequestsPerMinute is GoDaddy's published rate limit for a credential.
+// Every Provider built for the same token and endpoint shares it.
 const RequestsPerMinute = 60
 
 // Provider is one GoDaddy Account.
@@ -132,7 +124,7 @@ type Provider struct {
 func (p *Provider) api() *rest.Client {
 	return &rest.Client{
 		Provider: "godaddy",
-		BaseURL:  p.baseURL,
+		BaseURL:  p.baseURL + apiPath,
 		HTTP:     p.client,
 		Auth:     func(r *http.Request) { r.Header.Set("Authorization", p.auth) },
 		Secrets:  p.secrets,
@@ -148,15 +140,32 @@ var _ dnsprovider.Provider = (*Provider)(nil)
 // report: a GoDaddy TTL is at least 600 seconds.
 var ttlRange = dnsprovider.TTLRange{Min: 600, Max: 86400}
 
-// wireDomain is the part of a v1 domain that the adapter reads.
+// wireDomain is the part of a v3 domain that the adapter reads.
 type wireDomain struct {
 	Domain      string   `json:"domain"`
 	Status      string   `json:"status"`
 	NameServers []string `json:"nameServers"`
 }
 
+// wireLink is a v3 HATEOAS link.
+type wireLink struct {
+	Rel  string `json:"rel"`
+	Href string `json:"href"`
+}
+
+// next is the href of the rel=next link; empty on the last page.
+func next(links []wireLink) string {
+	for _, l := range links {
+		if l.Rel == "next" {
+			return l.Href
+		}
+	}
+
+	return ""
+}
+
 // ListZones implements dnsprovider.Provider: the ACTIVE domains of the
-// Account whose names match the filter. The v1 API has no name filter, so
+// Account whose names match the filter. The API has no name filter, so
 // every page is read and filtered with dnsprovider.MatchZone. A Zone's
 // Hosting State follows its Delegation; see hostingState.
 // The ZoneSet is a Full View.
@@ -177,9 +186,9 @@ func (p *Provider) ListZones(ctx context.Context, f dnsprovider.ZoneFilter) (dns
 }
 
 // GetZone implements dnsprovider.Provider: the ACTIVE domain of that name,
-// read with GET /v1/domains/{domain}; ErrNotFound when the Account has
+// read with GET /domain-names/{domain}; ErrNotFound when the Account has
 // no such domain, or has it in another status, which Zones does not list.
-// A key GoDaddy refuses stays ErrUnauthorized; see listedDomain.
+// A token GoDaddy refuses stays ErrUnauthorized; see listedDomain.
 func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, error) {
 	name = names.ZoneName(name)
 	notFound := fmt.Errorf("godaddy: zone %q: %w", name, dnsprovider.ErrNotFound)
@@ -190,7 +199,7 @@ func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, 
 
 	var d wireDomain
 
-	err := p.api().Do(ctx, http.MethodGet, "/v1/domains/"+url.PathEscape(name), nil, nil, &d)
+	err := p.api().Do(ctx, http.MethodGet, "/domain-names/"+url.PathEscape(name), nil, nil, &d)
 
 	var apiErr *dnsprovider.APIError
 	if errors.As(err, &apiErr) && (apiErr.StatusCode == http.StatusForbidden || apiErr.StatusCode == http.StatusUnprocessableEntity) {
@@ -210,9 +219,9 @@ func (p *Provider) GetZone(ctx context.Context, name string) (dnsprovider.Zone, 
 // listedDomain is the ACTIVE domain of that name in the Account's list,
 // read up to the page that holds it; ErrNotFound when the list has none.
 // GetZone reads it when GoDaddy answers a domain the Account does not hold
-// with 403 ACCESS_DENIED or 422, as it does for one held by another
-// Account, which a key GoDaddy refuses altogether also gets: the list
-// tells them apart, failing for the key with ErrUnauthorized.
+// with 403 or 422, as it may for one held by another Account, which a
+// token GoDaddy refuses altogether also gets: the list tells them apart,
+// failing for the token with ErrUnauthorized.
 func (p *Provider) listedDomain(ctx context.Context, name string) (wireDomain, error) {
 	isName := func(d wireDomain) bool { return names.ZoneName(d.Domain) == name }
 
@@ -228,7 +237,7 @@ func (p *Provider) listedDomain(ctx context.Context, name string) (wireDomain, e
 	return wireDomain{}, fmt.Errorf("godaddy: zone %q: %w", name, dnsprovider.ErrNotFound)
 }
 
-// toZone turns a v1 domain into a Zone.
+// toZone turns a v3 domain into a Zone.
 func toZone(d wireDomain) dnsprovider.Zone {
 	return dnsprovider.Zone{Name: d.Domain, ID: d.Domain, State: hostingState(d.NameServers), Nameservers: goDaddyNameservers(d.NameServers)}
 }
@@ -289,33 +298,54 @@ var errStopPaging = errors.New("godaddy: stop paging")
 
 // pageDomains reads the pages of the Account's ACTIVE domains until stop,
 // given each page, returns true, and returns the domains read. A page
-// starts after the marker, the last domain of the page before.
+// starts at the pageToken of the page before's rel=next link; the page
+// without one is the last.
 func (p *Provider) pageDomains(ctx context.Context, stop func([]wireDomain) bool) ([]wireDomain, error) {
-	var read []wireDomain
+	var (
+		read  []wireDomain
+		token string
+		last  bool
+	)
 
-	_, err := rest.Pages(domainsPerPage, func(d wireDomain) string { return d.Domain }, func(pg rest.Page) ([]wireDomain, error) {
-		q := url.Values{
-			"statuses": {"ACTIVE"},
-			"includes": {"nameServers"},
-			"limit":    {strconv.Itoa(pg.Size)},
+	_, err := rest.Pages(domainsPerPage, nil, func(pg rest.Page) ([]wireDomain, error) {
+		if last {
+			return nil, nil
 		}
 
-		if pg.Marker != "" {
-			q.Set("marker", pg.Marker)
+		q := url.Values{"statuses": {"ACTIVE"}, "pageSize": {strconv.Itoa(pg.Size)}}
+		if token != "" {
+			q.Set("pageToken", token)
 		}
 
-		var page []wireDomain
-		if err := p.api().Do(ctx, http.MethodGet, "/v1/domains", q, nil, &page); err != nil {
+		var page struct {
+			Items []wireDomain `json:"items"`
+			Links []wireLink   `json:"links"`
+		}
+		if err := p.api().Do(ctx, http.MethodGet, "/domain-names", q, nil, &page); err != nil {
 			return nil, err
 		}
 
-		read = append(read, page...)
+		read = append(read, page.Items...)
 
-		if stop(page) {
+		if stop(page.Items) {
 			return nil, errStopPaging
 		}
 
-		return page, nil
+		href := next(page.Links)
+		if href == "" {
+			last = true
+
+			return page.Items, nil
+		}
+
+		u, err := url.Parse(href)
+		if err != nil || u.Query().Get("pageToken") == "" || u.Query().Get("pageToken") == token {
+			return nil, rest.ErrSamePage
+		}
+
+		token = u.Query().Get("pageToken")
+
+		return page.Items, nil
 	})
 
 	switch {
@@ -330,547 +360,12 @@ func (p *Provider) pageDomains(ctx context.Context, stop func([]wireDomain) bool
 	return read, nil
 }
 
-// recordsPerPage is the largest page GoDaddy serves for records.
-var recordsPerPage = 500
-
-// wireRecord is a v1 DNS record. Its name is relative to the domain, "@"
-// for the apex. An SRV record's owner name is its service, protocol and
-// name; its target is the data.
-type wireRecord struct {
-	Type     string `json:"type"`
-	Name     string `json:"name"`
-	Data     string `json:"data"`
-	TTL      uint32 `json:"ttl"`
-	Priority uint32 `json:"priority,omitempty"`
-	Weight   uint32 `json:"weight,omitempty"`
-	Port     uint32 `json:"port,omitempty"`
-	Service  string `json:"service,omitempty"`
-	Protocol string `json:"protocol,omitempty"`
-}
-
-// recordTypes are the types GoDaddy holds, and lists one at a time; it
-// answers 422 for any other.
-var recordTypes = []string{"A", "AAAA", "CAA", "CNAME", "MX", "NS", "SOA", "SRV", "TXT"}
-
-// ListRecords implements dnsprovider.Provider. GoDaddy lists the Records of
-// one type it holds itself; a type it does not hold is filtered here, from
-// the whole list, so it finds none rather than failing. The name filter,
-// and the type again, are applied with dnsprovider.MatchRecord. GoDaddy
-// reports no SOA serial: query the Zone's nameservers for it.
-func (p *Provider) ListRecords(ctx context.Context, zone dnsprovider.Zone, f dnsprovider.RecordFilter) (dnsprovider.RecordSet, error) {
-	typ := strings.ToUpper(f.Type)
-	if !slices.Contains(recordTypes, typ) {
-		typ = ""
-	}
-
-	all, err := p.listRecords(ctx, zone, typ)
-	if err != nil {
-		return dnsprovider.RecordSet{}, p.notServed(ctx, zone, err)
-	}
-
-	records := make([]dnsprovider.Record, 0, len(all))
-	for _, w := range all {
-		// The list of one type leaves the type out of its records.
-		if w.Type == "" {
-			w.Type = typ
-		}
-
-		if rec := toRecord(zone.Name, w); dnsprovider.MatchRecord(f, rec) {
-			records = append(records, rec)
-		}
-	}
-
-	return dnsprovider.RecordSet{Records: records}, nil
-}
-
-// notServed turns the not-found of a Zone's records into ErrNotServed when
-// the Account still holds the domain: GoDaddy keeps no zone file for a
-// domain it registers while its Delegation names other nameservers. A
-// domain gone from the Account, and any other error, is left as it is.
-func (p *Provider) notServed(ctx context.Context, zone dnsprovider.Zone, err error) error {
-	if !errors.Is(err, dnsprovider.ErrNotFound) {
-		return err
-	}
-
-	if _, zerr := p.GetZone(ctx, zone.Name); zerr != nil {
-		return err
-	}
-
-	return fmt.Errorf("godaddy: zone %q: %w: %w", zone.Name, dnsprovider.ErrNotServed, err)
-}
-
-// listRecords reads every page of a domain's records, only those of a
-// type when typ is set. The offset is the page, from 1; GoDaddy answers a
-// page past the last one with 422.
-func (p *Provider) listRecords(ctx context.Context, zone dnsprovider.Zone, typ string) ([]wireRecord, error) {
-	path := "/v1/domains/" + url.PathEscape(zone.ID) + "/records"
-	if typ != "" {
-		path += "/" + url.PathEscape(typ)
-	}
-
-	records, err := rest.Pages(recordsPerPage, nil, func(pg rest.Page) ([]wireRecord, error) {
-		q := url.Values{"offset": {strconv.Itoa(pg.Number)}, "limit": {strconv.Itoa(pg.Size)}}
-
-		var page []wireRecord
-
-		err := p.api().Do(ctx, http.MethodGet, path, q, nil, &page)
-
-		var apiErr *dnsprovider.APIError
-		if pg.Number > 1 && errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusUnprocessableEntity {
-			return nil, nil
-		}
-
-		return page, err
-	})
-	if errors.Is(err, rest.ErrSamePage) {
-		return nil, fmt.Errorf("godaddy: the records of %s: %w", zone.Name, err)
-	}
-
-	return records, err
-}
-
-// toRecord turns a v1 record into a Record of a Zone, with an absolute
-// name and its Value in presentation form: the MX and SRV priority first.
-func toRecord(zone string, w wireRecord) dnsprovider.Record {
-	name := w.Name
-	if w.Type == "SRV" && w.Service != "" && w.Protocol != "" {
-		name = underscore(w.Service) + "." + underscore(w.Protocol) + "." + name
-	}
-
-	rec := dnsprovider.Record{Type: w.Type, Name: names.AbsoluteName(zone, name), Value: w.Data, TTL: w.TTL}
-
-	// GoDaddy writes a target at the Zone apex as "@".
-	target := w.Data
-	if target == "@" {
-		target = zone
-	}
-
-	switch w.Type {
-	case "CNAME", "NS":
-		rec.Value = target
-	case "MX":
-		rec.Value = fmt.Sprintf("%d %s", w.Priority, target)
-	case "SRV":
-		rec.Value = fmt.Sprintf("%d %d %d %s", w.Priority, w.Weight, w.Port, target)
-	}
-
-	return withID(rec)
-}
-
-// withID gives a Record its Provider ID. GoDaddy has no record IDs, so
-// the ID is what tells a Record apart in its RRset: its type, name, TTL
-// and Value, as Apply matches it.
-func withID(r dnsprovider.Record) dnsprovider.Record {
-	r.ID = fmt.Sprintf("%s %s %d %s", r.Type, strings.ToLower(r.Name), r.TTL, r.Value)
-
-	return r
-}
-
-// underscore puts the leading underscore on an SRV service or protocol.
-func underscore(s string) string {
-	if strings.HasPrefix(s, "_") {
-		return s
-	}
-
-	return "_" + s
-}
-
-// rrset names a GoDaddy RRset: a type and a name relative to the domain.
-// An SRV RRset is named by its host part: GoDaddy keeps the service and
-// protocol in each record.
-type rrset struct {
-	typ, name string
-}
-
-// rrOp adds or removes one Record of an RRset, for the change at index.
-type rrOp struct {
-	index  int
-	remove bool
-	rec    dnsprovider.Record
-}
-
-// rrGroup is what a Changeset does to one RRset.
-type rrGroup struct {
-	set rrset
-	ops []rrOp
-}
-
-// ApplyChangeset implements dnsprovider.Provider (CapBatcher). GoDaddy has no record
-// IDs, so each RRset a Changeset touches is one call: it is read, has the
-// changes made to it, and is replaced, or deleted when they leave it
-// empty. RRsets left with only deletions go first, so a Record that takes
-// the place of another does not collide with it. Every change of an RRset
-// shares the result of its call; a failed RRset does not stop the others.
-// A modification that moves a Record between RRsets and is made in only
-// one of them is undone. The results are in Changeset order, with no
-// serial.
-func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
-
-	var groups []*rrGroup
-
-	group := func(r dnsprovider.Record) *rrGroup {
-		set := rrsetOf(cs.Zone.Name, r)
-		for _, g := range groups {
-			if g.set == set {
-				return g
-			}
-		}
-
-		g := &rrGroup{set: set}
-		groups = append(groups, g)
-
-		return g
-	}
-
-	for i, c := range cs.Changes {
-		res.Results[i] = dnsprovider.ChangeResult{Change: c}
-
-		if c.Kind != dnsprovider.ChangeAdd && c.Kind != dnsprovider.ChangeModify && c.Kind != dnsprovider.ChangeDelete {
-			res.Results[i].Err = fmt.Errorf("godaddy: unknown change kind %d", c.Kind)
-
-			continue
-		}
-
-		if c.Kind == dnsprovider.ChangeModify || c.Kind == dnsprovider.ChangeDelete {
-			g := group(c.Before)
-			g.ops = append(g.ops, rrOp{index: i, remove: true, rec: c.Before})
-		}
-
-		if c.Kind == dnsprovider.ChangeModify || c.Kind == dnsprovider.ChangeAdd {
-			g := group(c.After)
-			g.ops = append(g.ops, rrOp{index: i, rec: c.After})
-			res.Results[i].Record = stored(cs.Zone.Name, c.After)
-		}
-	}
-
-	slices.SortStableFunc(groups, func(a, b *rrGroup) int {
-		return removesOnly(b) - removesOnly(a)
-	})
-
-	// done holds the ops written, by change and half.
-	type half struct {
-		index  int
-		remove bool
-	}
-
-	done := map[half]bool{}
-
-	for _, g := range groups {
-		ops := slices.DeleteFunc(slices.Clone(g.ops), func(op rrOp) bool { return res.Results[op.index].Err != nil })
-		if len(ops) == 0 {
-			continue
-		}
-
-		failed, err := p.applyRRset(ctx, cs.Zone, g.set, ops)
-
-		for _, op := range ops {
-			switch {
-			case failed[op.index] != nil:
-				res.Results[op.index].Err = failed[op.index]
-			case err != nil:
-				res.Results[op.index].Err = err
-			default:
-				done[half{op.index, op.remove}] = true
-			}
-		}
-	}
-
-	// A modification that moves a Record to another RRset is two writes.
-	// When only one of them was made, it is undone, so the failed change
-	// leaves the Zone as it was.
-	for i, c := range cs.Changes {
-		if c.Kind != dnsprovider.ChangeModify || res.Results[i].Err == nil {
-			continue
-		}
-
-		var undo rrOp
-
-		switch {
-		case done[half{i, true}] && !done[half{i, false}]:
-			undo = rrOp{index: i, rec: c.Before}
-		case done[half{i, false}] && !done[half{i, true}]:
-			undo = rrOp{index: i, remove: true, rec: c.After}
-		default:
-			continue
-		}
-
-		failed, err := p.applyRRset(ctx, cs.Zone, rrsetOf(cs.Zone.Name, undo.rec), []rrOp{undo})
-		if err == nil {
-			err = failed[i]
-		}
-
-		if err != nil {
-			state := "is gone"
-			if undo.remove {
-				state = "was added"
-			}
-
-			res.Results[i].Err = fmt.Errorf("%w; undoing its other half failed too, so %s %s %s %s: %v",
-				res.Results[i].Err, undo.rec.Type, undo.rec.Name, undo.rec.Value, state, err)
-		}
-	}
-
-	for i := range res.Results {
-		if res.Results[i].Err != nil {
-			res.Results[i].Record = dnsprovider.Record{}
-		}
-	}
-
-	return res, nil
-}
-
-// stored is a Record as GoDaddy stores it, so as ListRecords reads it back:
-// the RRset replace sends it, under its RRset's name, as toWire has it.
-// It is worked out from what is sent rather than read back, which would
-// cost a request per RRset against GoDaddy's rate limit. A Record toWire
-// refuses is not written, so is kept as it is.
-func stored(zone string, r dnsprovider.Record) dnsprovider.Record {
-	w, err := toWire(zone, r)
-	if err != nil {
-		return withID(r)
-	}
-
-	read := wireRecord{Type: r.Type, Name: rrsetOf(zone, r).name, Data: w.Data, TTL: w.TTL, Service: w.Service, Protocol: w.Protocol}
-
-	for _, f := range []struct {
-		from *uint64
-		to   *uint32
-	}{{w.Priority, &read.Priority}, {w.Weight, &read.Weight}, {w.Port, &read.Port}} {
-		if f.from != nil {
-			*f.to = uint32(*f.from)
-		}
-	}
-
-	return toRecord(zone, read)
-}
-
-// removesOnly is 1 for a group that only removes Records, else 0.
-func removesOnly(g *rrGroup) int {
-	for _, op := range g.ops {
-		if !op.remove {
-			return 0
-		}
-	}
-
-	return 1
-}
-
-// rrsetOf names the RRset a Record of a Zone belongs to. DNS names ignore
-// case, so the name is lower case: names that differ only in case are one
-// RRset.
-func rrsetOf(zone string, r dnsprovider.Record) rrset {
-	name := strings.ToLower(names.RelativeName(zone, r.Name))
-	if r.Type == "SRV" {
-		_, _, name = splitSRVName(name)
-	}
-
-	return rrset{typ: r.Type, name: name}
-}
-
-// applyRRset reads an RRset, makes the ops to it and writes it back. A
-// Record an op removes that the RRset no longer holds fails that op's
-// change alone, and the op that change adds is left out; so does a Record
-// an op adds that the RRset holds already, with ErrConflict. err fails
-// them all.
-func (p *Provider) applyRRset(ctx context.Context, zone dnsprovider.Zone, set rrset, ops []rrOp) (failed map[int]error, err error) {
-	path := "/v1/domains/" + url.PathEscape(zone.ID) + "/records/" + url.PathEscape(set.typ) + "/" + url.PathEscape(set.name)
-
-	var current []wireRecord
-	if err := p.api().Do(ctx, http.MethodGet, path, nil, nil, &current); err != nil && !errors.Is(err, dnsprovider.ErrNotFound) {
-		return nil, err
-	}
-
-	records := make([]dnsprovider.Record, 0, len(current))
-	for _, w := range current {
-		// An SRV record's name may hold its service and protocol.
-		if w.Type == "" {
-			w.Type = set.typ
-		}
-
-		if w.Name == "" {
-			w.Name = set.name
-		}
-
-		records = append(records, toRecord(zone.Name, w))
-	}
-
-	failed = map[int]error{}
-	removed := map[int]dnsprovider.Record{}
-
-	for _, op := range ops {
-		if !op.remove || failed[op.index] != nil {
-			continue
-		}
-
-		i := slices.IndexFunc(records, func(r dnsprovider.Record) bool {
-			return strings.EqualFold(r.Name, op.rec.Name) && r.Value == op.rec.Value && r.TTL == op.rec.TTL
-		})
-		if i < 0 {
-			failed[op.index] = fmt.Errorf("godaddy: %s %s %s is not there any more: %w", op.rec.Type, op.rec.Name, op.rec.Value, dnsprovider.ErrNotFound)
-
-			continue
-		}
-
-		removed[op.index] = records[i]
-		records = slices.Delete(records, i, i+1)
-	}
-
-	records = addTo(records, ops, removed, failed)
-
-	if !slices.ContainsFunc(ops, func(op rrOp) bool { return failed[op.index] == nil }) {
-		return failed, nil
-	}
-
-	if len(records) == 0 {
-		return failed, p.api().Do(ctx, http.MethodDelete, path, nil, nil, nil)
-	}
-
-	body := make([]putRecord, 0, len(records))
-	for _, r := range records {
-		w, err := toWire(zone.Name, r)
-		if err != nil {
-			return failed, err
-		}
-
-		body = append(body, w)
-	}
-
-	return failed, p.api().Do(ctx, http.MethodPut, path, nil, body, nil)
-}
-
-// addTo adds the Records the ops add to an RRset's records, those its
-// ops remove taken out. A Record of the same name and Value as one the
-// RRset holds is the same resource record, whatever its TTL: its op
-// fails with ErrConflict, and a modification within the RRset that fails
-// keeps the Record it was to replace. That Record may be one an earlier
-// op added, so the additions are made again until none is kept back.
-func addTo(records []dnsprovider.Record, ops []rrOp, removed map[int]dnsprovider.Record, failed map[int]error) []dnsprovider.Record {
-	same := func(rs []dnsprovider.Record, rec dnsprovider.Record) bool {
-		return slices.ContainsFunc(rs, func(r dnsprovider.Record) bool {
-			return dnsprovider.SameRecord(r, rec)
-		})
-	}
-
-	for {
-		out := slices.Clone(records)
-		kept := false
-
-		for _, op := range ops {
-			if op.remove || failed[op.index] != nil {
-				continue
-			}
-
-			if !same(out, op.rec) {
-				out = append(out, op.rec)
-
-				continue
-			}
-
-			failed[op.index] = fmt.Errorf("godaddy: %s %s %s is there already: %w", op.rec.Type, op.rec.Name, op.rec.Value, dnsprovider.ErrConflict)
-
-			if r, ok := removed[op.index]; ok {
-				records, kept = append(records, r), true
-
-				break
-			}
-		}
-
-		if !kept {
-			return out
-		}
-	}
-}
-
-// putRecord is one record of an RRset replace.
-type putRecord struct {
-	Data     string  `json:"data"`
-	TTL      uint32  `json:"ttl"`
-	Priority *uint64 `json:"priority,omitempty"`
-	Weight   *uint64 `json:"weight,omitempty"`
-	Port     *uint64 `json:"port,omitempty"`
-	Service  string  `json:"service,omitempty"`
-	Protocol string  `json:"protocol,omitempty"`
-}
-
-// toWire undoes what toRecord does: the MX and SRV priority, and the SRV
-// weight and port, leave the Value for their own fields, and an SRV
-// Record's service and protocol leave its name.
-func toWire(zone string, r dnsprovider.Record) (putRecord, error) {
-	w := putRecord{Data: r.Value, TTL: r.TTL}
-
-	f := strings.Fields(r.Value)
-	bad := fmt.Errorf("godaddy: %s value %q is not in presentation form", r.Type, r.Value)
-
-	var nums []uint64
-
-	// num parses the first n fields as numbers.
-	num := func(n int) bool {
-		if len(f) < n {
-			return false
-		}
-
-		for _, s := range f[:n] {
-			v, err := strconv.ParseUint(s, 10, 16)
-			if err != nil {
-				return false
-			}
-
-			nums = append(nums, v)
-		}
-
-		return true
-	}
-
-	switch r.Type {
-	case "MX":
-		if len(f) != 2 || !num(1) {
-			return w, bad
-		}
-
-		w.Priority, w.Data = &nums[0], f[1]
-	case "SRV":
-		if len(f) != 4 || !num(3) {
-			return w, bad
-		}
-
-		service, protocol, _ := splitSRVName(names.RelativeName(zone, r.Name))
-		if service == "" {
-			return w, fmt.Errorf("godaddy: SRV name %s does not start with _service._protocol", r.Name)
-		}
-
-		w.Priority, w.Weight, w.Port, w.Data = &nums[0], &nums[1], &nums[2], f[3]
-		w.Service, w.Protocol = service, protocol
-	case "URI":
-		return w, errors.New("godaddy: GoDaddy has no URI records")
-	}
-
-	return w, nil
-}
-
-// splitSRVName splits a relative SRV name into its service, protocol and
-// host part, "@" for the apex. A name that does not start with two
-// underscore labels has no service or protocol.
-func splitSRVName(name string) (service, protocol, host string) {
-	labels := strings.SplitN(name, ".", 3)
-	if len(labels) < 2 || !strings.HasPrefix(labels[0], "_") || !strings.HasPrefix(labels[1], "_") {
-		return "", "", name
-	}
-
-	host = "@"
-	if len(labels) == 3 {
-		host = labels[2]
-	}
-
-	return labels[0], labels[1], host
-}
-
 // Account implements dnsprovider.Provider. GoDaddy has no account
-// endpoint, so it reads the ACTIVE domains, which checks the key and
-// secret even when the Account has none. GoDaddy assigns each Account its
-// own pair of domaincontrol.com nameservers: the ones the first domain on
-// GoDaddy's DNS names, so the pages stop there. The v1 API does not say
-// who the customer is, so the Tenant is empty.
+// endpoint, so it reads the ACTIVE domains, which checks the token even
+// when the Account has none. GoDaddy assigns each Account its own pair of
+// domaincontrol.com nameservers: the ones the first domain on GoDaddy's
+// DNS names, so the pages stop there. The API does not say who the
+// customer is, so the Tenant is empty.
 func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error) {
 	var info dnsprovider.AccountInfo
 
@@ -891,23 +386,4 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 	}
 
 	return info, nil
-}
-
-// CreateRecord implements dnsprovider.Provider: a one-change Changeset
-// through ApplyChangeset, so a read and a write of the Record's RRset.
-func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
-	return batch.Create(ctx, p, zone, r)
-}
-
-// UpdateRecord implements dnsprovider.Provider: a one-change Changeset
-// through ApplyChangeset. GoDaddy has no record IDs, so before is found
-// by its content: ErrNotFound when its RRset no longer holds it.
-func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, before, after dnsprovider.Record) (dnsprovider.Record, error) {
-	return batch.Update(ctx, p, zone, before, after)
-}
-
-// DeleteRecord implements dnsprovider.Provider: a one-change Changeset
-// through ApplyChangeset, found as UpdateRecord finds before.
-func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, r dnsprovider.Record) error {
-	return batch.Delete(ctx, p, zone, r)
 }

@@ -41,8 +41,8 @@ func TestAccountReadsActiveDomainsUntilOneNamesTheAccountsNameserverPair(t *test
 	}
 
 	for _, u := range reqs {
-		if u.Path != "/v1/domains" || u.Query().Get("statuses") != "ACTIVE" {
-			t.Errorf("Account sent %s, want GET /v1/domains of ACTIVE domains", u)
+		if u.Path != "/v3/domains/domain-names" || u.Query().Get("statuses") != "ACTIVE" {
+			t.Errorf("Account sent %s, want GET /v3/domains/domain-names of ACTIVE domains", u)
 		}
 	}
 }
@@ -65,7 +65,7 @@ func TestAccountWithoutGoDaddyNameserversHasNone(t *testing.T) {
 	}
 }
 
-func TestAccountWithABadKeyIsUnauthorized(t *testing.T) {
+func TestAccountWithABadTokenIsUnauthorized(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeError(w, http.StatusUnauthorized, "UNABLE_TO_AUTHENTICATE", "Unable to authenticate")
 	}))

@@ -56,7 +56,7 @@ var validFields = map[string]map[string]string{
 	"cloudflare":   {"token": "t", "tenant_id": "0123456789abcdef0123456789abcdef"},
 	"dnsimple":     {"token": "t", "account_id": "12"},
 	"digitalocean": {"token": "t"},
-	"godaddy":      {"key": "k", "secret": "s"},
+	"godaddy":      {"token": "t"},
 	"internetbs":   {"key": "k", "password": "s"},
 	"gandi":        {"token": "t"},
 	"hetzner":      {"token": "t"},

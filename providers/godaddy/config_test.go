@@ -18,24 +18,19 @@ func TestNewMakesNoNetworkCall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, err := godaddy.Factory().New(map[string]string{"key": testKey, "secret": testSecret}, dnsprovider.WithHTTPClient(client)); err != nil {
+	if _, err := godaddy.Factory().New(map[string]string{"token": testToken}, dnsprovider.WithHTTPClient(client)); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestNewRefusesAConfigWithoutKeyOrSecret(t *testing.T) {
-	for _, cfg := range []godaddy.Config{{}, {Key: testKey}, {Secret: testSecret}, {Key: "a:b", Secret: testSecret}} {
-		if _, err := godaddy.New(cfg); err == nil {
-			t.Errorf("New(%+v) built a Provider", cfg)
-		}
+func TestNewRefusesAConfigWithoutAToken(t *testing.T) {
+	if _, err := godaddy.New(godaddy.Config{}); err == nil {
+		t.Error("New built a Provider without a token")
 	}
 }
 
 func TestFactoryFieldsNameEveryConfigFieldAndMarkTheSecrets(t *testing.T) {
-	want := []dnsprovider.Field{
-		{Name: "key", Label: "API key", Secret: true},
-		{Name: "secret", Label: "API secret", Secret: true},
-	}
+	want := []dnsprovider.Field{{Name: "token", Label: "Personal access token", Secret: true}}
 
 	got := godaddy.Factory().Fields
 	if !reflect.DeepEqual(got, want) {
@@ -49,9 +44,10 @@ func TestFactoryFieldsNameEveryConfigFieldAndMarkTheSecrets(t *testing.T) {
 
 func TestFactoryRefusesMissingAndUnknownFields(t *testing.T) {
 	for name, fields := range map[string]map[string]string{
-		"no secret":     {"key": testKey},
-		"no key":        {"secret": testSecret},
-		"unknown field": {"key": testKey, "secret": testSecret, "token": "x"},
+		"no token": {},
+		// The v1 API key and secret are gone: the v3 API takes neither.
+		"v1 key and secret": {"key": "k", "secret": "s"},
+		"unknown field":     {"token": testToken, "key": "k"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			if _, err := godaddy.Factory().New(fields); err == nil {
@@ -72,7 +68,7 @@ func TestFactoryBuildsTheSameProviderAsTheTypedConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	built, err := godaddy.Factory().New(map[string]string{"key": testKey, "secret": testSecret}, dnsprovider.WithBaseURL(srv.URL))
+	built, err := godaddy.Factory().New(map[string]string{"token": testToken}, dnsprovider.WithBaseURL(srv.URL))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +77,7 @@ func TestFactoryBuildsTheSameProviderAsTheTypedConfig(t *testing.T) {
 		t.Fatalf("Provider from the field map = %+v, from the Config = %+v", built, typed)
 	}
 
-	// The handler checks each request carries the key and secret.
+	// The handler checks each request carries the token.
 	if _, err := built.ListZones(context.Background(), dnsprovider.ZoneFilter{}); err != nil {
 		t.Fatal(err)
 	}

@@ -12,6 +12,3 @@ func SetPageSize(t testing.TB, n int) {
 
 	t.Cleanup(func() { domainsPerPage, recordsPerPage = domains, records })
 }
-
-// WithID gives a Record the Provider ID GoDaddy's Records carry.
-var WithID = withID

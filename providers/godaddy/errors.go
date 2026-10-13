@@ -3,33 +3,30 @@ package godaddy
 import (
 	"encoding/json"
 	"net/http"
-	"strings"
-	"time"
 
 	"github.com/dnsgateway/dnsprovider"
-	"github.com/dnsgateway/dnsprovider/rest"
 )
 
-// wireError is a v1 error body.
+// wireError is a v3 error body.
 type wireError struct {
-	Code    string `json:"code"`
+	Name    string `json:"name"`
 	Message string `json:"message"`
-	Fields  []struct {
-		Message string `json:"message"`
-		Path    string `json:"path"`
-	} `json:"fields"`
-	// RetryAfterSec is how long a 429 asks to wait, in seconds. It is
-	// read as rest.RetryAfter reads a Retry-After header, so a wait too
-	// long for a Duration, or for an int64, neither overflows nor fails
-	// the body.
-	RetryAfterSec json.RawMessage `json:"retryAfterSec"`
+	Details []struct {
+		Field       string `json:"field"`
+		Issue       string `json:"issue"`
+		Description string `json:"description"`
+	} `json:"details"`
 }
 
 // apiError turns an error response into a *dnsprovider.APIError, classified
-// by its HTTP status, for rest.Client.Decode. A wait the body does not
-// give is the Retry-After header's, which rest reads.
+// by its HTTP status, for rest.Client.Decode: 409, which v3 answers for a
+// record GoDaddy manages and is assumed to answer for a record the RRset
+// holds already, is ErrConflict. rest reads the Retry-After header.
 func apiError(res *http.Response, data []byte) error {
 	e := &dnsprovider.APIError{Provider: "godaddy", StatusCode: res.StatusCode}
+	if res.StatusCode == http.StatusConflict {
+		e.Kind = dnsprovider.ErrConflict
+	}
 
 	var body wireError
 	if json.Unmarshal(data, &body) != nil {
@@ -37,14 +34,21 @@ func apiError(res *http.Response, data []byte) error {
 	}
 
 	if body.Message != "" {
-		e.Messages = append(e.Messages, body.Message+" ("+body.Code+")")
+		e.Messages = append(e.Messages, body.Message+" ("+body.Name+")")
 	}
 
-	for _, f := range body.Fields {
-		e.Messages = append(e.Messages, f.Path+": "+f.Message)
-	}
+	for _, d := range body.Details {
+		msg := d.Issue
+		if d.Description != "" {
+			msg += ": " + d.Description
+		}
 
-	e.RetryAfter = rest.RetryAfter(strings.Trim(string(body.RetryAfterSec), `"`), time.Now())
+		if d.Field != "" {
+			msg = d.Field + ": " + msg
+		}
+
+		e.Messages = append(e.Messages, msg)
+	}
 
 	return e
 }

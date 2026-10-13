@@ -146,7 +146,8 @@ func (p *Provider) request(ctx context.Context, base, method, path string, q url
 	if err := client.Do(ctx, method, path, q, body, &raw); err != nil {
 		return err
 	}
-	if len(raw) == 0 && out == nil {
+	// A PATCH that empties an RRset answers 204: LiveDNS deleted it.
+	if len(raw) == 0 && (out == nil || method == http.MethodPatch) {
 		return nil
 	}
 	var failure struct {

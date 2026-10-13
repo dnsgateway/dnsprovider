@@ -2,19 +2,17 @@ package gandi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"net/http"
 	"net/url"
-	"slices"
 	"strings"
 
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/batch"
 	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
+	rrsets "github.com/dnsgateway/dnsprovider/internal/rrset"
 )
 
 var _ dnsprovider.Provider = (*Provider)(nil)
@@ -31,273 +29,167 @@ func (p *Provider) DeleteRecord(ctx context.Context, z dnsprovider.Zone, r dnspr
 	return batch.Delete(ctx, p, z, r)
 }
 
-type entry struct {
-	record    dnsprovider.Record
-	wireValue string
-}
-type group struct {
-	wire      wireSet
-	name, typ string
-	entries   []entry
-	changes   []int
-	err       error
-	stored    []dnsprovider.Record
-	written   bool
+// writer is the rrset.Adapter of one Zone.
+type writer struct {
+	p    *Provider
+	zone dnsprovider.Zone
+	// stored are the RRsets as PATCH answered them, by Key: nil for one
+	// the PATCH emptied, which LiveDNS deletes.
+	stored map[rrsets.Key]*rrset
 }
 
-func groupKey(r dnsprovider.Record) string {
-	return names.ZoneName(r.Name) + "\x00" + strings.ToUpper(r.Type)
-}
-
-func same(a, b dnsprovider.Record) bool {
-	return strings.EqualFold(a.Type, b.Type) && strings.EqualFold(strings.TrimSuffix(a.Name, "."), strings.TrimSuffix(b.Name, ".")) && a.Value == b.Value
-}
-
-func index(g *group, r dnsprovider.Record) int {
-	return slices.IndexFunc(g.entries, func(e entry) bool { return same(e.record, r) })
-}
-
-// ApplyChangeset plans the complete final state before any write. Every RRset
-// is replaced at most once, and each successful replacement is read back.
-// There is no transaction across RRsets: errors identify the changes whose
-// source or destination failed, including moves that succeeded only partly.
-func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	groups, err := p.readGroups(ctx, cs.Zone)
-	if err != nil {
-		return dnsprovider.ApplyResult{}, err
-	}
-	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
-	for i, c := range cs.Changes {
-		res.Results[i].Change = c
-	}
-	affected := make([][]*group, len(cs.Changes))
-	var ordered []*group
-	touch := func(g *group, i int) {
-		if !slices.Contains(ordered, g) {
-			ordered = append(ordered, g)
-		}
-		if !slices.Contains(g.changes, i) {
-			g.changes = append(g.changes, i)
-		}
-		if !slices.Contains(affected[i], g) {
-			affected[i] = append(affected[i], g)
-		}
-	}
-	for _, i := range dnsprovider.ApplyOrder(cs.Changes) {
-		c := cs.Changes[i]
-		var source, dest *group
-		at := -1
-		if c.Kind == dnsprovider.ChangeDelete || c.Kind == dnsprovider.ChangeModify {
-			before := c.Before
-			abs, err := dnsprovider.QualifyName(cs.Zone.Name, before.Name)
-			if err != nil {
-				res.Results[i].Err = err
-				continue
-			}
-			before.Name = abs
-			source = groups[groupKey(before)]
-			if source != nil {
-				at = index(source, before)
-			}
-			if at < 0 {
-				res.Results[i].Err = fmt.Errorf("gandi: before Record absent: %w", dnsprovider.ErrNotFound)
-				continue
-			}
-		}
-		var after dnsprovider.Record
-		if c.Kind == dnsprovider.ChangeModify || c.Kind == dnsprovider.ChangeAdd {
-			after, err = normalize(cs.Zone, c.After)
-			if err != nil {
-				res.Results[i].Err = err
-				continue
-			}
-			key := groupKey(after)
-			dest = groups[key]
-			if dest == nil {
-				dest = &group{wire: wireSet{}, name: names.RelativeName(cs.Zone.Name, after.Name), typ: after.Type}
-				groups[key] = dest
-			}
-			duplicate := index(dest, after)
-			if duplicate >= 0 && !(source == dest && duplicate == at) {
-				res.Results[i].Err = fmt.Errorf("gandi: duplicate Record: %w", dnsprovider.ErrConflict)
-				continue
-			}
-		}
-		var original entry
-		if source != nil {
-			original = source.entries[at]
-		}
-		switch c.Kind {
-		case dnsprovider.ChangeModify, dnsprovider.ChangeDelete:
-			source.entries = slices.Delete(source.entries, at, at+1)
-			touch(source, i)
-		case dnsprovider.ChangeAdd:
-		default:
-			res.Results[i].Err = fmt.Errorf("gandi: unknown change kind %d", c.Kind)
-			continue
-		}
-		if dest != nil {
-			wire := valueOnWire(after, original)
-			dest.entries = append(dest.entries, entry{record: after, wireValue: wire})
-			touch(dest, i)
-			res.Results[i].Record = after
-		}
-	}
-	if err := validateFinalTTLs(ordered); err != nil {
-		return dnsprovider.ApplyResult{}, err
-	}
-	p.writeGroups(ctx, cs.Zone, ordered, affected)
-	return finish(cs, res, affected), nil
-}
-
-func (p *Provider) writeGroup(ctx context.Context, z dnsprovider.Zone, g *group) error {
-	path := p.recordPath(z) + "/" + url.PathEscape(g.name) + "/" + url.PathEscape(g.typ)
-	if len(g.entries) == 0 {
-		err := p.request(ctx, p.baseURL, http.MethodDelete, path, nil, nil, nil)
-		if err != nil {
-			return fmt.Errorf("gandi: RRset %s/%s deletion unconfirmed: %w", g.name, g.typ, err)
-		}
-		g.written = true
-		return nil
-	}
-	body := maps.Clone(g.wire)
-	values := make([]string, 0, len(g.entries))
-	for _, e := range g.entries {
-		values = append(values, e.wireValue)
-	}
-	body["rrset_values"], _ = json.Marshal(values)
-	body["rrset_ttl"], _ = json.Marshal(g.entries[0].record.TTL)
-	// Identity/href fields in GET responses are read-only. Retain all other
-	// metadata rather than rebuilding a lossy request from modeled fields.
-	delete(body, "rrset_name")
-	delete(body, "rrset_type")
-	delete(body, "rrset_href")
-	if err := p.request(ctx, p.baseURL, http.MethodPut, path, nil, body, nil); err != nil {
-		return fmt.Errorf("gandi: RRset %s/%s replacement unconfirmed: %w", g.name, g.typ, err)
-	}
-	g.written = true
-	var w wireSet
-	if err := p.request(ctx, p.baseURL, http.MethodGet, path, nil, nil, &w); err != nil {
-		return fmt.Errorf("gandi: RRset %s/%s written but readback failed: %w", g.name, g.typ, err)
-	}
-	s, err := decode(w)
-	if err != nil {
-		return fmt.Errorf("gandi: RRset %s/%s written but readback malformed: %w", g.name, g.typ, err)
-	}
-	if !strings.EqualFold(s.Name, g.name) || !strings.EqualFold(s.Type, g.typ) {
-		return fmt.Errorf("gandi: RRset %s/%s written but readback names a different RRset", g.name, g.typ)
-	}
-	g.stored = records(z, s)
-	for _, e := range g.entries {
-		if !slices.ContainsFunc(g.stored, func(r dnsprovider.Record) bool { return same(r, e.record) }) {
-			return fmt.Errorf("gandi: RRset %s/%s written but requested value absent in readback", g.name, g.typ)
-		}
-	}
-	return nil
-}
-
-func (p *Provider) readGroups(ctx context.Context, z dnsprovider.Zone) (map[string]*group, error) {
+// sets are the Zone's RRsets as rrset.Apply plans from them, each value
+// with its wire string, the form remove_rrset_values names it by.
+func (p *Provider) sets(ctx context.Context, z dnsprovider.Zone) ([]rrsets.Set, error) {
 	all, err := list[wireSet](ctx, p, p.baseURL, p.recordPath(z))
 	if err != nil {
 		return nil, err
 	}
-	groups := make(map[string]*group, len(all))
+	out := make([]rrsets.Set, 0, len(all))
+	seen := map[rrsets.Key]bool{}
 	for _, w := range all {
 		s, err := decode(w)
 		if err != nil {
 			return nil, err
 		}
 		rs := records(z, s)
-		g := &group{wire: w, name: s.Name, typ: s.Type, entries: make([]entry, 0, len(rs))}
-		for i, r := range rs {
-			g.entries = append(g.entries, entry{record: r, wireValue: s.Values[i]})
-		}
-		key := names.ZoneName(names.AbsoluteName(z.Name, s.Name)) + "\x00" + strings.ToUpper(s.Type)
-		if _, exists := groups[key]; exists {
+		set := rrsets.Set{Key: rrsets.KeyOf(dnsprovider.Record{Name: names.AbsoluteName(z.Name, s.Name), Type: s.Type}), TTL: *s.TTL, Wire: s}
+		if seen[set.Key] {
 			return nil, errors.New("gandi: duplicate RRset in response")
 		}
-		groups[key] = g
+		seen[set.Key] = true
+		for i, r := range rs {
+			set.Values = append(set.Values, rrsets.Value{Record: r, Wire: s.Values[i]})
+		}
+		out = append(out, set)
 	}
-	return groups, nil
+	return out, nil
 }
 
-func validateFinalTTLs(ordered []*group) error {
-	// A remaining sibling carries its original TTL. Thus changing a shared TTL
-	// requires all remaining siblings to be explicitly modified consistently.
-	for _, g := range ordered {
-		if len(g.entries) == 0 {
-			continue
-		}
-		ttl := g.entries[0].record.TTL
-		for _, e := range g.entries {
-			if e.record.TTL != ttl {
-				return errors.New("gandi: inconsistent final RRset TTLs; include every remaining sibling in a shared TTL change")
+// ApplyChangeset writes only the values each change names, with PATCH
+// add_rrset_values and remove_rrset_values, never a replacement or
+// deletion of the whole RRset, so a concurrent Changeset on the same
+// RRset keeps its values. The RRset's TTL stays last-writer-wins. There is
+// no transaction across RRsets: a move adds at its destination before it
+// removes at its source, and errors say when a group may be partly
+// applied.
+func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
+	sets, err := p.sets(ctx, cs.Zone)
+	if err != nil {
+		return dnsprovider.ApplyResult{}, err
+	}
+	return rrsets.Apply(ctx, &writer{p: p, zone: cs.Zone, stored: map[rrsets.Key]*rrset{}}, cs, sets)
+}
+
+func (w *writer) Name() string { return "gandi" }
+
+func (w *writer) Normalize(r dnsprovider.Record, after bool) (dnsprovider.Record, error) {
+	if after {
+		return normalize(w.zone, r)
+	}
+	abs, err := dnsprovider.QualifyName(w.zone.Name, r.Name)
+	if err != nil {
+		return r, err
+	}
+	r.Name, r.Type = names.ZoneName(abs), strings.ToUpper(r.Type)
+	return r, nil
+}
+
+func (w *writer) Same(_, a, b string) bool { return a == b }
+
+func (w *writer) Writable(*rrsets.Set) error { return nil }
+
+// Wire is a value's wire string. New TXT values are literal text. A TXT
+// value a modification keeps retains its original presentation,
+// including chunk boundaries and escapes.
+func (w *writer) Wire(after dnsprovider.Record, from *rrsets.Value, _ *rrsets.Set) any {
+	if after.Type != "TXT" {
+		return after.Value
+	}
+	if from != nil && from.Record.Type == "TXT" && from.Record.Value == after.Value {
+		return from.Wire
+	}
+	return charstr.Quote(after.Value)
+}
+
+func (w *writer) path(k rrsets.Key) string {
+	return w.p.recordPath(w.zone) + "/" + url.PathEscape(names.RelativeName(w.zone.Name, k.Name)) + "/" + url.PathEscape(k.Type)
+}
+
+// Write creates a missing RRset with POST, or adds to it with PATCH when
+// another writer created it first (409). An existing RRset takes one PATCH
+// with the values to add, the values to remove as stored, and rrset_ttl
+// only when the Changeset changes the shared TTL.
+func (w *writer) Write(ctx context.Context, d rrsets.Delta) error {
+	path := w.path(d.Key)
+	if d.Set == nil {
+		err := w.p.request(ctx, w.p.baseURL, http.MethodPost, path, nil, map[string]any{"rrset_values": wires(d.Add), "rrset_ttl": d.TTL}, nil)
+		if !errors.Is(err, dnsprovider.ErrConflict) {
+			if err != nil {
+				return fmt.Errorf("gandi: RRset %s creation: %w", d.Key, err)
 			}
+			return nil
 		}
+	}
+	body := map[string]any{}
+	if len(d.Add) > 0 {
+		body["add_rrset_values"] = wires(d.Add)
+	}
+	if len(d.Remove) > 0 {
+		body["remove_rrset_values"] = wires(d.Remove)
+	}
+	if d.TTLChanged {
+		body["rrset_ttl"] = d.TTL
+	}
+	var answer wireSet
+	if err := w.p.request(ctx, w.p.baseURL, http.MethodPatch, path, nil, body, &answer); err != nil {
+		return fmt.Errorf("gandi: RRset %s change: %w", d.Key, err)
+	}
+	if answer == nil {
+		w.stored[d.Key] = nil
+		return nil
+	}
+	if s, err := decode(answer); err == nil {
+		w.stored[d.Key] = &s
 	}
 	return nil
 }
 
-func finish(cs dnsprovider.Changeset, res dnsprovider.ApplyResult, affected [][]*group) dnsprovider.ApplyResult {
-	for i := range res.Results {
-		if res.Results[i].Err != nil {
-			continue
-		}
-		for _, g := range affected[i] {
-			if g.err != nil {
-				res.Results[i].Err = errors.Join(res.Results[i].Err, g.err)
-			}
-		}
-		if res.Results[i].Err != nil {
-			res.Results[i].Record = dnsprovider.Record{}
-			for _, g := range affected[i] {
-				if g.written {
-					res.Results[i].Err = fmt.Errorf("%w; RRset %s/%s mutation already acknowledged", res.Results[i].Err, g.name, g.typ)
-				}
-			}
-			continue
-		}
-		if cs.Changes[i].Kind == dnsprovider.ChangeDelete {
-			continue
-		}
-		desired := res.Results[i].Record
-		for _, g := range affected[i] {
-			for _, r := range g.stored {
-				if same(r, desired) {
-					res.Results[i].Record = r
-				}
-			}
-		}
+func wires(vs []rrsets.Value) []string {
+	out := make([]string, len(vs))
+	for i, v := range vs {
+		out[i] = v.Wire.(string)
 	}
-	return res
+	return out
 }
 
-func (p *Provider) writeGroups(ctx context.Context, z dnsprovider.Zone, ordered []*group, affected [][]*group) {
-	for _, g := range ordered {
-		// Skip dependent groups not yet attempted after a failure. A group
-		// may already have been written because another earlier change touched
-		// it; finish reports every acknowledged partial mutation.
-		for _, i := range g.changes {
-			for _, dep := range affected[i] {
-				if dep.err != nil {
-					g.err = fmt.Errorf("gandi: skipped RRset after dependent failure: %w", dep.err)
-				}
+// ReadBack takes each RRset from its PATCH answer, or reads it with GET;
+// an RRset that is gone holds no Records.
+func (w *writer) ReadBack(ctx context.Context, keys []rrsets.Key) (dnsprovider.RecordSet, error) {
+	var out []dnsprovider.Record
+	for _, k := range keys {
+		if s, ok := w.stored[k]; ok {
+			if s != nil {
+				out = append(out, records(w.zone, *s)...)
 			}
+			continue
 		}
-		if g.err == nil {
-			g.err = p.writeGroup(ctx, z, g)
+		var answer wireSet
+		err := w.p.request(ctx, w.p.baseURL, http.MethodGet, w.path(k), nil, nil, &answer)
+		if errors.Is(err, dnsprovider.ErrNotFound) {
+			continue
 		}
+		if err != nil {
+			return dnsprovider.RecordSet{}, err
+		}
+		s, err := decode(answer)
+		if err != nil {
+			return dnsprovider.RecordSet{}, err
+		}
+		if rrsets.KeyOf(dnsprovider.Record{Name: names.AbsoluteName(w.zone.Name, s.Name), Type: s.Type}) != k {
+			return dnsprovider.RecordSet{}, fmt.Errorf("gandi: read-back of RRset %s names another RRset", k)
+		}
+		out = append(out, records(w.zone, s)...)
 	}
-}
-
-// New TXT values are literal text. When an existing TXT value is unchanged,
-// retain its original presentation, including chunk boundaries and escapes.
-func valueOnWire(after dnsprovider.Record, original entry) string {
-	if after.Type != "TXT" {
-		return after.Value
-	}
-	if original.record.Type == "TXT" && original.record.Value == after.Value {
-		return original.wireValue
-	}
-	return charstr.Quote(after.Value)
+	return dnsprovider.RecordSet{Records: out}, nil
 }

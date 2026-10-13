@@ -45,19 +45,46 @@ rejected regardless of TTL. Before records are located by content, not their ID.
 Changesets group every affected RRset, including both ends of a move, and validate
 all final TTLs before any write. A shared TTL change must explicitly modify every
 remaining sibling to the same TTL. Deletions are planned before modifications
-and additions. Each RRset is written once and read back for authoritative stored
-Records; removing its final value deletes the RRset. Use `dnsprovider.Apply` for
-stale-before checking and original-order change results.
+and additions. Use `dnsprovider.Apply` for stale-before checking and
+original-order change results.
 
-There is **no cross-RRset transaction**. A move's source can succeed while its
-destination fails; the change then reports failure although the source mutation
-remains. Failed groups prevent dependent groups that have not yet been attempted
-from being written. A destination group may already have been written when an
-earlier change touched it; failures then identify that acknowledged destination
-mutation. Independent RRsets can still succeed. Readback failures are reported even after a write
-succeeded. Concurrent edits between the read and replacement can overwrite each
-other: LiveDNS has no conditional write used by this adapter. Coordinate external
-writers. Mutations are never automatically retried, including RRset PUTs.
+Writes name only the values a Changeset touches, so concurrent Changesets on
+one RRset, such as the two DNS-01 values of a certificate for a name and its
+wildcard, keep each other's values:
+
+- An existing RRset takes one `PATCH` with `add_rrset_values`, and
+  `remove_rrset_values` holding each removed value exactly as stored, which
+  keeps TXT chunking and escapes. A modification within one RRset is a single
+  `PATCH` carrying both lists. `rrset_ttl` is sent only when the Changeset
+  changes the shared TTL.
+- A missing RRset is created with `POST`. When another writer created it
+  first (409), the values are added with `PATCH` instead.
+- Removing the last value empties the RRset with `PATCH`; LiveDNS answers 204
+  and deletes it. The adapter never `PUT`s or `DELETE`s a whole RRset.
+- A move adds at the destination before it removes at the source.
+
+TTL is a property of the whole RRset and stays last-writer-wins: LiveDNS has
+no conditional write.
+
+Each write is read back from the `PATCH` answer, or with a `GET` after a
+`POST`. Only the Changeset's own effects are checked: each value it added is
+present with the planned TTL, and each value it removed is absent. Other values
+are not compared. A miss is an error matching `ErrConflict`, as another write
+may have replaced the Changeset's; re-read and retry. Returned Records are as
+stored.
+
+LiveDNS documents neither how `PATCH` answers a missing RRset, nor whether
+adding a value already present or removing an absent one is an error. The
+adapter avoids the first by creating RRsets with `POST`; it returns any 4xx
+from `PATCH` as the mapped API error, without falling back to `DELETE`. A live
+check with a write-capable token should confirm these assumptions.
+
+There is **no cross-RRset transaction**. RRsets a move joins are written as a
+group, and a failure fails every change of the group, saying it may be partly
+applied: a failed destination leaves the source as it was, while a failed
+source leaves the value at both ends. Independent RRsets can still succeed.
+Read-back failures are reported even after a write succeeded. Mutations are
+never automatically retried.
 
 The Provider is a registrar adapter (`dnsprovider.CapDSRegistrar`) through the
 Domain API's `dnskeys` routes, at the sibling of the LiveDNS endpoint

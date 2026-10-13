@@ -50,12 +50,16 @@ func TestCreatePreservesRRsetSiblingAndMetadata(t *testing.T) {
 	state := map[string]any{"rrset_name": "@", "rrset_type": "A", "rrset_ttl": 300, "rrset_values": []string{"192.0.2.1"}, "vendor_metadata": map[string]any{"flag": true}}
 	writes := 0
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodPut {
+		if r.Method == http.MethodPatch {
 			writes++
-			if err := json.NewDecoder(r.Body).Decode(&state); err != nil {
+			var body struct {
+				Add []string `json:"add_rrset_values"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Error(err)
 			}
-			_, _ = w.Write([]byte(`{"message":"updated"}`))
+			state["rrset_values"] = append(state["rrset_values"].([]string), body.Add...)
+			_ = json.NewEncoder(w).Encode(state)
 			return
 		}
 		if r.URL.Query().Get("page") == "2" {

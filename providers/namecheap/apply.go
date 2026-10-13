@@ -12,6 +12,7 @@ import (
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/internal/batch"
 	"github.com/dnsgateway/dnsprovider/internal/names"
+	"github.com/dnsgateway/dnsprovider/internal/readback"
 )
 
 // setHostsResult is a setHosts CommandResponse.
@@ -36,9 +37,15 @@ type sendHost struct {
 //
 // The Changeset succeeds or fails as a whole. When it fails, nothing was
 // applied (or, when the write's answer was lost, Namecheap may have taken
-// it), so it returns an error of its own rather than per-change errors. On
-// success, each added or modified Record is returned as ListRecords reads it
-// back, with its content ID, so a consumer need not read the Zone again.
+// it), so it returns an error of its own rather than per-change errors.
+//
+// After the write, it reads the hosts once more and checks the Changeset's
+// own effects (readback.Verify): a concurrent setHosts built from an older
+// list can replace them, and then the error matches
+// dnsprovider.ErrConflict. Hosts the Changeset did not touch are not
+// compared. On success, each added or modified Record is returned as
+// ListRecords reads it back, with its content ID, so a consumer need not
+// read the Zone again.
 func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 	for i, c := range cs.Changes {
@@ -62,7 +69,7 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 		return dnsprovider.ApplyResult{}, err
 	}
 
-	hosts, sent, err := applyTo(cs, current.Result.Hosts)
+	hosts, effects, err := applyTo(cs, current.Result.Hosts)
 	if err != nil {
 		return dnsprovider.ApplyResult{}, err
 	}
@@ -71,10 +78,18 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 		return dnsprovider.ApplyResult{}, err
 	}
 
-	for i, h := range sent {
-		if h != nil {
-			res.Results[i].Record = h.read(cs.Zone.Name)
-		}
+	held, err := p.ListRecords(ctx, cs.Zone, dnsprovider.RecordFilter{})
+	if err != nil {
+		return dnsprovider.ApplyResult{}, fmt.Errorf("namecheap: read back the hosts: %w; Namecheap may or may not have applied the changes", err)
+	}
+
+	stored, err := readback.Verify(effects, held.Records, sameHost)
+	if err != nil {
+		return dnsprovider.ApplyResult{}, fmt.Errorf("namecheap: a concurrent change at Namecheap replaced this Changeset's write; re-read the Zone and retry: %w", err)
+	}
+
+	for i := range res.Results {
+		res.Results[i].Record = stored[i]
 	}
 
 	return res, nil
@@ -82,11 +97,11 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 
 // applyTo makes a Changeset's changes to the hosts as read: each host a
 // change was built from is replaced, in its place, or left out; the hosts
-// added go at the end; every other host is sent back exactly as read. sent
-// are the hosts each addition or modification sends, by change. A
-// Changeset that would leave a resource record more than once, and more
-// often than Namecheap held it, fails with ErrConflict.
-func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent []*sendHost, err error) {
+// added go at the end; every other host is sent back exactly as read.
+// effects are what the hosts sent must hold when read back. A Changeset
+// that would leave a resource record more than once, and more often than
+// Namecheap held it, fails with ErrConflict.
+func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, effects readback.Effects, err error) {
 	type slot struct {
 		read    *wireHost
 		send    *sendHost
@@ -99,13 +114,13 @@ func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent 
 		slots = append(slots, slot{read: &h, send: &send})
 	}
 
-	sent = make([]*sendHost, len(cs.Changes))
+	sent := make([]*sendHost, len(cs.Changes))
 
 	for ci, c := range cs.Changes {
 		if c.Kind != dnsprovider.ChangeDelete {
 			h, err := toHost(cs.Zone.Name, c.After)
 			if err != nil {
-				return nil, nil, err
+				return nil, readback.Effects{}, err
 			}
 
 			sent[ci] = &h
@@ -121,7 +136,7 @@ func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent 
 			return s.read != nil && !s.matched && matches(cs.Zone.Name, *s.read, c.Before)
 		})
 		if i < 0 {
-			return nil, nil, fmt.Errorf("namecheap: conflict, nothing was applied: %s %s %s is no longer at Namecheap as read (%w)",
+			return nil, readback.Effects{}, fmt.Errorf("namecheap: conflict, nothing was applied: %s %s %s is no longer at Namecheap as read (%w)",
 				c.Before.Type, c.Before.Name, c.Before.Value, dnsprovider.ErrNotFound)
 		}
 
@@ -169,10 +184,10 @@ func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent 
 
 		r := h.read(cs.Zone.Name)
 		if sends[k] > 1 {
-			return nil, nil, fmt.Errorf("namecheap: nothing was applied: the Changeset sends %s %s %s more than once (%w)", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
+			return nil, readback.Effects{}, fmt.Errorf("namecheap: nothing was applied: the Changeset sends %s %s %s more than once (%w)", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
 		}
 
-		return nil, nil, fmt.Errorf("namecheap: nothing was applied: %s %s %s is at Namecheap already (%w)", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
+		return nil, readback.Effects{}, fmt.Errorf("namecheap: nothing was applied: %s %s %s is at Namecheap already (%w)", r.Type, r.Name, r.Value, dnsprovider.ErrConflict)
 	}
 
 	hosts = make([]sendHost, 0, len(slots))
@@ -181,9 +196,24 @@ func applyTo(cs dnsprovider.Changeset, read []wireHost) (hosts []sendHost, sent 
 		if s.send != nil {
 			hosts = append(hosts, *s.send)
 		}
+
+		// A host a change was built from is removed down to as often as
+		// the Changeset leaves its resource record.
+		if s.matched {
+			h := asRead(*s.read)
+			effects.Removed = append(effects.Removed, readback.Removal{Record: h.read(cs.Zone.Name), Leave: left[h.key(cs.Zone.Name)]})
+		}
 	}
 
-	return hosts, sent, nil
+	effects.Added = make([]dnsprovider.Record, len(cs.Changes))
+
+	for i, h := range sent {
+		if h != nil {
+			effects.Added[i] = h.read(cs.Zone.Name)
+		}
+	}
+
+	return hosts, effects, nil
 }
 
 // matches reports whether a host as read is the Record a change was built
@@ -261,12 +291,22 @@ func (h sendHost) read(zone string) dnsprovider.Record {
 	return toRecord(zone, wireHost{Name: h.Name, Type: h.Type, Address: h.Address, MXPref: uint32(pref), TTL: h.TTL})
 }
 
-// key tells a host apart from another resource record: its type, name
-// and value as ListRecords reads it back, the type and name ignoring case.
+// key tells a host apart from another resource record (recordKey).
 func (h sendHost) key(zone string) string {
-	r := h.read(zone)
+	return recordKey(h.read(zone))
+}
 
+// recordKey tells a Record as ListRecords reads it apart from another
+// resource record: its type, name and value, the type and name ignoring
+// case.
+func recordKey(r dnsprovider.Record) string {
 	return strings.ToUpper(r.Type) + "|" + strings.ToLower(r.Name) + "|" + r.Value
+}
+
+// sameHost reports whether two Records as ListRecords reads them are the
+// same resource record (recordKey).
+func sameHost(a, b dnsprovider.Record) bool {
+	return recordKey(a) == recordKey(b)
 }
 
 // asRead is a host getHosts answered, to send back exactly as read.

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/netip"
-	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/internal/batch"
 	"github.com/dnsgateway/dnsprovider/internal/charstr"
 	"github.com/dnsgateway/dnsprovider/internal/names"
+	"github.com/dnsgateway/dnsprovider/internal/rrset"
 )
 
 var _ dnsprovider.Provider = (*Provider)(nil)
@@ -83,10 +83,6 @@ func normalized(z wireZone, r dnsprovider.Record, validate bool) (dnsprovider.Re
 	return r, nil
 }
 
-func rrFor(z wireZone, r dnsprovider.Record) wireRRset {
-	return wireRRset{Name: names.RelativeName(names.ZoneName(z.Name), r.Name), Type: r.Type, Records: []wireValue{}}
-}
-
 func restriction(w wireRRset) error {
 	if w.Protection.Change {
 		return fmt.Errorf("hetzner: RRset %s is protected; protection must be changed explicitly", rrkey(w))
@@ -112,316 +108,169 @@ func (p *Provider) DeleteRecord(ctx context.Context, z dnsprovider.Zone, r dnspr
 	return batch.Delete(ctx, p, z, r)
 }
 
-type plannedValue struct {
+// writer is the rrset.Adapter of one primary Zone.
+type writer struct {
+	p    *Provider
+	zone wireZone
+}
+
+// planned is the Wire of a value: as Hetzner holds or will hold it,
+// whether it inherits the Zone's default TTL, and, for a moved value, the
+// labels of the RRset it leaves.
+type planned struct {
 	wire      wireValue
-	ttl       uint32
 	inherited bool
-}
-type plannedSet struct {
-	before  wireRRset
-	exists  bool
-	values  []plannedValue
-	indices []int
+	labels    map[string]string
 }
 
-func addIndex(s *plannedSet, i int) {
-	if !slices.Contains(s.indices, i) {
-		s.indices = append(s.indices, i)
-	}
+// setWire is the Wire of an RRset: as Hetzner holds it.
+type setWire struct {
+	rrset wireRRset
 }
 
-func findValue(s *plannedSet, value, zone string) int {
-	for i, v := range s.values {
-		if charstr.Equivalent(s.before.Type, readValue(zone, s.before.Type, v.wire.Value), value) {
-			return i
+// sets are a Zone's RRsets as rrset.Apply plans from them.
+func sets(z wireZone, read []wireRRset) []rrset.Set {
+	out := make([]rrset.Set, 0, len(read))
+	for _, w := range read {
+		rs, _ := expand(z, w)
+		s := rrset.Set{Key: rrset.Key{Name: strings.ToLower(names.AbsoluteName(names.ZoneName(z.Name), w.Name)), Type: strings.ToUpper(w.Type)}, TTL: effectiveTTL(z, w), Wire: setWire{w}}
+		for i, v := range w.Records {
+			s.Values = append(s.Values, rrset.Value{Record: rs[i], Wire: planned{wire: v, inherited: w.TTL == nil}})
 		}
+		out = append(out, s)
 	}
-	return -1
+	return out
 }
 
-type batchPlan struct {
-	zone    wireZone
-	sets    map[string]*plannedSet
-	order   []string
-	targets []dnsprovider.Record
+func (w writer) Name() string { return "hetzner" }
+
+func (w writer) Normalize(r dnsprovider.Record, after bool) (dnsprovider.Record, error) {
+	return normalized(w.zone, r, after)
 }
 
-func newPlan(z wireZone, sets []wireRRset, n int) *batchPlan {
-	plan := &batchPlan{zone: z, sets: map[string]*plannedSet{}, targets: make([]dnsprovider.Record, n)}
-	for _, w := range sets {
-		s := &plannedSet{before: w, exists: true}
-		for _, v := range w.Records {
-			s.values = append(s.values, plannedValue{wire: v, ttl: effectiveTTL(z, w), inherited: w.TTL == nil})
-		}
-		plan.sets[rrkey(w)] = s
-	}
-	return plan
-}
+func (w writer) Same(typ, a, b string) bool { return charstr.Equivalent(typ, a, b) }
 
-func (b *batchPlan) get(r dnsprovider.Record) *plannedSet {
-	w := rrFor(b.zone, r)
-	key := rrkey(w)
-	s := b.sets[key]
+func (w writer) Writable(s *rrset.Set) error {
 	if s == nil {
-		s = &plannedSet{before: w}
-		b.sets[key] = s
+		return nil
 	}
-	if !slices.Contains(b.order, key) {
-		b.order = append(b.order, key)
-	}
-	return s
+	return restriction(s.Wire.(setWire).rrset)
 }
 
-func (b *batchPlan) change(i int, c dnsprovider.Change) error {
-	if c.Kind != dnsprovider.ChangeAdd && c.Kind != dnsprovider.ChangeModify && c.Kind != dnsprovider.ChangeDelete {
-		return fmt.Errorf("hetzner: unknown change kind %d", c.Kind)
+// Wire keeps the comment of the value a modification replaces. A moved
+// value keeps inheriting the Zone's default TTL while its TTL stays it,
+// and carries its RRset's labels to a destination it creates.
+func (w writer) Wire(after dnsprovider.Record, from *rrset.Value, fromSet *rrset.Set) any {
+	v := planned{wire: wireValue{Value: after.Value}}
+	if from != nil {
+		source := from.Wire.(planned)
+		v.wire.Comment = source.wire.Comment
+		v.inherited = source.inherited && after.TTL == w.zone.TTL
 	}
-	var source *plannedSet
-	sourceIndex := -1
-	var original wireValue
-	inherited := false
-	if c.Kind != dnsprovider.ChangeAdd {
-		before, err := normalized(b.zone, c.Before, false)
-		if err != nil {
-			return err
-		}
-		source = b.get(before)
-		sourceIndex = findValue(source, before.Value, b.zone.Name)
-		if sourceIndex < 0 {
-			return dnsprovider.ErrNotFound
-		}
-		if err := restriction(source.before); err != nil {
-			return err
-		}
-		original = source.values[sourceIndex].wire
-		inherited = source.values[sourceIndex].inherited
+	if fromSet != nil {
+		v.labels = fromSet.Wire.(setWire).rrset.Labels
 	}
-	var target *plannedSet
-	var after dnsprovider.Record
-	if c.Kind != dnsprovider.ChangeDelete {
-		var err error
-		after, err = normalized(b.zone, c.After, true)
-		if err != nil {
-			return err
-		}
-		target = b.get(after)
-		if err := restriction(target.before); err != nil {
-			return err
-		}
-		duplicate := findValue(target, after.Value, b.zone.Name)
-		if duplicate >= 0 && !(source == target && duplicate == sourceIndex) {
-			return dnsprovider.ErrConflict
-		}
-		b.targets[i] = after
-	}
-	if source != nil {
-		source.values = slices.Delete(source.values, sourceIndex, sourceIndex+1)
-		addIndex(source, i)
-	}
-	if target != nil {
-		// Preserve the selected value's comment and carry source labels to a
-		// newly created destination; existing destination metadata stays put.
-		original.Value = after.Value
-		if !target.exists && len(target.values) == 0 && source != nil {
-			target.before.Labels = source.before.Labels
-		}
-		target.values = append(target.values, plannedValue{wire: original, ttl: after.TTL, inherited: inherited && after.TTL == b.zone.TTL})
-		addIndex(target, i)
-	}
-	return nil
+	return v
 }
 
-func (b *batchPlan) validate() error {
-	for _, key := range b.order {
-		s := b.sets[key]
-		if len(s.indices) == 0 {
-			continue
+// Write changes the RRset's TTL, then adds values with add_records, which
+// creates a missing RRset, then removes values with remove_records, which
+// deletes an emptied one. Each call names only the Delta's own values.
+func (w writer) Write(ctx context.Context, d rrset.Delta) error {
+	rr := wireRRset{Name: names.RelativeName(names.ZoneName(w.zone.Name), d.Key.Name), Type: d.Key.Type}
+	if d.Set != nil {
+		rr = d.Set.Wire.(setWire).rrset
+	}
+	path := rrPath(w.zone, rr)
+	if d.TTLChanged {
+		if err := w.p.action(ctx, http.MethodPost, path+"/actions/change_ttl", map[string]any{"ttl": d.TTL}); err != nil {
+			return err
 		}
-		if len(s.values) > 50 {
-			return fmt.Errorf("hetzner: RRset %s exceeds the 50-value write limit", key)
+	}
+	if len(d.Add) > 0 {
+		if err := w.add(ctx, d, rr, path); err != nil {
+			return err
 		}
-		for _, v := range s.values {
-			if v.ttl != s.values[0].ttl {
-				return fmt.Errorf("hetzner: conflicting final TTLs in RRset %s; include every remaining sibling with the same TTL", key)
-			}
+	}
+	for chunk := range slices.Chunk(d.Remove, maxValues) {
+		if err := w.p.action(ctx, http.MethodPost, path+"/actions/remove_records", map[string]any{"records": wireValues(chunk)}); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func (b *batchPlan) component(key string) ([]string, []int) {
-	component := []string{key}
-	indices := []int{}
-	for pos := 0; pos < len(component); pos++ {
-		for _, i := range b.sets[component[pos]].indices {
-			if !slices.Contains(indices, i) {
-				indices = append(indices, i)
-			}
-		}
-		for _, other := range b.order {
-			if slices.Contains(component, other) {
-				continue
-			}
-			for _, i := range b.sets[other].indices {
-				if slices.Contains(indices, i) {
-					component = append(component, other)
-					break
-				}
+// maxValues is the most values one add_records or remove_records takes.
+const maxValues = 50
+
+// add adds the Delta's values. The TTL is left out, keeping inheritance,
+// when the RRset inherits the Zone's default and keeps doing so, or when a
+// new RRset holds only moved values that inherited it.
+//
+// add_records cannot set labels: a move that creates its destination
+// creates it with POST, carrying the source's labels, and adds to it as
+// usual when another writer created it first.
+func (w writer) add(ctx context.Context, d rrset.Delta, rr wireRRset, path string) error {
+	var ttl any = d.TTL
+	switch {
+	case d.Set != nil && rr.TTL == nil && !d.TTLChanged:
+		ttl = nil
+	case d.Set == nil && !slices.ContainsFunc(d.Add, func(v rrset.Value) bool { return !v.Wire.(planned).inherited }):
+		ttl = nil
+	}
+	if d.Set == nil && len(d.Add) <= maxValues {
+		if at := slices.IndexFunc(d.Add, func(v rrset.Value) bool { return v.Wire.(planned).labels != nil }); at >= 0 {
+			body := map[string]any{"name": rr.Name, "type": rr.Type, "ttl": ttl, "records": wireValues(d.Add), "labels": d.Add[at].Wire.(planned).labels}
+			err := w.p.action(ctx, http.MethodPost, zonePath(w.zone)+"/rrsets", body)
+			var created *dnsprovider.APIError
+			if !errors.As(err, &created) || !errors.Is(err, dnsprovider.ErrConflict) {
+				return err
 			}
 		}
 	}
-	slices.SortFunc(component, func(a, c string) int { return slices.Index(b.order, a) - slices.Index(b.order, c) })
-	return component, indices
+	for chunk := range slices.Chunk(d.Add, maxValues) {
+		body := map[string]any{"records": wireValues(chunk)}
+		if ttl != nil {
+			body["ttl"] = ttl
+		}
+		if err := w.p.action(ctx, http.MethodPost, path+"/actions/add_records", body); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// ApplyChangeset plans final shared TTLs and groups source/destination
-// RRsets before any write. Apply supplies the common stale-before check.
-// Grouping reduces requests; it does not promise atomicity or rollback.
+func wireValues(vs []rrset.Value) []wireValue {
+	out := make([]wireValue, len(vs))
+	for i, v := range vs {
+		out[i] = v.Wire.(planned).wire
+	}
+	return out
+}
+
+// ReadBack reads the whole Zone: Hetzner lists RRsets only per Zone.
+func (w writer) ReadBack(ctx context.Context, _ []rrset.Key) (dnsprovider.RecordSet, error) {
+	return w.p.ListRecords(ctx, dnsprovider.Zone{ID: strconv.FormatInt(w.zone.ID, 10), Name: names.ZoneName(w.zone.Name)}, dnsprovider.RecordFilter{})
+}
+
+// ApplyChangeset writes only the values each change names: add_records
+// and remove_records, never a replacement of the whole RRset, so a
+// concurrent Changeset on the same RRset keeps its values. The RRset's
+// TTL and protection stay last-writer-wins. Apply supplies the common
+// stale-before check. Groups of RRsets a move joins are not atomic.
 func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
-	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
-	for i, c := range cs.Changes {
-		res.Results[i].Change = c
-	}
 	if len(cs.Changes) == 0 {
-		return res, nil
+		return dnsprovider.ApplyResult{Results: []dnsprovider.ChangeResult{}}, nil
 	}
-	z, sets, err := p.snapshot(ctx, cs.Zone)
+	z, read, err := p.snapshot(ctx, cs.Zone)
 	if err != nil {
+		res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
+		for i, c := range cs.Changes {
+			res.Results[i].Change = c
+		}
 		return res, err
 	}
-	if z.Mode != "primary" {
-		return res, errors.New("hetzner: Records can only be changed in primary Zones")
-	}
-	plan := newPlan(z, sets, len(cs.Changes))
-	for _, i := range dnsprovider.ApplyOrder(cs.Changes) {
-		res.Results[i].Err = plan.change(i, cs.Changes[i])
-	}
-	// Untouched siblings participate in shared TTL validation. Reject the
-	// entire conflicting plan before submitting any native mutation.
-	if err := plan.validate(); err != nil {
-		return res, err
-	}
-	visited := map[string]bool{}
-	for _, key := range plan.order {
-		if visited[key] || len(plan.sets[key].indices) == 0 {
-			continue
-		}
-		component, indices := plan.component(key)
-		for _, k := range component {
-			visited[k] = true
-		}
-		p.completeGroup(ctx, cs.Zone, plan, component, indices, &res)
-	}
-	return res, nil
-}
-
-func (p *Provider) completeGroup(ctx context.Context, z dnsprovider.Zone, plan *batchPlan, component []string, indices []int, res *dnsprovider.ApplyResult) {
-	var failure error
-	wrote := false
-	for _, k := range component {
-		s := plan.sets[k]
-		if changed(s, plan.zone) {
-			wrote = true
-			failure = p.writeSet(ctx, plan.zone, s)
-			if failure != nil {
-				break
-			}
-		}
-	}
-	var records []dnsprovider.Record
-	if failure == nil && wrote {
-		stored, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
-		if err != nil {
-			failure = uncertain("read-back", err)
-		} else {
-			res.Serial = stored.Serial
-			records = stored.Records
-			failure = plan.verify(component, records)
-		}
-	} else if failure == nil {
-		for _, k := range component {
-			rs, _ := expand(plan.zone, plan.sets[k].before)
-			records = append(records, rs...)
-		}
-	}
-	if failure == nil {
-		failure = plan.results(indices, records, res)
-	}
-	if failure != nil {
-		if wrote {
-			failure = fmt.Errorf("hetzner: RRset group may have partial side effects: %w", failure)
-		}
-		for _, i := range indices {
-			res.Results[i].Err = failure
-			res.Results[i].Record = dnsprovider.Record{}
-		}
-	}
-}
-
-func (b *batchPlan) verify(component []string, records []dnsprovider.Record) error {
-	for _, key := range component {
-		s := b.sets[key]
-		stored := []dnsprovider.Record{}
-		for _, r := range records {
-			if rrkey(rrFor(b.zone, r)) == key {
-				stored = append(stored, r)
-			}
-		}
-		if len(stored) != len(s.values) {
-			return uncertain("read-back", fmt.Errorf("RRset %s does not contain its planned values", key))
-		}
-		for _, v := range s.values {
-			found := false
-			for _, r := range stored {
-				if charstr.Equivalent(s.before.Type, readValue(b.zone.Name, s.before.Type, v.wire.Value), r.Value) && v.ttl == r.TTL {
-					found = true
-					break
-				}
-			}
-			if !found {
-				return uncertain("read-back", fmt.Errorf("RRset %s differs from its planned values or TTL", key))
-			}
-		}
-	}
-	return nil
-}
-
-func (b *batchPlan) results(indices []int, records []dnsprovider.Record, res *dnsprovider.ApplyResult) error {
-	for _, i := range indices {
-		if res.Results[i].Change.Kind == dnsprovider.ChangeDelete {
-			continue
-		}
-		found := false
-		for _, r := range records {
-			target := b.targets[i]
-			if r.Type == target.Type && r.Name == target.Name && r.TTL == target.TTL && charstr.Equivalent(r.Type, r.Value, target.Value) {
-				res.Results[i].Record = r
-				found = true
-				break
-			}
-		}
-		if !found {
-			return uncertain("read-back", errors.New("stored Record is missing"))
-		}
-	}
-	return nil
-}
-
-func changed(s *plannedSet, z wireZone) bool {
-	if !s.exists {
-		return len(s.values) > 0
-	}
-	if len(s.values) != len(s.before.Records) {
-		return true
-	}
-	after := make([]wireValue, len(s.values))
-	for i, v := range s.values {
-		after[i] = v.wire
-		if v.ttl != effectiveTTL(z, s.before) {
-			return true
-		}
-	}
-	return !sameNativeValues(s.before.Records, after)
+	return rrset.Apply(ctx, writer{p: p, zone: z}, cs, sets(z, read))
 }
 
 type wireAction struct {
@@ -489,48 +338,4 @@ func (p *Provider) action(ctx context.Context, method, path string, body any) er
 		}
 		a = poll.Action
 	}
-}
-
-func (p *Provider) writeSet(ctx context.Context, z wireZone, s *plannedSet) error {
-	w := s.before
-	values := make([]wireValue, len(s.values))
-	for i, v := range s.values {
-		values[i] = v.wire
-	}
-	if len(values) == 0 {
-		return p.action(ctx, http.MethodDelete, rrPath(z, w), nil)
-	}
-	ttl := s.values[0].ttl
-	if !s.exists {
-		body := map[string]any{"name": w.Name, "type": w.Type, "ttl": ttl, "records": values}
-		// New sets inherit only when every final value came from an unchanged
-		// inherited source. Additions and mixed explicit sources stay explicit.
-		if !slices.ContainsFunc(s.values, func(v plannedValue) bool { return !v.inherited }) {
-			body["ttl"] = nil
-		}
-		if w.Labels != nil {
-			body["labels"] = w.Labels
-		}
-		return p.action(ctx, http.MethodPost, zonePath(z)+"/rrsets", body)
-	}
-	if ttl != effectiveTTL(z, w) {
-		if err := p.action(ctx, http.MethodPost, rrPath(z, w)+"/actions/change_ttl", map[string]any{"ttl": ttl}); err != nil {
-			return err
-		}
-	}
-	if !sameNativeValues(w.Records, values) {
-		return p.action(ctx, http.MethodPost, rrPath(z, w)+"/actions/set_records", map[string]any{"records": values})
-	}
-	return nil
-}
-
-// sameNativeValues compares unordered native values including comments without
-// reordering the original slices used to preserve RRset metadata.
-func sameNativeValues(a, b []wireValue) bool {
-	before := slices.Clone(a)
-	after := slices.Clone(b)
-	cmp := func(a, b wireValue) int { return strings.Compare(a.Value, b.Value) }
-	slices.SortFunc(before, cmp)
-	slices.SortFunc(after, cmp)
-	return reflect.DeepEqual(before, after)
 }

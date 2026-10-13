@@ -7,6 +7,7 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -42,8 +43,19 @@ type fixture struct {
 	readFail        bool
 	secondary       bool
 	acknowledgeOnly bool
-	s               *httptest.Server
-	p               *hetzner.Provider
+	// failCode is the error code a failPath write answers; invalid_input
+	// when empty.
+	failCode string
+	// onWrite, when set, runs once before the next write is applied: a
+	// change by another writer after the Changeset read the RRsets.
+	onWrite func(f *fixture)
+	// barrier, when set, holds every write until snapshots reads of the
+	// Zone's RRsets have been answered, so concurrent Changesets all plan
+	// from the same RRsets before any of them writes.
+	barrier   chan struct{}
+	snapshots int
+	s         *httptest.Server
+	p         *hetzner.Provider
 }
 
 func newFixture(t *testing.T) *fixture {
@@ -59,7 +71,16 @@ func newFixture(t *testing.T) *fixture {
 	return f
 }
 
+// holdWritesUntil makes writes wait until n reads of the Zone's RRsets.
+func (f *fixture) holdWritesUntil(n int) {
+	f.barrier = make(chan struct{})
+	f.snapshots = n
+}
+
 func (f *fixture) serve(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && f.barrier != nil {
+		<-f.barrier
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if r.Header.Get("Authorization") != "Bearer test-token" {
@@ -73,17 +94,28 @@ func (f *fixture) serve(w http.ResponseWriter, r *http.Request) {
 	}
 
 	f.writes = append(f.writes, r.Method+" "+r.URL.Path)
-	if f.failPath != "" && strings.Contains(r.URL.Path, f.failPath) {
+	reject := func(code string) {
 		w.WriteHeader(http.StatusUnprocessableEntity)
-		write(map[string]any{"error": map[string]string{"code": "invalid_input", "message": "rejected"}})
+		write(map[string]any{"error": map[string]string{"code": code, "message": "rejected"}})
+	}
+	if f.failPath != "" && strings.Contains(r.URL.Path, f.failPath) {
+		code := f.failCode
+		if code == "" {
+			code = "invalid_input"
+		}
+		reject(code)
 		return
 	}
 	previous := maps.Clone(f.sets)
 	base := strings.TrimPrefix(r.URL.Path, "/zones/1/rrsets/")
+	if f.onWrite != nil {
+		onWrite := f.onWrite
+		f.onWrite = nil
+		onWrite(f)
+		previous = maps.Clone(f.sets)
+	}
 	if r.Method == http.MethodDelete {
-		if !f.acknowledgeOnly {
-			delete(f.sets, base)
-		}
+		delete(f.sets, base)
 	} else {
 		var body map[string]json.RawMessage
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -99,8 +131,11 @@ func (f *fixture) serve(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			if s.Name == f.failPath {
-				w.WriteHeader(http.StatusUnprocessableEntity)
-				write(map[string]any{"error": map[string]string{"code": "invalid_input", "message": "rejected"}})
+				reject("invalid_input")
+				return
+			}
+			if _, ok := f.sets[s.Name+"/"+s.Type]; ok {
+				reject("uniqueness_error")
 				return
 			}
 			for i := range s.Records {
@@ -111,32 +146,14 @@ func (f *fixture) serve(w http.ResponseWriter, r *http.Request) {
 			f.sets[s.Name+"/"+s.Type] = s
 		} else {
 			key, action, _ := strings.Cut(base, "/actions/")
-			s := f.sets[key]
-			switch action {
-			case "set_records":
-				if len(body) != 1 {
-					f.t.Errorf("invalid set_records payload %v", body)
-				}
-				_ = json.Unmarshal(body["records"], &s.Records)
-				if len(s.Records) == 0 {
-					f.t.Error("empty RRset write")
-				}
-				for i := range s.Records {
-					if v, ok := f.normalize[s.Records[i].Value]; ok {
-						s.Records[i].Value = v
-					}
-				}
-			case "change_ttl":
-				v, ok := body["ttl"]
-				if !ok {
-					f.t.Error("TTL is required")
-				}
-				_ = json.Unmarshal(v, &s.TTL)
-			default:
-				f.t.Errorf("unexpected action %s", action)
+			if code := f.action(key, action, body); code != "" {
+				reject(code)
+				return
 			}
-			f.sets[key] = s
 		}
+	}
+	if f.acknowledgeOnly {
+		f.sets = previous
 	}
 	status := f.actionStatus
 	if status != "success" {
@@ -150,6 +167,77 @@ func (f *fixture) serve(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusCreated)
 	write(map[string]any{"action": map[string]any{"id": 99, "status": status, "error": map[string]string{"code": "action_failed", "message": "test-token failed"}}})
+}
+
+// action applies an RRset action to the fixture's RRsets, or returns the
+// error code Hetzner answers it with.
+func (f *fixture) action(key, action string, body map[string]json.RawMessage) string {
+	s := f.sets[key]
+	switch action {
+	case "set_records":
+		if len(body) != 1 {
+			f.t.Errorf("invalid set_records payload %v", body)
+		}
+		_ = json.Unmarshal(body["records"], &s.Records)
+		if len(s.Records) == 0 {
+			f.t.Error("empty RRset write")
+		}
+		for i := range s.Records {
+			if v, ok := f.normalize[s.Records[i].Value]; ok {
+				s.Records[i].Value = v
+			}
+		}
+	case "add_records":
+		var add struct {
+			TTL     *uint32 `json:"ttl"`
+			Records []value `json:"records"`
+		}
+		b, _ := json.Marshal(body)
+		_ = json.Unmarshal(b, &add)
+		if len(add.Records) == 0 || len(add.Records) > 50 {
+			f.t.Errorf("invalid add_records payload %v", body)
+		}
+		if _, exists := f.sets[key]; !exists {
+			name, typ, _ := strings.Cut(key, "/")
+			s = rrset{Name: name, Type: typ, TTL: add.TTL}
+		} else if add.TTL != nil && s.TTL != nil && *add.TTL != *s.TTL {
+			return "invalid_input"
+		}
+		s.Records = slices.Clone(s.Records)
+		for _, v := range add.Records {
+			if n, ok := f.normalize[v.Value]; ok {
+				v.Value = n
+			}
+			s.Records = append(s.Records, v)
+		}
+	case "remove_records":
+		var remove []value
+		_ = json.Unmarshal(body["records"], &remove)
+		if len(remove) == 0 || len(remove) > 50 {
+			f.t.Errorf("invalid remove_records payload %v", body)
+		}
+		kept := []value{}
+		for _, v := range s.Records {
+			if !slices.ContainsFunc(remove, func(r value) bool { return r.Value == v.Value }) {
+				kept = append(kept, v)
+			}
+		}
+		s.Records = kept
+	case "change_ttl":
+		v, ok := body["ttl"]
+		if !ok {
+			f.t.Error("TTL is required")
+		}
+		_ = json.Unmarshal(v, &s.TTL)
+	default:
+		f.t.Errorf("unexpected action %s", action)
+	}
+	if len(s.Records) == 0 {
+		delete(f.sets, key)
+	} else {
+		f.sets[key] = s
+	}
+	return ""
 }
 
 func readRecords(t *testing.T, f *fixture) []dnsprovider.Record {
@@ -182,7 +270,7 @@ func TestRecordEditsPreserveSiblingsAndMetadata(t *testing.T) {
 	if err != nil || stored.Value != after.Value || stored.ID == before.ID || stored.TTL != 300 || stored.Extras[hetzner.ExtraComment] != "one" {
 		t.Fatalf("update=%+v,%v", stored, err)
 	}
-	if len(f.writes) != 1 || f.sets["www/A"].TTL != nil || f.sets["www/A"].Labels["team"] != "dns" {
+	if want := []string{"POST /zones/1/rrsets/www/A/actions/add_records", "POST /zones/1/rrsets/www/A/actions/remove_records"}; !slices.Equal(f.writes, want) || f.sets["www/A"].TTL != nil || f.sets["www/A"].Labels["team"] != "dns" {
 		t.Fatalf("inheritance/labels lost: %+v %+v", f.sets, f.writes)
 	}
 	siblings := readRecords(t, f)
@@ -196,7 +284,7 @@ func TestRecordEditsPreserveSiblingsAndMetadata(t *testing.T) {
 	if err := f.p.DeleteRecord(context.Background(), testZone, last); err != nil {
 		t.Fatal(err)
 	}
-	if len(readRecords(t, f)) != 0 || !strings.HasPrefix(f.writes[len(f.writes)-1], "DELETE ") {
+	if len(readRecords(t, f)) != 0 || f.writes[len(f.writes)-1] != "POST /zones/1/rrsets/www/A/actions/remove_records" || slices.ContainsFunc(f.writes, func(w string) bool { return strings.HasPrefix(w, "DELETE ") }) {
 		t.Fatalf("last deletion=%+v", f.writes)
 	}
 }
@@ -377,18 +465,18 @@ func TestDeletionRequiresAuthoritativeAbsence(t *testing.T) {
 	}
 }
 
-func TestMoveFailureReportsPossibleSourceDeletion(t *testing.T) {
+func TestMoveFailureAtTheDestinationKeepsTheSource(t *testing.T) {
 	f := newFixture(t)
 	f.failPath = "bad"
 	before := recordValue(readRecords(t, f), "192.0.2.1")
 	after := before
 	after.Name = "bad.example.com"
 	_, err := f.p.UpdateRecord(context.Background(), testZone, before, after)
-	if err == nil || !strings.Contains(err.Error(), "partial side effects") || len(f.writes) != 2 {
+	if err == nil || !strings.Contains(err.Error(), "partial side effects") || len(f.writes) != 1 {
 		t.Fatalf("replacement=%v writes=%v", err, f.writes)
 	}
-	if recordValue(readRecords(t, f), "192.0.2.1").ID != "" {
-		t.Fatal("source unexpectedly retained")
+	if recordValue(readRecords(t, f), "192.0.2.1").ID == "" {
+		t.Fatal("source removed although its value never reached the destination")
 	}
 }
 
@@ -498,6 +586,11 @@ func (f *fixture) read(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/zones/1/rrsets" {
+		if f.barrier != nil && f.snapshots > 0 {
+			if f.snapshots--; f.snapshots == 0 {
+				close(f.barrier)
+			}
+		}
 		if f.pending != nil {
 			f.t.Error("authoritative readback before action success")
 			w.WriteHeader(http.StatusConflict)
@@ -518,4 +611,197 @@ func (f *fixture) read(w http.ResponseWriter, r *http.Request) {
 	}
 	f.t.Errorf("unexpected read %s", r.URL.Path)
 	w.WriteHeader(http.StatusNotFound)
+}
+
+func TestAddingToAnExistingRRsetSendsOnlyTheNewValue(t *testing.T) {
+	f := newFixture(t)
+	if _, err := f.p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "www", Value: "192.0.2.3", TTL: 300}); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"POST /zones/1/rrsets/www/A/actions/add_records"}; !slices.Equal(f.writes, want) {
+		t.Fatalf("writes=%v, want %v", f.writes, want)
+	}
+	if got := f.sets["www/A"]; len(got.Records) != 3 || got.TTL != nil || got.Records[0].Comment != "one" {
+		t.Fatalf("RRset=%+v, want the siblings, their comments and inheritance kept", got)
+	}
+}
+
+func TestAddingToAMissingRRsetSendsAddRecords(t *testing.T) {
+	f := newFixture(t)
+	r, err := f.p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "TXT", Name: "_acme-challenge", Value: "token", TTL: 60})
+	if err != nil || r.Value != `"token"` || r.TTL != 60 {
+		t.Fatalf("create=%+v,%v", r, err)
+	}
+	if want := []string{"POST /zones/1/rrsets/_acme-challenge/TXT/actions/add_records"}; !slices.Equal(f.writes, want) {
+		t.Fatalf("writes=%v, want %v", f.writes, want)
+	}
+}
+
+func TestChangingAValueAddsTheNewOneBeforeRemovingTheOld(t *testing.T) {
+	f := newFixture(t)
+	f.sets = map[string]rrset{"www/A": {Name: "www", Type: "A", Records: []value{{Value: "192.0.2.1"}}}}
+	before := readRecords(t, f)[0]
+	after := before
+	after.Value = "192.0.2.9"
+	f.writes = nil
+	if _, err := f.p.UpdateRecord(context.Background(), testZone, before, after); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"POST /zones/1/rrsets/www/A/actions/add_records", "POST /zones/1/rrsets/www/A/actions/remove_records"}; !slices.Equal(f.writes, want) {
+		t.Fatalf("writes=%v, want %v", f.writes, want)
+	}
+}
+
+func TestChangingTheOnlyValueAndTheTTLChangesTheTTLFirst(t *testing.T) {
+	f := newFixture(t)
+	ttl := uint32(300)
+	f.sets = map[string]rrset{"www/A": {Name: "www", Type: "A", TTL: &ttl, Records: []value{{Value: "192.0.2.1"}}}}
+	before := readRecords(t, f)[0]
+	after := before
+	after.Value, after.TTL = "192.0.2.9", 600
+	stored, err := f.p.UpdateRecord(context.Background(), testZone, before, after)
+	if err != nil || stored.TTL != 600 {
+		t.Fatalf("update=%+v,%v writes=%v", stored, err, f.writes)
+	}
+	if want := []string{"POST /zones/1/rrsets/www/A/actions/change_ttl", "POST /zones/1/rrsets/www/A/actions/add_records", "POST /zones/1/rrsets/www/A/actions/remove_records"}; !slices.Equal(f.writes, want) {
+		t.Fatalf("writes=%v, want %v", f.writes, want)
+	}
+}
+
+func TestConcurrentChangesetsOnOneRRsetKeepEachOthersValues(t *testing.T) {
+	add := func(v string) dnsprovider.Change {
+		return dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "_acme-challenge.example.com", Value: v, TTL: 60}}
+	}
+	for _, tc := range []struct {
+		name      string
+		existing  []value
+		changes   func(existing []dnsprovider.Record) [][]dnsprovider.Change
+		snapshots int
+		want      []string
+	}{
+		{
+			// Both DNS-01 values of a certificate for example.com and
+			// *.example.com.
+			name: "two additions",
+			changes: func([]dnsprovider.Record) [][]dnsprovider.Change {
+				return [][]dnsprovider.Change{{add("a")}, {add("b")}}
+			},
+			snapshots: 2,
+			want:      []string{`"a"`, `"b"`},
+		},
+		{
+			name:     "an addition and a deletion of the last value",
+			existing: []value{{Value: `"old"`}},
+			changes: func(existing []dnsprovider.Record) [][]dnsprovider.Change {
+				return [][]dnsprovider.Change{{add("new")}, {{Kind: dnsprovider.ChangeDelete, Before: existing[0]}}}
+			},
+			// Apply re-reads before a deletion.
+			snapshots: 3,
+			want:      []string{`"new"`},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(t)
+			f.sets = map[string]rrset{}
+			if tc.existing != nil {
+				ttl := uint32(60)
+				f.sets["_acme-challenge/TXT"] = rrset{Name: "_acme-challenge", Type: "TXT", TTL: &ttl, Records: tc.existing}
+			}
+			changesets := tc.changes(readRecords(t, f))
+			f.holdWritesUntil(tc.snapshots)
+
+			var wg sync.WaitGroup
+			results := make([]dnsprovider.ApplyResult, len(changesets))
+			errs := make([]error, len(changesets))
+			for i, changes := range changesets {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					results[i], errs[i] = dnsprovider.Apply(context.Background(), f.p, dnsprovider.Changeset{Zone: testZone, Changes: changes})
+				}()
+			}
+			wg.Wait()
+
+			for i := range changesets {
+				if errs[i] != nil || results[i].Results[0].Err != nil {
+					t.Errorf("Apply %d = %+v, %v", i, results[i], errs[i])
+				}
+			}
+			var got []string
+			for _, r := range readRecords(t, f) {
+				got = append(got, r.Value)
+			}
+			slices.Sort(got)
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("stored %v, want %v; writes=%v", got, tc.want, f.writes)
+			}
+		})
+	}
+}
+
+func TestReadBackIgnoresValuesAnotherWriterAdded(t *testing.T) {
+	f := newFixture(t)
+	f.onWrite = func(f *fixture) {
+		s := f.sets["www/A"]
+		s.Records = append(slices.Clone(s.Records), value{Value: "192.0.2.77"})
+		f.sets["www/A"] = s
+	}
+	r, err := f.p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "www", Value: "192.0.2.3", TTL: 300})
+	if err != nil || r.Value != "192.0.2.3" {
+		t.Fatalf("create=%+v,%v", r, err)
+	}
+}
+
+func TestReadBackMissingAnAddedValueIsAConflict(t *testing.T) {
+	f := newFixture(t)
+	f.acknowledgeOnly = true
+	_, err := f.p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "www", Value: "192.0.2.3", TTL: 300})
+	if !errors.Is(err, dnsprovider.ErrConflict) || !strings.Contains(err.Error(), "unconfirmed") {
+		t.Fatalf("lost write=%v", err)
+	}
+}
+
+func TestPerValueWriteErrorsMapToTheCommonSentinels(t *testing.T) {
+	for _, tc := range []struct {
+		action, code string
+		want         error
+	}{
+		// Assumed: Hetzner does not document how add_records answers a
+		// value the RRset holds, nor remove_records one it does not.
+		{"add_records", "uniqueness_error", dnsprovider.ErrConflict},
+		{"remove_records", "not_found", dnsprovider.ErrNotFound},
+	} {
+		t.Run(tc.action, func(t *testing.T) {
+			f := newFixture(t)
+			f.failPath, f.failCode = tc.action, tc.code
+			var err error
+			if tc.action == "add_records" {
+				_, err = f.p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "www", Value: "192.0.2.3", TTL: 300})
+			} else {
+				err = f.p.DeleteRecord(context.Background(), testZone, readRecords(t, f)[0])
+			}
+			if !errors.Is(err, tc.want) || strings.Contains(err.Error(), "unconfirmed") {
+				t.Fatalf("%s=%v, want %v", tc.action, err, tc.want)
+			}
+		})
+	}
+}
+
+func TestMoveToAnRRsetAnotherWriterCreatedAddsToIt(t *testing.T) {
+	f := newFixture(t)
+	before := recordValue(readRecords(t, f), "192.0.2.1")
+	after := before
+	after.Name = "moved.example.com"
+	f.onWrite = func(f *fixture) {
+		f.sets["moved/A"] = rrset{Name: "moved", Type: "A", Records: []value{{Value: "192.0.2.50"}}}
+	}
+	if _, err := f.p.UpdateRecord(context.Background(), testZone, before, after); err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"POST /zones/1/rrsets", "POST /zones/1/rrsets/moved/A/actions/add_records", "POST /zones/1/rrsets/www/A/actions/remove_records"}; !slices.Equal(f.writes, want) {
+		t.Fatalf("writes=%v, want %v", f.writes, want)
+	}
+	if got := f.sets["moved/A"]; len(got.Records) != 2 {
+		t.Fatalf("destination=%+v, want both values", got)
+	}
 }

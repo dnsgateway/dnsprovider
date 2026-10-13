@@ -702,9 +702,11 @@ creates Zones implicitly.
 tokens, DNS permissions, inherited/shared TTLs, RRset metadata and protection,
 and asynchronous action completion. Account verification uses an authenticated
 Zone list and works with an empty project. Records have content-derived keys;
-retain the complete Before Record. The Batcher plans affected RRsets, preserves
-siblings, waits for each write action, and reads back authoritative results.
-Uncertain completion and partial moves remain visible as errors.
+retain the complete Before Record. The Batcher writes single values
+(`add_records`, `remove_records`), so concurrent Changesets on one RRset keep
+each other's values; it waits for each write action and reads back its own
+effects, reporting a lost write as `ErrConflict`. Uncertain completion and
+partial moves remain visible as errors.
 
 ## OVHcloud
 

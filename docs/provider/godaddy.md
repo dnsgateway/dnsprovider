@@ -13,11 +13,7 @@ with the `domains.domain:read` scope, and `domains.dns:update` for writes. The
 v3 API takes no API key and secret: GoDaddy's `sso-key` scheme does not work
 with it.
 
-**Migrating from the v1 adapter:** the `key` and `secret` fields are gone, and
-a Factory given them fails. Create a personal access token in GoDaddy's
-developer portal and configure it as `token`. Record IDs change too: they
-are now GoDaddy's `recordId`, stable across updates, rather than derived from
-the Record's content, so IDs stored before the upgrade no longer match.
+Record IDs are GoDaddy's `recordId`, stable across updates.
 
 ## Zones
 

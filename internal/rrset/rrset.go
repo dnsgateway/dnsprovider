@@ -90,8 +90,9 @@ type Adapter interface {
 	// from and fromSet are nil for an addition.
 	Wire(after dnsprovider.Record, from *Value, fromSet *Set) any
 	// Write makes a Delta: the TTL change, then the additions, then the
-	// removals, so a modified RRset is never empty in between. It never
-	// replaces or deletes the whole RRset to remove values.
+	// removals, or all of them in one call, so a modified RRset is never
+	// empty in between. It never replaces or deletes the whole RRset to
+	// remove values.
 	Write(ctx context.Context, d Delta) error
 	// ReadBack reads the Records of the RRsets with keys after a write.
 	ReadBack(ctx context.Context, keys []Key) (dnsprovider.RecordSet, error)

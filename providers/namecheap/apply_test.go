@@ -89,18 +89,19 @@ func applyOK(t *testing.T, api *ncAPI, changes ...dnsprovider.Change) dnsprovide
 	return res
 }
 
-// wantSetHosts checks that one setHosts was sent for example.com, after a
-// getHosts, with these hosts and EmailType. A getHosts before them is
-// dnsprovider.Apply's re-check of a Changeset built from ListRecords.
+// wantSetHosts checks that one setHosts was sent for example.com, between
+// a getHosts and the getHosts reading it back, with these hosts and
+// EmailType. A getHosts before them is dnsprovider.Apply's re-check of a
+// Changeset built from ListRecords.
 func wantSetHosts(t *testing.T, api *ncAPI, emailType string, hosts []sentHost) {
 	t.Helper()
 
 	got := api.Commands()
-	if len(got) == 3 && got[0] == "namecheap.domains.dns.getHosts" {
+	if len(got) == 4 && got[0] == "namecheap.domains.dns.getHosts" {
 		got = got[1:]
 	}
 
-	if want := []string{"namecheap.domains.dns.getHosts", "namecheap.domains.dns.setHosts"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"namecheap.domains.dns.getHosts", "namecheap.domains.dns.setHosts", "namecheap.domains.dns.getHosts"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("requests = %v, want %v", api.Commands(), want)
 	}
 
@@ -586,7 +587,7 @@ func TestApplySplitsAnMXValueOnAnyWhitespace(t *testing.T) {
 	wantSetHosts(t, api, "MX", []sentHost{{"@", "MX", "mx.example.net.", "10", "3600"}})
 }
 
-func TestCreateRecordIsOneGetHostsAndOneSetHostsAndReturnsItWithItsID(t *testing.T) {
+func TestCreateRecordIsOneSetHostsReadBackAndReturnsItWithItsID(t *testing.T) {
 	api := zoneAPI()
 	add := dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "v=spf1 -all", TTL: 300}
 
@@ -729,8 +730,8 @@ func TestApplyReadsTheHostsOnceMoreToReCheckAChangesetBuiltFromRecords(t *testin
 		changes []dnsprovider.Change
 		want    []string
 	}{
-		{"additions alone", []dnsprovider.Change{add}, []string{get, set}},
-		{"a modification and a deletion", changesForAll(), []string{get, get, set}},
+		{"additions alone", []dnsprovider.Change{add}, []string{get, set, get}},
+		{"a modification and a deletion", changesForAll(), []string{get, get, set, get}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			api := zoneAPI()
@@ -741,5 +742,99 @@ func TestApplyReadsTheHostsOnceMoreToReCheckAChangesetBuiltFromRecords(t *testin
 				t.Errorf("requests = %v, want %v", got, c.want)
 			}
 		})
+	}
+}
+
+func TestApplyReturnsTheRecordsAsListRecordsReadsThemBack(t *testing.T) {
+	api := zoneAPI()
+	p := newProvider(t, api)
+
+	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: changesForAll()})
+	if err != nil {
+		t.Fatalf("Apply: %v", err)
+	}
+
+	held, err := p.ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
+	if err != nil {
+		t.Fatalf("ListRecords: %v", err)
+	}
+
+	for i, r := range res.Results {
+		if r.Err != nil {
+			t.Errorf("result %d: %v", i, r.Err)
+		}
+
+		if r.Change.Kind == dnsprovider.ChangeDelete {
+			if !reflect.DeepEqual(r.Record, dnsprovider.Record{}) {
+				t.Errorf("result %d Record = %+v, want none for a deletion", i, r.Record)
+			}
+
+			continue
+		}
+
+		if !slices.ContainsFunc(held.Records, func(h dnsprovider.Record) bool { return reflect.DeepEqual(h, r.Record) }) {
+			t.Errorf("result %d Record = %+v, not one ListRecords reads: %+v", i, r.Record, held.Records)
+		}
+	}
+}
+
+func TestApplyIsAConflictWhenAConcurrentWriteReplacesItsHosts(t *testing.T) {
+	for name, concurrent := range map[string]func([]ncHost) []ncHost{
+		// Another writer's setHosts, built from the hosts before ours.
+		"an added host is gone": func([]ncHost) []ncHost { return zoneHosts() },
+		"a deleted host is back": func(hosts []ncHost) []ncHost {
+			return append(hosts, ncHost{Name: "@", Type: "A", Address: "192.0.2.1", MXPref: 10, TTL: 1799})
+		},
+		"an added host has another TTL": func(hosts []ncHost) []ncHost {
+			for i := range hosts {
+				if hosts[i].Name == "new" {
+					hosts[i].TTL = 60
+				}
+			}
+
+			return hosts
+		},
+	} {
+		t.Run(name, func(t *testing.T) {
+			api := zoneAPI()
+			api.concurrent = concurrent
+
+			applyFails(t, api, "a concurrent change at Namecheap replaced this Changeset's write", dnsprovider.ErrConflict, changesForAll()...)
+		})
+	}
+}
+
+func TestApplySucceedsWhenAConcurrentWriteChangesOnlyOtherHosts(t *testing.T) {
+	api := zoneAPI()
+	api.concurrent = func(hosts []ncHost) []ncHost {
+		hosts = slices.DeleteFunc(hosts, func(h ncHost) bool { return h.Type == "URL" })
+
+		return append(hosts, ncHost{Name: "_acme-challenge", Type: "TXT", Address: "token", TTL: 60})
+	}
+
+	applyOK(t, api, changesForAll()...)
+}
+
+func TestApplyCompletionIsUncertainWhenTheReadBackFails(t *testing.T) {
+	api := zoneAPI()
+	gets := 0
+	api.fail = func(command string) []ncError {
+		if command != "namecheap.domains.dns.getHosts" {
+			return nil
+		}
+
+		// Additions alone: the first getHosts plans, the second reads back.
+		if gets++; gets == 2 {
+			return []ncError{{500000, "Too many requests"}}
+		}
+
+		return nil
+	}
+
+	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changesForAll()[:1]})
+	failsWhole(t, res, err, "Namecheap may or may not have applied the changes", dnsprovider.ErrRateLimited)
+
+	if errors.Is(err, dnsprovider.ErrConflict) {
+		t.Errorf("err = %v, want it not to match ErrConflict", err)
 	}
 }

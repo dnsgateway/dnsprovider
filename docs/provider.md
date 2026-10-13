@@ -493,7 +493,7 @@ Serial is zero when unknown; the non-batch path never supplies one.
 | ZoneStatus / UpdateZone | DNSSEC, `security_header`, `min_tls_version` reads and PATCHes | Unsupported | Unsupported |
 | ListRecords | paged DNS record list with type/name filters | paged records, optional type endpoint, local filters | `domains.dns.getHosts`, local filters |
 | Record writes | POST, PATCH (GET + PUT on type change), DELETE by ID | read and replace affected RRsets, DELETE empty RRsets | read and replace all hosts |
-| Batcher | None | Changes grouped by RRset | One getHosts and one setHosts |
+| Batcher | None | Changes grouped by RRset | One getHosts, one setHosts, one getHosts read-back |
 
 Cloudflare updates preserve unmodeled fields through PATCH. A type change
 uses GET then PUT, preserving comment and tags and the proxy flag when
@@ -519,8 +519,14 @@ Changeset on validation or preparation failure. It adds and modifies only
 A, AAAA, CNAME, MX, TXT, and NS; NS writes must be below the apex. MX additions and modifications
 require EmailType `MX` (Custom MX). All API commands use form-encoded POST
 and are never retried, including reads. A failed setHosts response can leave
-whether the Changeset was applied uncertain. Successful write results are
-constructed from the sent hosts; no post-write refresh is performed.
+whether the Changeset was applied uncertain. After a successful setHosts the
+Batcher reads the hosts back and checks only the Changeset's own effects:
+every host it added or modified is held with its TTL, and every host it
+removed is gone. A miss is an error matching `ErrConflict`, since a
+concurrent setHosts replaced the write; a failed read-back leaves completion
+uncertain. Results are the Records as read back. Every write replaces the
+whole domain, so concurrent writers to one domain can lose each other's
+changes; see the Namecheap provider doc.
 
 ## Errors
 

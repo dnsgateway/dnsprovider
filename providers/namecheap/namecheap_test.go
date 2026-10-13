@@ -64,6 +64,9 @@ type ncAPI struct {
 	// setHostsFalse makes setHosts answer OK with IsSuccess="false" and
 	// change nothing.
 	setHostsFalse bool
+	// concurrent, when set, is another writer's setHosts landing right
+	// after each of ours: the hosts it leaves, given the ones ours set.
+	concurrent func(hosts []ncHost) []ncHost
 
 	// fail, when it returns errors, answers the request with Status="ERROR".
 	fail func(command string) []ncError
@@ -245,6 +248,10 @@ func (api *ncAPI) setHosts(w http.ResponseWriter, r *http.Request) {
 	hosts := sentHosts(r.Form)
 	for i := range hosts {
 		hosts[i].ID = strconv.Itoa(1000 + i)
+	}
+
+	if api.concurrent != nil {
+		hosts = api.concurrent(hosts)
 	}
 
 	api.mu.Lock()

@@ -53,6 +53,34 @@ unrequested siblings, comments, labels and protection, and never disable
 protection automatically. Protected and managed data cannot be edited.
 A move can require several operations and can complete only partly.
 
+## Per-value writes and concurrent Changesets
+
+Writes name only the values a Changeset touches, so concurrent Changesets
+on one RRset, such as the two DNS-01 values of a certificate for a name and
+its wildcard, keep each other's values:
+
+- An addition is `add_records` with the new value. It creates a missing
+  RRset; there is no `POST /rrsets` for it.
+- A deletion is `remove_records` with the value as stored. Hetzner deletes
+  an RRset it empties; the adapter never deletes a whole RRset to remove
+  values.
+- A modification adds the new value, then removes the old one, so the
+  RRset is never empty in between. A move adds at the destination before
+  removing at the source. A move that creates its destination carries the
+  source's labels with `POST /rrsets`, which `add_records` cannot set; when
+  another writer created the destination first, it adds to it instead.
+- A TTL change is `change_ttl`, before any value is added. It applies to
+  the whole RRset.
+- Comments are read-only: a modification keeps the replaced value's
+  comment, and `update_records` is not used.
+
+The RRset's TTL and protection remain last-writer-wins: the API has no
+conditional write. Hetzner does not document how `add_records` answers a
+value the RRset already holds, nor how `remove_records` answers a value it
+does not. The adapter assumes a 4xx error code that maps through the common
+sentinels (`uniqueness_error` to `ErrConflict`, `not_found` to
+`ErrNotFound`); a live check with a write-capable token should confirm it.
+
 Writable TTLs are 60 through 2147483647 seconds. A null RRset TTL inherits
 the Zone default; reads return that effective numeric TTL, and an unchanged
 TTL preserves existing inheritance. A new destination RRset also inherits
@@ -67,12 +95,17 @@ the required TTL value.
 
 `dnsprovider.Apply` rejects stale Before Records before mutations, orders
 deletions before modifications and additions, and returns results in original
-Changeset order. The Batcher plans the final RRsets before submitting writes.
-Empty Changesets submit no write actions.
+Changeset order. The Batcher plans each RRset's values to add and remove
+from one read before submitting writes. Empty Changesets submit no write
+actions.
 
 Action acknowledgements alone do not confirm writes. The adapter waits for
 success or failure through the Cloud DNS action endpoint, then reads stored
-Records back. Waits are bounded and honor cancellation. A failed action,
+Records back and checks only the Changeset's own effects: each value it
+added is present with the planned TTL, and each value it removed is absent.
+Other values of the same RRset are ignored. A miss returns an error
+matching `ErrConflict`, as another write may have replaced the Changeset's;
+re-read and retry. Waits are bounded and honor cancellation. A failed action,
 lost response, cancellation, or failed readback returns an error that can
 leave completion uncertain; re-read before deciding to retry. Cross-RRset
 changes are not atomic and do not trigger automatic rollback. Action

@@ -510,33 +510,45 @@ DELETE by `recordId` for each value removed, and a PUT of each kept record
 for a shared TTL change, so concurrent Changesets on one RRset keep each
 other's values. Its CRUD methods use a one-change batch. A modification adds
 before it removes; a move that fails partway is reported, not undone. Writes
-are read back and checked for the Changeset's own effects; a miss is
-`ErrConflict`.
+are read back and checked for the Changeset's own effects; a miss matches
+`ErrConflict` and `ErrUnconfirmed`.
 
 Namecheap writes all hosts at once. Its CRUD methods use a one-change batch.
 The Batcher preserves untouched hosts and EmailType, refusing the whole
 Changeset on validation or preparation failure. It adds and modifies only
 A, AAAA, CNAME, MX, TXT, and NS; NS writes must be below the apex. MX additions and modifications
 require EmailType `MX` (Custom MX). All API commands use form-encoded POST
-and are never retried, including reads. A failed setHosts response can leave
-whether the Changeset was applied uncertain. After a successful setHosts the
+and are never retried, including reads. A setHosts whose answer is lost or
+ambiguous is an Unconfirmed Write (`ErrUnconfirmed`). After a successful setHosts the
 Batcher reads the hosts back and checks only the Changeset's own effects:
 every host it added or modified is held with its TTL, and every host it
-removed is gone. A miss is an error matching `ErrConflict`, since a
-concurrent setHosts replaced the write; a failed read-back leaves completion
-uncertain. Results are the Records as read back. Every write replaces the
+removed is gone. A miss is an error matching both `ErrConflict` and
+`ErrUnconfirmed`, since a concurrent setHosts replaced the write; a failed
+read-back matches `ErrUnconfirmed` alone. Results are the Records as read back. Every write replaces the
 whole domain, so concurrent writers to one domain can lose each other's
 changes; see the Namecheap provider doc.
 
 ## Errors
 
 Use `errors.Is` for `ErrRateLimited`, `ErrUnauthorized`, `ErrNotFound`,
-`ErrNotServed`, `ErrConflict`, `ErrNoTenant`, `ErrStale`, `ErrUnsupported`,
-and `ErrNotImplemented`. `ErrNotServed` is a domain the Account holds but the
+`ErrNotServed`, `ErrConflict`, `ErrUnconfirmed`, `ErrNoTenant`, `ErrStale`,
+`ErrUnsupported`, and `ErrNotImplemented`. `ErrNotServed` is a domain the Account holds but the
 Provider serves no DNS for, such as one delegated elsewhere; it also matches
 `ErrNotFound`. `ErrUnsupported` is a DS write the registry refuses for the
 domain.
 `errors.As` exposes `*APIError` or `*StaleError` details.
+
+`ErrUnconfirmed` is an Unconfirmed Write: the write was sent, but the Provider
+may or may not have applied it, because its answer was lost, was a 5xx or
+could not be read, or because the read-back after it failed. Re-read the
+Records before retrying. A write the Provider refused in its answer, a 4xx
+or an error inside a successful answer, is never unconfirmed, nor is a
+failed read. A read-back that finds the Changeset's own effects replaced by
+another writer's matches both `ErrUnconfirmed` and `ErrConflict`; a Changeset
+refused before any write, such as an addition the Zone already holds,
+matches `ErrConflict` alone. Check `ErrUnconfirmed` first.
+Adapters mark a write's error with `Unconfirmed(err)`, or send it through
+`rest.Client.Write`, which does.
 
 `APIError` holds Provider, StatusCode, Messages, RetryAfter, and optional
 Kind. Kind overrides HTTP classification; otherwise 429 maps to
@@ -551,12 +563,21 @@ Detect absent optional interfaces before offering their operations.
 
 `rest.Client` provides BaseURL, HTTP, Auth, an optional `rest.Limiter`, an
 error Decode callback, and retry/logging/body-size settings. Its request
-method is:
+methods are:
 
 ```go
 func (c *Client) Do(ctx context.Context, method, path string,
     q url.Values, body, out any) error
+func (c *Client) Write(ctx context.Context, method, path string,
+    q url.Values, body, out any) error
 ```
+
+`Write` is `Do` for a call that changes what the Provider holds, whatever
+its method: once its request was sent, an error its answer does not refuse
+the write with, and a success answer that cannot be decoded, match
+`ErrUnconfirmed`. An error before any request was sent does not. `Do`
+never marks an error unconfirmed, so a read POSTed to an RPC-style API
+uses `Do`.
 
 A `url.Values` body is form-encoded; other bodies are JSON. A `*[]byte`
 output receives raw bytes for Namecheap's XML decoder. Any 2xx status is a
@@ -693,7 +714,7 @@ are never retried. The adapter uses the common Apply CRUD fallback.
 
 [Scaleway setup and limitations](provider/scaleway.md) cover Project scope,
 secret key authentication, DNS permissions, targeted batched operations,
-metadata retention, TTL bounds and uncertain completion. The adapter never
+metadata retention, TTL bounds and Unconfirmed Writes. The adapter never
 creates Zones implicitly.
 
 ## Hetzner
@@ -705,8 +726,9 @@ Zone list and works with an empty project. Records have content-derived keys;
 retain the complete Before Record. The Batcher writes single values
 (`add_records`, `remove_records`), so concurrent Changesets on one RRset keep
 each other's values; it waits for each write action and reads back its own
-effects, reporting a lost write as `ErrConflict`. Uncertain completion and
-partial moves remain visible as errors.
+effects, reporting a lost write as `ErrConflict` and `ErrUnconfirmed`. An
+action whose completion is unconfirmed matches `ErrUnconfirmed`; partial
+moves remain visible as errors.
 
 ## OVHcloud
 

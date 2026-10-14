@@ -33,8 +33,9 @@ type Removal struct {
 // after its write, with same telling resource records apart. It returns
 // the held Record for each of Added, by change: the Record as the
 // Provider holds it, with its ID. An added Record not held with its TTL,
-// or a removed one held more often than it leaves it, is an error that
-// matches dnsprovider.ErrConflict: another write replaced the Changeset's.
+// or a removed one held more often than it leaves it, is an Unconfirmed
+// Write that also matches dnsprovider.ErrConflict: another write replaced
+// the Changeset's.
 func Verify(e Effects, held []dnsprovider.Record, same func(a, b dnsprovider.Record) bool) ([]dnsprovider.Record, error) {
 	stored := make([]dnsprovider.Record, len(e.Added))
 
@@ -54,7 +55,7 @@ func Verify(e Effects, held []dnsprovider.Record, same func(a, b dnsprovider.Rec
 		}
 
 		if at < 0 {
-			return nil, fmt.Errorf("%s is not held as written: %w", describe(want), dnsprovider.ErrConflict)
+			return nil, fmt.Errorf("%s is not held as written: %w; %w", describe(want), dnsprovider.ErrConflict, dnsprovider.ErrUnconfirmed)
 		}
 
 		stored[i] = held[at]
@@ -70,7 +71,7 @@ func Verify(e Effects, held []dnsprovider.Record, same func(a, b dnsprovider.Rec
 		}
 
 		if n > rm.Leave {
-			return nil, fmt.Errorf("%s is held %d times, removed to %d: %w", describe(rm.Record), n, rm.Leave, dnsprovider.ErrConflict)
+			return nil, fmt.Errorf("%s is held %d times, removed to %d: %w; %w", describe(rm.Record), n, rm.Leave, dnsprovider.ErrConflict, dnsprovider.ErrUnconfirmed)
 		}
 	}
 

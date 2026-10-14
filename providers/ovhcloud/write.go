@@ -84,8 +84,12 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 		return res, nil
 	}
 
-	if err := p.do(ctx, http.MethodPost, zonePath(snap.zone)+"/refresh", nil, nil, nil); err != nil {
+	if err := p.write(ctx, http.MethodPost, zonePath(snap.zone)+"/refresh", nil, nil, nil); err != nil {
 		unpublished := fmt.Errorf("%w: %w", ErrUnpublished, err)
+		if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+			// A refused refresh still leaves the edits staged.
+			unpublished = fmt.Errorf("%w; %w", unpublished, dnsprovider.ErrUnconfirmed)
+		}
 		for _, i := range touched {
 			res.Results[i].Err = joinUnpublished(res.Results[i].Err, unpublished)
 			res.Results[i].Record = dnsprovider.Record{}
@@ -174,17 +178,6 @@ func subDomain(zone, name string) string {
 	return ""
 }
 
-// rejected reports whether the API refused a write, so it was not staged.
-func rejected(err error) bool {
-	var api *dnsprovider.APIError
-
-	return errors.As(err, &api) && api.StatusCode >= 400 && api.StatusCode < 500
-}
-
-func unconfirmed(operation string, err error) error {
-	return fmt.Errorf("ovhcloud: %s is unconfirmed and may have been staged; re-read Records before retrying: %w", operation, err)
-}
-
 // joinUnpublished adds the unconfirmed publication to a change's own
 // error, when it has one.
 func joinUnpublished(err, unpublished error) error {
@@ -225,12 +218,8 @@ func (p *Provider) stageChange(ctx context.Context, s *snapshot, c dnsprovider.C
 			return dnsprovider.Record{}, false, dnsprovider.ErrNotFound
 		}
 
-		if err := p.do(ctx, http.MethodDelete, recordPath(s.zone, s.entries[i].wire.ID), nil, nil, nil); err != nil {
-			if rejected(err) {
-				return dnsprovider.Record{}, false, err
-			}
-
-			return dnsprovider.Record{}, true, unconfirmed("record deletion", err)
+		if err := p.write(ctx, http.MethodDelete, recordPath(s.zone, s.entries[i].wire.ID), nil, nil, nil); err != nil {
+			return dnsprovider.Record{}, errors.Is(err, dnsprovider.ErrUnconfirmed), fmt.Errorf("ovhcloud: record deletion: %w", err)
 		}
 
 		s.entries = slices.Delete(s.entries, i, i+1)
@@ -257,17 +246,13 @@ func (p *Provider) create(ctx context.Context, s *snapshot, r dnsprovider.Record
 	body := map[string]any{"fieldType": r.Type, "subDomain": subDomain(s.zone, r.Name), "target": r.Value, "ttl": ttl}
 
 	var w wireRecord
-	if err := p.do(ctx, http.MethodPost, zonePath(s.zone)+"/record", nil, body, &w); err != nil {
-		if rejected(err) {
-			return storedRecord{}, false, err
-		}
-
-		return storedRecord{}, true, unconfirmed("record creation", err)
+	if err := p.write(ctx, http.MethodPost, zonePath(s.zone)+"/record", nil, body, &w); err != nil {
+		return storedRecord{}, errors.Is(err, dnsprovider.ErrUnconfirmed), fmt.Errorf("ovhcloud: record creation: %w", err)
 	}
 
 	e, err := publicRecord(s.zone, s.defaultTTL, w)
 	if err != nil {
-		return storedRecord{}, true, unconfirmed("record creation", err)
+		return storedRecord{}, true, fmt.Errorf("ovhcloud: record creation: %w; %w", err, dnsprovider.ErrUnconfirmed)
 	}
 
 	return e, true, nil
@@ -294,17 +279,13 @@ func (p *Provider) modify(ctx context.Context, s *snapshot, c dnsprovider.Change
 	}
 
 	body := map[string]any{"subDomain": subDomain(s.zone, after.Name), "target": after.Value, "ttl": s.wireTTL(src, after)}
-	if err := p.do(ctx, http.MethodPut, recordPath(s.zone, src.wire.ID), nil, body, nil); err != nil {
-		if rejected(err) {
-			return dnsprovider.Record{}, false, err
-		}
-
-		return dnsprovider.Record{}, true, unconfirmed("record update", err)
+	if err := p.write(ctx, http.MethodPut, recordPath(s.zone, src.wire.ID), nil, body, nil); err != nil {
+		return dnsprovider.Record{}, errors.Is(err, dnsprovider.ErrUnconfirmed), fmt.Errorf("ovhcloud: record update: %w", err)
 	}
 
 	stored, err := p.record(ctx, s.zone, s.defaultTTL, src.wire.ID)
 	if err != nil {
-		return dnsprovider.Record{}, true, fmt.Errorf("ovhcloud: record %d update was staged but could not be read back: %w", src.wire.ID, err)
+		return dnsprovider.Record{}, true, fmt.Errorf("ovhcloud: record %d update was staged but could not be read back: %w; %w", src.wire.ID, err, dnsprovider.ErrUnconfirmed)
 	}
 
 	s.entries[i] = stored
@@ -325,7 +306,7 @@ func (p *Provider) replace(ctx context.Context, s *snapshot, i int, after dnspro
 
 	s.entries = append(s.entries, created)
 
-	if err := p.do(ctx, http.MethodDelete, recordPath(s.zone, old.wire.ID), nil, nil, nil); err != nil {
+	if err := p.write(ctx, http.MethodDelete, recordPath(s.zone, old.wire.ID), nil, nil, nil); err != nil {
 		return dnsprovider.Record{}, true, fmt.Errorf("ovhcloud: type change partially staged: record %s was created but record %d remains: %w", created.record.ID, old.wire.ID, err)
 	}
 

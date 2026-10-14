@@ -45,3 +45,10 @@ registrar DS writes), its Record TTL range (and whether it has an automatic
 TTL), and the Record Extras it reads and writes. Known before credentials;
 support does not imply permission or a selected Tenant.
 _Avoid_: capabilities (for the whole set), features, limits
+
+**Unconfirmed Write**:
+A write the Provider may or may not have applied: its request was sent but
+no answer said whether it took, or what was read back after it does not
+show it held. The caller re-reads the Zone before retrying. A write the
+Provider refused in its answer is not unconfirmed.
+_Avoid_: uncertain completion, maybe-applied write

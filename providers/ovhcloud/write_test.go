@@ -467,17 +467,17 @@ func TestRefreshFailureKeepsStagingErrorsAndMarksStagedUnpublished(t *testing.T)
 		{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "A", Name: "bad", Value: "192.0.2.66", TTL: 300}},
 		{Kind: dnsprovider.ChangeDelete, Before: rs["12"]},
 	}})
-	if !errors.Is(err, ovhcloud.ErrUnpublished) || len(res.Results) != 3 {
+	if !errors.Is(err, ovhcloud.ErrUnpublished) || !errors.Is(err, dnsprovider.ErrUnconfirmed) || len(res.Results) != 3 {
 		t.Fatalf("Apply = %+v, %v", res, err)
 	}
 
 	for _, i := range []int{0, 2} {
-		if !errors.Is(res.Results[i].Err, ovhcloud.ErrUnpublished) || res.Results[i].Record.ID != "" {
+		if !errors.Is(res.Results[i].Err, ovhcloud.ErrUnpublished) || !errors.Is(res.Results[i].Err, dnsprovider.ErrUnconfirmed) || res.Results[i].Record.ID != "" {
 			t.Errorf("staged result %d = %+v", i, res.Results[i])
 		}
 	}
 
-	if errors.Is(res.Results[1].Err, ovhcloud.ErrUnpublished) || res.Results[1].Err == nil || !strings.Contains(res.Results[1].Err.Error(), "Invalid target") {
+	if errors.Is(res.Results[1].Err, ovhcloud.ErrUnpublished) || errors.Is(res.Results[1].Err, dnsprovider.ErrUnconfirmed) || res.Results[1].Err == nil || !strings.Contains(res.Results[1].Err.Error(), "Invalid target") {
 		t.Errorf("staging failure replaced: %v", res.Results[1].Err)
 	}
 
@@ -503,12 +503,49 @@ func TestLostCreateResponseIsNotResubmitted(t *testing.T) {
 	p := f.provider(t)
 
 	_, err := p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "new", Value: "192.0.2.5", TTL: 300})
-	if err == nil || !strings.Contains(err.Error(), "unconfirmed") {
-		t.Fatalf("lost create = %v", err)
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("lost create = %v, want ErrUnconfirmed", err)
 	}
 
 	if countPrefix(f.mutations(), "POST /domain/zone/example.com/record") != 1 {
 		t.Fatalf("resubmitted: %v", f.mutations())
+	}
+}
+
+func TestAWriteAnsweredWithAServerErrorIsUnconfirmed(t *testing.T) {
+	f := writeFake(t)
+	f.fail["POST /domain/zone/example.com/record"] = []int{http.StatusInternalServerError}
+	p := f.provider(t)
+
+	_, err := p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "new", Value: "192.0.2.5", TTL: 300})
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("create = %v, want ErrUnconfirmed", err)
+	}
+}
+
+func TestAWriteTheAPIRefusesIsNotUnconfirmed(t *testing.T) {
+	f := writeFake(t)
+	f.rejectTarget = "192.0.2.66"
+	p := f.provider(t)
+
+	_, err := p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "new", Value: "192.0.2.66", TTL: 300})
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("refused create = %v, want an error without ErrUnconfirmed", err)
+	}
+
+	if countPrefix(f.mutations(), "POST /domain/zone/example.com/refresh") != 0 {
+		t.Fatalf("refused create refreshed: %v", f.mutations())
+	}
+}
+
+func TestAFailedReadIsNotUnconfirmed(t *testing.T) {
+	f := writeFake(t)
+	f.fail["GET /domain/zone/example.com/record"] = []int{http.StatusInternalServerError, http.StatusInternalServerError, http.StatusInternalServerError, http.StatusInternalServerError}
+	p := f.provider(t)
+
+	_, err := p.ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{})
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("read = %v, want an error without ErrUnconfirmed", err)
 	}
 }
 
@@ -523,8 +560,8 @@ func TestFailedReadBackReportsPossibleSideEffects(t *testing.T) {
 	after.Value = "192.0.2.4"
 
 	_, err := p.UpdateRecord(context.Background(), testZone, rs["11"], after)
-	if err == nil || !strings.Contains(err.Error(), "staged") {
-		t.Fatalf("read-back failure = %v", err)
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || !strings.Contains(err.Error(), "staged") {
+		t.Fatalf("read-back failure = %v, want ErrUnconfirmed", err)
 	}
 
 	if countPrefix(f.mutations(), "PUT") != 1 {
@@ -690,10 +727,10 @@ func TestRefreshFailureAlsoMarksPossiblyStagedFailures(t *testing.T) {
 		t.Fatalf("Apply = %+v, %v", res, err)
 	}
 
-	for i, want := range []string{"read back", "", "unconfirmed"} {
+	for i, want := range []string{"read back", "", "type change"} {
 		got := res.Results[i].Err
-		if !errors.Is(got, ovhcloud.ErrUnpublished) || !strings.Contains(got.Error(), want) || res.Results[i].Record.ID != "" {
-			t.Errorf("result %d = %+v, want ErrUnpublished joined with %q", i, res.Results[i], want)
+		if !errors.Is(got, ovhcloud.ErrUnpublished) || !errors.Is(got, dnsprovider.ErrUnconfirmed) || !strings.Contains(got.Error(), want) || res.Results[i].Record.ID != "" {
+			t.Errorf("result %d = %+v, want an unconfirmed ErrUnpublished joined with %q", i, res.Results[i], want)
 		}
 	}
 

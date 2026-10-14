@@ -220,7 +220,7 @@ func decodeRecord(z dnsprovider.Zone, raw []byte) (dnsprovider.Record, bool) {
 // written again.
 func (p *Provider) create(ctx context.Context, z dnsprovider.Zone, w wire) (dnsprovider.Record, error) {
 	var raw []byte
-	if err := p.write(ctx, "creation", http.MethodPost, recordsPath(z), w.createBody(), &raw); err != nil {
+	if err := p.api().Write(ctx, http.MethodPost, recordsPath(z), nil, w.createBody(), &raw); err != nil {
 		return dnsprovider.Record{}, err
 	}
 
@@ -263,15 +263,14 @@ func (p *Provider) findCreated(ctx context.Context, z dnsprovider.Zone, w wire) 
 }
 
 // acknowledged is the error of a write Vultr acknowledged whose stored
-// Record could not be read back.
+// Record could not be read back: an Unconfirmed Write.
 func acknowledged(operation string, err error) error {
-	return &uncertainError{"vultr: the Record " + operation + " was acknowledged, but reading the stored Record back failed; " +
-		"it may have completed, so re-read Records before retrying", err}
+	return fmt.Errorf("vultr: the Record %s was acknowledged, but reading the stored Record back failed: %w; %w", operation, err, dnsprovider.ErrUnconfirmed)
 }
 
 // CreateRecord checks that the Zone holds no identical Record, whatever
 // its TTL, then POSTs the Record once: a create is never retried, and a
-// lost answer is reported unconfirmed.
+// lost answer is an Unconfirmed Write.
 func (p *Provider) CreateRecord(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
 	w, err := p.toWire(z, r)
 	if err != nil {
@@ -337,7 +336,7 @@ func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before,
 	}
 
 	if current.Type == w.Type {
-		if err := p.write(ctx, "update", http.MethodPatch, path, w.patchBody(), nil); err != nil {
+		if err := p.api().Write(ctx, http.MethodPatch, path, nil, w.patchBody(), nil); err != nil {
 			return dnsprovider.Record{}, err
 		}
 
@@ -358,7 +357,7 @@ func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before,
 		return dnsprovider.Record{}, err
 	}
 
-	if err := p.api().Do(ctx, http.MethodDelete, path, nil, nil, nil); err != nil {
+	if err := p.api().Write(ctx, http.MethodDelete, path, nil, nil, nil); err != nil {
 		return r, fmt.Errorf("vultr: the replacement Record %s was created; deleting the original Record %s failed, and both may remain: %w", r.ID, before.ID, err)
 	}
 
@@ -376,8 +375,8 @@ func (p *Provider) replaceAtOwner(ctx context.Context, z dnsprovider.Zone, curre
 		return dnsprovider.Record{}, fmt.Errorf("vultr: the original Record %s could not be restored if its replacement failed, so it was left as it is: %w", current.ID, err)
 	}
 
-	if err := p.api().Do(ctx, http.MethodDelete, path, nil, nil, nil); err != nil {
-		return dnsprovider.Record{}, fmt.Errorf("vultr: deleting the original Record %s failed or is unconfirmed; its replacement was not created: %w", current.ID, err)
+	if err := p.api().Write(ctx, http.MethodDelete, path, nil, nil, nil); err != nil {
+		return dnsprovider.Record{}, fmt.Errorf("vultr: deleting the original Record %s failed; its replacement was not created: %w", current.ID, err)
 	}
 
 	r, err := p.create(ctx, z, w)
@@ -385,9 +384,9 @@ func (p *Provider) replaceAtOwner(ctx context.Context, z dnsprovider.Zone, curre
 		return r, nil
 	}
 
-	if uncertain(err) {
+	if errors.Is(err, dnsprovider.ErrUnconfirmed) {
 		return dnsprovider.Record{}, fmt.Errorf("vultr: the original Record %s was deleted; its replacement may have completed, "+
-			"so the original was not restored; re-read Records before retrying: %w", current.ID, err)
+			"so the original was not restored: %w", current.ID, err)
 	}
 
 	failed := fmt.Errorf("vultr: the original Record %s was deleted; creating its replacement failed: %w", current.ID, err)
@@ -408,5 +407,5 @@ func (p *Provider) DeleteRecord(ctx context.Context, z dnsprovider.Zone, r dnspr
 		return err
 	}
 
-	return p.api().Do(ctx, http.MethodDelete, path, nil, nil, nil)
+	return p.api().Write(ctx, http.MethodDelete, path, nil, nil, nil)
 }

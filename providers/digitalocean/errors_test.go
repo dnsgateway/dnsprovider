@@ -94,7 +94,7 @@ func TestDeniedDNSWriteScopeLeavesRecordsAsTheyWere(t *testing.T) {
 		s.handler(w, r)
 	})
 	_, err := p.CreateRecord(context.Background(), exampleZone, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300})
-	if !errors.Is(err, dnsprovider.ErrUnauthorized) || strings.Contains(err.Error(), "unconfirmed") || len(s.writes) != 0 {
+	if !errors.Is(err, dnsprovider.ErrUnauthorized) || errors.Is(err, dnsprovider.ErrUnconfirmed) || len(s.writes) != 0 {
 		t.Fatalf("denied create: %v", err)
 	}
 }

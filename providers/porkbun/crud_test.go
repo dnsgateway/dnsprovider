@@ -266,8 +266,8 @@ func TestCompletedWritesReportReadbackFailureWithoutResubmitting(t *testing.T) {
 			} else {
 				_, err = p.UpdateRecord(ctx, z, rs.Records[0], desired)
 			}
-			if err == nil || !strings.Contains(err.Error(), "readback failed") {
-				t.Fatalf("completed mutation=%v", err)
+			if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Fatalf("completed mutation=%v, want ErrUnconfirmed", err)
 			}
 			api.mu.Lock()
 			if !slices.Equal(api.writes, []string{op}) {

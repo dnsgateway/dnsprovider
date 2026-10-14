@@ -217,7 +217,7 @@ func (p *Provider) plan(cs dnsprovider.Changeset, current []wireRecord) (plan, e
 
 // ApplyChangeset sends targeted ID operations in Apply order. The API's batch
 // response is not an atomicity guarantee. Missing outcomes and lost responses
-// require reconciliation; additions are never retried automatically.
+// are Unconfirmed Writes; additions are never retried automatically.
 func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset) (dnsprovider.ApplyResult, error) {
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 	for i, c := range cs.Changes {
@@ -240,15 +240,11 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 		DisallowCreation bool        `json:"disallow_new_zone_creation"`
 	}{Changes: planned.operations, ReturnAll: true, DisallowCreation: true}
 	var raw []byte
-	if err = p.api().Do(ctx, http.MethodPatch, recordsPath(cs.Zone), nil, body, &raw); err != nil {
-		var apiErr *dnsprovider.APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
-			return dnsprovider.ApplyResult{}, err
-		}
-		return dnsprovider.ApplyResult{}, unconfirmed(err)
+	if err = p.api().Write(ctx, http.MethodPatch, recordsPath(cs.Zone), nil, body, &raw); err != nil {
+		return dnsprovider.ApplyResult{}, err
 	}
 	for i := range res.Results {
-		res.Results[i].Err = unconfirmed(errors.New("scaleway: change outcome requires readback"))
+		res.Results[i].Err = fmt.Errorf("scaleway: change outcome requires readback: %w", dnsprovider.ErrUnconfirmed)
 	}
 	var answer struct {
 		Records []wireRecord `json:"records"`
@@ -259,10 +255,10 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 	if answer.Records == nil || !mapResults(cs, planned, answer.Records, &res) {
 		read, readErr := p.read(ctx, cs.Zone)
 		if readErr != nil {
-			return res, unconfirmed(readErr)
+			return res, fmt.Errorf("scaleway: read-back after the batch: %w; %w", readErr, dnsprovider.ErrUnconfirmed)
 		}
 		if !mapResults(cs, planned, read, &res) {
-			return res, unconfirmed(errors.New("scaleway: not every batch change was confirmed"))
+			return res, fmt.Errorf("scaleway: not every batch change was confirmed: %w", dnsprovider.ErrUnconfirmed)
 		}
 	}
 	return res, nil
@@ -325,14 +321,10 @@ func mapResults(cs dnsprovider.Changeset, p plan, stored []wireRecord, res *dnsp
 				continue
 			}
 		}
-		result.Err = unconfirmed(errors.New("scaleway: change was not confirmed in returned Records"))
+		result.Err = fmt.Errorf("scaleway: change was not confirmed in returned Records: %w", dnsprovider.ErrUnconfirmed)
 		complete = false
 	}
 	return complete
-}
-
-func unconfirmed(err error) error {
-	return fmt.Errorf("scaleway: mutation may have completed; re-read Records before retrying: %w", err)
 }
 
 // sameOutcomeRecord reconciles equivalent stored Values without changing the

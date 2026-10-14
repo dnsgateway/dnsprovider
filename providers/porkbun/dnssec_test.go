@@ -303,7 +303,7 @@ func TestARegistryFailureIsNotUnsupported(t *testing.T) {
 				err = p.SetDelegationSigners(context.Background(), z, keys)
 			}
 			var api *dnsprovider.APIError
-			if err == nil || !errors.As(err, &api) || errors.Is(err, dnsprovider.ErrUnsupported) || errors.Is(err, dnsprovider.ErrNotFound) {
+			if err == nil || !errors.As(err, &api) || errors.Is(err, dnsprovider.ErrUnsupported) || errors.Is(err, dnsprovider.ErrNotFound) || errors.Is(err, dnsprovider.ErrUnconfirmed) {
 				t.Fatalf("write=%v", err)
 			}
 		})

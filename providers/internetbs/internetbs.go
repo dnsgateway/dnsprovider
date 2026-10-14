@@ -103,20 +103,42 @@ func (p *Provider) Account(ctx context.Context) (dnsprovider.AccountInfo, error)
 	return dnsprovider.AccountInfo{}, nil
 }
 
-// call sends one command, without retries, and validates its status envelope.
+// call sends one command that reads, without retries, and validates its
+// status envelope.
 func (p *Provider) call(ctx context.Context, command string, params url.Values) (map[string]json.RawMessage, error) {
-	return p.command(ctx, command, params, false)
+	return p.command(ctx, command, params, false, false)
 }
 
-// command also accepts a queued result when the operation permits it.
-func (p *Provider) command(ctx context.Context, command string, params url.Values, acceptPending bool) (map[string]json.RawMessage, error) {
+// mutate is call for a command that changes what the Provider holds.
+func (p *Provider) mutate(ctx context.Context, command string, params url.Values) (map[string]json.RawMessage, error) {
+	return p.command(ctx, command, params, true, false)
+}
+
+// command sends a command; for a write, a failure its answer does not
+// refuse it with, a malformed envelope among them, is an Unconfirmed
+// Write. It also accepts a queued result when the operation permits it.
+func (p *Provider) command(ctx context.Context, command string, params url.Values, write, acceptPending bool) (map[string]json.RawMessage, error) {
 	form := make(url.Values)
 	maps.Copy(form, params)
 	maps.Copy(form, p.auth)
+	send := p.api.Do
+	if write {
+		send = p.api.Write
+	}
 	var data []byte
-	if err := p.api.Do(ctx, http.MethodPost, "/"+command, nil, form, &data); err != nil {
+	if err := send(ctx, http.MethodPost, "/"+command, nil, form, &data); err != nil {
 		return nil, err
 	}
+	body, err := p.envelope(data, acceptPending)
+	if write {
+		err = dnsprovider.Unconfirmed(err)
+	}
+	return body, err
+}
+
+// envelope validates an answer's status envelope; a FAILURE is an
+// *APIError without a status.
+func (p *Provider) envelope(data []byte, acceptPending bool) (map[string]json.RawMessage, error) {
 	var body map[string]json.RawMessage
 	if err := json.Unmarshal(data, &body); err != nil {
 		return nil, errors.New("internetbs: malformed JSON response")

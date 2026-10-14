@@ -3,6 +3,7 @@ package scaleway_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -122,7 +123,7 @@ func TestNormalizedUnchangedTTLModificationIsUnconfirmed(t *testing.T) {
 	f.partial = true
 	f.normalizeData = "2001:db8::1"
 	res, err := dnsprovider.Apply(ctx, p, dnsprovider.Changeset{Zone: testZone, Changes: []dnsprovider.Change{{Kind: dnsprovider.ChangeModify, Before: before.Records[0], After: after}}})
-	if err == nil || len(res.Results) != 1 || res.Results[0].Err == nil || f.writes != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || len(res.Results) != 1 || !errors.Is(res.Results[0].Err, dnsprovider.ErrUnconfirmed) || f.writes != 1 {
 		t.Fatalf("normalized partial %+v %v writes %d", res, err, f.writes)
 	}
 }

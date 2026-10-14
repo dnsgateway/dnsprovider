@@ -27,6 +27,7 @@ type fixture struct {
 	normalizeData string
 	malformed     bool
 	failRead      bool
+	lose          bool
 	next          int
 	operations    []string
 }
@@ -76,6 +77,11 @@ func (f *fixture) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.writes++
+	if f.lose {
+		conn, _, _ := w.(http.Hijacker).Hijack()
+		conn.Close()
+		return
+	}
 	if f.fail != 0 {
 		w.WriteHeader(f.fail)
 		fmt.Fprint(w, `{"type":"invalid_argument","message":"secret failure"}`)
@@ -247,6 +253,15 @@ func TestApplyOrderResultsReadbackAndStaleness(t *testing.T) {
 	}
 }
 
+func TestALostBatchAnswerIsUnconfirmedAndNotRetried(t *testing.T) {
+	f, p := newFixture(t)
+	f.lose = true
+	_, err := p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "TXT", Name: "new", Value: "text", TTL: 600})
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || f.writes != 1 {
+		t.Fatalf("lost batch %v writes %d", err, f.writes)
+	}
+}
+
 func TestWholeBatchFailureIsNotRetried(t *testing.T) {
 	for _, status := range []int{403, 409, 429, 500} {
 		t.Run(strconv.Itoa(status), func(t *testing.T) {
@@ -256,8 +271,8 @@ func TestWholeBatchFailureIsNotRetried(t *testing.T) {
 			if err == nil || f.writes != 1 || strings.Contains(err.Error(), "secret") {
 				t.Fatalf("err %v writes %d", err, f.writes)
 			}
-			if status == 500 && !strings.Contains(err.Error(), "may have completed") {
-				t.Fatalf("uncertain failure %v", err)
+			if errors.Is(err, dnsprovider.ErrUnconfirmed) != (status == 500) {
+				t.Fatalf("unconfirmed %v", err)
 			}
 		})
 	}
@@ -271,7 +286,7 @@ func TestUnchangedPartialBatchDoesNotConfirmTTLModification(t *testing.T) {
 	after := set.Records[0]
 	after.TTL = 600
 	res, err := dnsprovider.Apply(ctx, p, dnsprovider.Changeset{Zone: testZone, Changes: []dnsprovider.Change{{Kind: dnsprovider.ChangeModify, Before: set.Records[0], After: after}}})
-	if err == nil || len(res.Results) != 1 || res.Results[0].Err == nil || f.writes != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || len(res.Results) != 1 || !errors.Is(res.Results[0].Err, dnsprovider.ErrUnconfirmed) || f.writes != 1 {
 		t.Fatalf("partial: %+v %v writes %d", res, err, f.writes)
 	}
 }
@@ -322,12 +337,12 @@ func TestMalformedAcknowledgementReadsBackWithoutRepeatingWrite(t *testing.T) {
 	}
 }
 
-func TestReadbackFailureRetainsUncertainChangeOutcome(t *testing.T) {
+func TestReadbackFailureRetainsUnconfirmedChangeOutcome(t *testing.T) {
 	f, p := newFixture(t)
 	f.malformed = true
 	f.failRead = true
 	res, err := dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: testZone, Changes: []dnsprovider.Change{{Kind: dnsprovider.ChangeAdd, After: dnsprovider.Record{Type: "TXT", Name: "new", Value: "text", TTL: 600}}}})
-	if err == nil || !strings.Contains(err.Error(), "may have completed") || len(res.Results) != 1 || res.Results[0].Err == nil || f.writes != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || len(res.Results) != 1 || !errors.Is(res.Results[0].Err, dnsprovider.ErrUnconfirmed) || f.writes != 1 {
 		t.Fatalf("readback failure %+v %v writes %d", res, err, f.writes)
 	}
 }

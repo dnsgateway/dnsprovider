@@ -97,18 +97,22 @@ Creates reject a duplicate according to `SameRecord`, including when TTL differs
 Updates locate the source and reject a destination collision before mutation.
 Value/TTL edits use native Update with complete current selectors; owner/type
 moves require a checked replacement: remove exactly the source, add its
-replacement, then read back. A failed removal stops the operation. A definitively
-rejected addition triggers an attempt to restore the original; failed restoration
-is also reported. After an uncertain outcome, state is read before any
-compensation. If state cannot be established, the error reports uncertainty.
+replacement, then read back. A failed removal stops the operation. A refused
+addition triggers an attempt to restore the original; failed restoration
+is also reported. After an Unconfirmed Write, state is read before any
+compensation; if state cannot be established, no restoration is attempted.
 Replacement is not atomic and restoration is not guaranteed.
 
 Acknowledged creates and updates are read back because API mutation responses
 do not contain the complete stored Record. Returned Records use current
 identities and stored data. A failed or ambiguous readback reports that the
 write was acknowledged; it never repeats the mutation just to obtain a result.
-Refresh the Zone after acknowledged or uncertain failures before attempting
-further edits.
+
+A mutation whose answer was lost, was a 5xx or had a malformed envelope,
+and an acknowledged one whose readback failed or was ambiguous, is an
+Unconfirmed Write matching `dnsprovider.ErrUnconfirmed`: re-read the Zone
+before further edits. A `FAILURE` in the answer is a plain failure; nothing
+was applied. This holds for the `Domain/Update` of Signing Keys too.
 
 `dnsprovider.Apply` provides its common stale-Before check, executes deletions,
 modifications, then additions, and returns per-change results in original input
@@ -152,7 +156,7 @@ an API failure; malformed or incomplete success responses fail explicitly.
 Context cancellation and transport causes remain available through error wrapping.
 
 All commands are POST and **never automatically retried**, including reads,
-429, 5xx, and transport failures. This avoids replaying uncertain mutations.
+429, 5xx, and transport failures. This avoids replaying Unconfirmed Writes.
 Rate-limit errors expose `ErrRateLimited` and server `RetryAfter` when supplied.
 A shared per-credential, per-endpoint limiter conservatively paces 60 calls per
 minute. Separate processes still need to coordinate usage.

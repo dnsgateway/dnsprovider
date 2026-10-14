@@ -84,10 +84,10 @@ func TestCreateIsNeverAutomaticallyRetried(t *testing.T) {
 			return
 		}
 		writes++
-		http.Error(w, `{"message":"uncertain response"}`, http.StatusInternalServerError)
+		http.Error(w, `{"message":"server error"}`, http.StatusInternalServerError)
 	})
 	_, err := p.CreateRecord(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 60})
-	if err == nil || writes != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || writes != 1 {
 		t.Fatalf("create: %v writes=%d", err, writes)
 	}
 }

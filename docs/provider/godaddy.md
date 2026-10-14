@@ -49,8 +49,11 @@ wildcard, keep each other's values:
 After writing, the adapter reads the touched types back and checks only the
 Changeset's own effects: each record it added is present with the planned
 TTL, and each it removed is absent. Other records are ignored. A miss is an
-error matching `ErrConflict`; re-read and retry. Host name targets compare
-ignoring case and a trailing dot.
+error matching both `ErrConflict` and `ErrUnconfirmed`; re-read and retry.
+A write answered 5xx, or with its answer lost, or whose read-back fails is an
+Unconfirmed Write matching `ErrUnconfirmed`; re-read before retrying. A 4xx
+answer is not: GoDaddy refused the write. Host name targets compare ignoring
+case and a trailing dot.
 
 GoDaddy's documentation leaves open, and the adapter assumes:
 

@@ -379,7 +379,7 @@ func TestCNAMECollisionWithSiblingIsCheckedBeforeDeletingOriginal(t *testing.T) 
 	}
 }
 
-func TestMalformedMutationAnswerReportsUnconfirmedOutcome(t *testing.T) {
+func TestMalformedMutationAnswerIsUnconfirmed(t *testing.T) {
 	p := provider(t, func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			fmt.Fprint(w, `{"data":[],"pagination":{"current_page":1,"per_page":100,"total_pages":1}}`)
@@ -388,12 +388,12 @@ func TestMalformedMutationAnswerReportsUnconfirmedOutcome(t *testing.T) {
 		}
 	})
 	_, err := p.CreateRecord(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 60})
-	if err == nil || !strings.Contains(err.Error(), "outcome is unconfirmed") {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
 		t.Fatalf("malformed create: %v", err)
 	}
 }
 
-func TestMalformedRequiredMutationFieldsReportUnconfirmedOutcome(t *testing.T) {
+func TestMalformedRequiredMutationFieldsAreUnconfirmed(t *testing.T) {
 	for _, field := range []string{"name", "content", "ttl"} {
 		t.Run(field, func(t *testing.T) {
 			row := map[string]any{"id": 101, "zone_id": "example.com", "name": "", "type": "TXT", "content": "hello", "ttl": 0}
@@ -406,9 +406,38 @@ func TestMalformedRequiredMutationFieldsReportUnconfirmedOutcome(t *testing.T) {
 				json.NewEncoder(w).Encode(map[string]any{"data": row})
 			})
 			_, err := p.CreateRecord(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.Record{Type: "TXT", Name: "example.com", Value: "hello", TTL: 0})
-			if err == nil || !strings.Contains(err.Error(), "outcome is unconfirmed") {
+			if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
 				t.Fatalf("malformed %s: %v", field, err)
 			}
 		})
+	}
+}
+
+func TestAWriteWhoseAnswerIsLostIsUnconfirmed(t *testing.T) {
+	p := provider(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"data":[],"pagination":{"current_page":1,"per_page":100,"total_pages":1}}`)
+			return
+		}
+		conn, _, _ := w.(http.Hijacker).Hijack()
+		conn.Close()
+	})
+	_, err := p.CreateRecord(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 60})
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("lost create: %v", err)
+	}
+}
+
+func TestAWriteTheProviderRefusesIsNotUnconfirmed(t *testing.T) {
+	p := provider(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			fmt.Fprint(w, `{"data":[],"pagination":{"current_page":1,"per_page":100,"total_pages":1}}`)
+			return
+		}
+		http.Error(w, `{"message":"Validation failed"}`, http.StatusBadRequest)
+	})
+	_, err := p.CreateRecord(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 60})
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("refused create: %v", err)
 	}
 }

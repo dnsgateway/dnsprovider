@@ -136,16 +136,27 @@ func (p *Provider) apiError(res *http.Response, body []byte) error {
 }
 
 // request calls the API at base: p.baseURL for LiveDNS or p.domainURL for
-// the Domain API.
+// the Domain API. A call other than GET is a write: one whose answer is
+// lost, or cannot be read, is an Unconfirmed Write.
 func (p *Provider) request(ctx context.Context, base, method, path string, q url.Values, body, out any) error {
 	var raw []byte
 	client := p.api(base)
 	if method == http.MethodGet {
 		client.Attempts = rest.DefaultAttempts
+		if err := client.Do(ctx, method, path, q, body, &raw); err != nil {
+			return err
+		}
+		return p.answer(raw, method, out)
 	}
-	if err := client.Do(ctx, method, path, q, body, &raw); err != nil {
+	if err := client.Write(ctx, method, path, q, body, &raw); err != nil {
 		return err
 	}
+	return dnsprovider.Unconfirmed(p.answer(raw, method, out))
+}
+
+// answer reads raw, a 2xx answer, into out. A failure reported inside it
+// is an *APIError without a status.
+func (p *Provider) answer(raw []byte, method string, out any) error {
 	// A PATCH that empties an RRset answers 204: LiveDNS deleted it.
 	if len(raw) == 0 && (out == nil || method == http.MethodPatch) {
 		return nil

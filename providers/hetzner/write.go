@@ -279,27 +279,19 @@ type wireAction struct {
 	Error  *struct{ Code, Message string } `json:"error"`
 }
 
-func uncertain(operation string, err error) error {
-	return fmt.Errorf("hetzner: %s completion is unconfirmed; re-read Records before retrying: %w", operation, err)
-}
-
 func (p *Provider) action(ctx context.Context, method, path string, body any) error {
 	var answer struct {
 		Action *wireAction `json:"action"`
 	}
 	api := p.api()
 	// Deletes also start asynchronous actions: the acknowledgement must
-	// never be resubmitted after an uncertain HTTP response.
+	// never be resubmitted after an unconfirmed HTTP response.
 	api.Attempts = 1
-	if err := api.Do(ctx, method, path, nil, body, &answer); err != nil {
-		var e *dnsprovider.APIError
-		if errors.As(err, &e) && e.StatusCode >= 400 && e.StatusCode < 500 {
-			return err
-		}
-		return uncertain("action request", err)
+	if err := api.Write(ctx, method, path, nil, body, &answer); err != nil {
+		return err
 	}
 	if answer.Action == nil || answer.Action.ID <= 0 {
-		return uncertain("action request", errors.New("malformed action acknowledgement"))
+		return dnsprovider.Unconfirmed(errors.New("hetzner: malformed action acknowledgement"))
 	}
 	waitCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
@@ -318,23 +310,25 @@ func (p *Provider) action(ctx context.Context, method, path string, body any) er
 			return &dnsprovider.APIError{Provider: "hetzner", Messages: []string{api.Redact(msg)}, Kind: kind}
 		case "running":
 		default:
-			return uncertain("action", errors.New("invalid action status"))
+			return dnsprovider.Unconfirmed(errors.New("hetzner: invalid action status"))
 		}
 		timer := time.NewTimer(100 * time.Millisecond)
 		select {
 		case <-waitCtx.Done():
 			timer.Stop()
-			return uncertain("action", waitCtx.Err())
+			return dnsprovider.Unconfirmed(fmt.Errorf("hetzner: action: %w", waitCtx.Err()))
 		case <-timer.C:
 		}
 		var poll struct {
 			Action *wireAction `json:"action"`
 		}
 		if err := p.api().Do(waitCtx, http.MethodGet, "/zones/actions/"+strconv.FormatInt(a.ID, 10), nil, nil, &poll); err != nil {
-			return uncertain("action poll", err)
+			// The action was acknowledged: even a refused poll leaves it
+			// unconfirmed.
+			return fmt.Errorf("hetzner: action poll: %w; %w", err, dnsprovider.ErrUnconfirmed)
 		}
 		if poll.Action == nil || poll.Action.ID != a.ID {
-			return uncertain("action poll", errors.New("malformed action response"))
+			return dnsprovider.Unconfirmed(errors.New("hetzner: malformed action response"))
 		}
 		a = poll.Action
 	}

@@ -24,6 +24,11 @@ var (
 	// ErrConflict means a write collides with what the Provider holds,
 	// such as a Record identical to one the Zone has.
 	ErrConflict = errors.New("conflicts with what the Provider holds")
+	// ErrUnconfirmed means an Unconfirmed Write: the write was sent, but
+	// the Provider may or may not have applied it, so re-read the Zone
+	// before retrying. A write a read-back finds replaced by another
+	// writer's matches both it and ErrConflict.
+	ErrUnconfirmed = errors.New("unconfirmed write: the Provider may or may not have applied it; re-read Records before retrying")
 	// ErrNoTenant means a call scoped to a Tenant was made before the
 	// Provider's Config set one. A Provider that returns it declares
 	// CapTenantLister: ListTenants lists the Tenants to pick from.
@@ -43,6 +48,24 @@ var (
 	// ErrNotImplemented means the adapter does not support the operation yet.
 	ErrNotImplemented = errors.New("not implemented yet")
 )
+
+// Unconfirmed marks err, the failure of a write that may have reached the
+// Provider, as an Unconfirmed Write matching ErrUnconfirmed. A write the
+// Provider refused in its answer is returned as it is: an *APIError with
+// a 4xx status, or with none, an error reported inside a successful
+// answer. So is nil, and an error that matches ErrUnconfirmed already.
+func Unconfirmed(err error) error {
+	if err == nil || errors.Is(err, ErrUnconfirmed) {
+		return err
+	}
+
+	var apiErr *APIError
+	if errors.As(err, &apiErr) && (apiErr.StatusCode == 0 || apiErr.StatusCode >= 400 && apiErr.StatusCode < 500) {
+		return err
+	}
+
+	return fmt.Errorf("%w; %w", err, ErrUnconfirmed)
+}
 
 // APIError is an error response from a Provider's API.
 type APIError struct {

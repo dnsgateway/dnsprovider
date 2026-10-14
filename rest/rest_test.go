@@ -20,6 +20,7 @@ import (
 
 	"github.com/dnsgateway/dnsprovider"
 	"github.com/dnsgateway/dnsprovider/rest"
+	"golang.org/x/time/rate"
 )
 
 // newClient is a Client of srv that authenticates with a bearer token.
@@ -385,5 +386,96 @@ func TestRetryAfterParsesSecondsAndDates(t *testing.T) {
 		if got := rest.RetryAfter(c.header, now); got != c.want {
 			t.Errorf("RetryAfter(%q) = %v, want %v", c.header, got, c.want)
 		}
+	}
+}
+
+func TestAWriteTheProviderDidNotRefuseIsUnconfirmed(t *testing.T) {
+	cases := []struct {
+		name        string
+		status      int
+		body        string
+		unconfirmed bool
+	}{
+		{"5xx answer", http.StatusBadGateway, "", true},
+		{"4xx answer refuses it", http.StatusConflict, "", false},
+		{"429 answer refuses it", http.StatusTooManyRequests, "", false},
+		{"undecodable success", http.StatusOK, "{", true},
+		{"success", http.StatusOK, "{}", false},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cl := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(c.status)
+				_, _ = w.Write([]byte(c.body))
+			}))
+
+			var out struct{}
+
+			err := cl.Write(context.Background(), http.MethodPost, "/x", nil, map[string]string{}, &out)
+			if got := errors.Is(err, dnsprovider.ErrUnconfirmed); got != c.unconfirmed {
+				t.Errorf("Write = %v, matches ErrUnconfirmed %v, want %v", err, got, c.unconfirmed)
+			}
+
+			if c.status >= 400 && err == nil {
+				t.Errorf("Write = nil, want the answer's error")
+			}
+		})
+	}
+}
+
+func TestAWriteWhoseAnswerIsLostIsUnconfirmed(t *testing.T) {
+	cl := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hj, _ := w.(http.Hijacker)
+		conn, _, _ := hj.Hijack()
+		_ = conn.Close()
+	}))
+
+	err := cl.Write(context.Background(), http.MethodPost, "/x", nil, map[string]string{}, nil)
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Errorf("Write = %v, want ErrUnconfirmed", err)
+	}
+}
+
+func TestAWriteNeverSentIsNotUnconfirmed(t *testing.T) {
+	var calls atomic.Int32
+
+	cl := newClient(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { calls.Add(1) }))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cl.Limit = rate.NewLimiter(1, 1)
+
+	err := cl.Write(ctx, http.MethodPost, "/x", nil, map[string]string{}, nil)
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Errorf("Write = %v, want a plain error", err)
+	}
+
+	if calls.Load() != 0 {
+		t.Errorf("%d requests, want none", calls.Load())
+	}
+}
+
+func TestARetriedWriteGivingUpIsUnconfirmed(t *testing.T) {
+	cl := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	cl.Backoff = time.Millisecond
+
+	err := cl.Write(context.Background(), http.MethodPut, "/x", nil, map[string]string{}, nil)
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Errorf("Write = %v, want ErrUnconfirmed", err)
+	}
+}
+
+func TestDoNeverMarksAnErrorUnconfirmed(t *testing.T) {
+	cl := newClient(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+
+	err := cl.Do(context.Background(), http.MethodPost, "/x", nil, map[string]string{}, nil)
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Errorf("Do = %v, want an error not matching ErrUnconfirmed", err)
 	}
 }

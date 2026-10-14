@@ -66,13 +66,71 @@ func TestCreateIsNeverRetried(t *testing.T) {
 	api, p := fixtureAPI(t)
 	api.fail = "create"
 	_, err := p.CreateRecord(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.Record{Type: "A", Name: "new", Value: "192.0.2.9", TTL: 600})
-	if err == nil {
-		t.Fatal("failed create succeeded")
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("failed create=%v, want ErrUnconfirmed", err)
 	}
 	api.mu.Lock()
 	defer api.mu.Unlock()
 	if len(api.writes) != 1 {
 		t.Fatalf("create retried: %v", api.writes)
+	}
+}
+
+// createAnswered creates a Record against a Porkbun whose create is
+// answered by create.
+func createAnswered(t *testing.T, create http.HandlerFunc) error {
+	t.Helper()
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/dns/retrieve/") {
+			w.Write([]byte(`{"status":"SUCCESS","records":[]}`))
+			return
+		}
+		create(w, r)
+	}))
+	defer s.Close()
+	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
+	_, err := p.CreateRecord(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.Record{Type: "A", Name: "new", Value: "192.0.2.9", TTL: 600})
+	return err
+}
+
+func TestAWriteWithALostOrMalformedAnswerIsUnconfirmed(t *testing.T) {
+	for name, create := range map[string]http.HandlerFunc{
+		"lost":       func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) },
+		"malformed":  func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(`{`)) },
+		"without ID": func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(`{"status":"SUCCESS"}`)) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := createAnswered(t, create); !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Fatalf("create=%v, want ErrUnconfirmed", err)
+			}
+		})
+	}
+}
+
+func TestAWriteTheAnswerRefusesIsNotUnconfirmed(t *testing.T) {
+	for name, status := range map[string]int{"in the answer": http.StatusOK, "4xx": http.StatusBadRequest} {
+		t.Run(name, func(t *testing.T) {
+			err := createAnswered(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+				w.Write([]byte(`{"status":"ERROR","code":"INVALID_TYPE","message":"refused"}`))
+			})
+			if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Fatalf("refused create=%v, want an error without ErrUnconfirmed", err)
+			}
+		})
+	}
+}
+
+func TestAFailedReadIsNotUnconfirmed(t *testing.T) {
+	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(`{"status":"ERROR","code":"DNS_READ_FAILED","message":"unavailable"}`))
+	}))
+	defer s.Close()
+	p, _ := porkbun.New(porkbun.Config{Key: "test-key", Secret: "test-secret"}, dnsprovider.WithBaseURL(s.URL))
+	_, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("read=%v, want an error without ErrUnconfirmed", err)
 	}
 }
 

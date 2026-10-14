@@ -372,3 +372,149 @@ func TestUpdateRecordChangingItsTypeWithoutAProxyFlagKeepsTheOneCloudflareHolds(
 	want.Extras = map[string]string{cloudflare.ExtraProxied: "true"}
 	assertRecords(t, []dnsprovider.Record{got}, []dnsprovider.Record{want})
 }
+
+// writeCalls are each call that writes, against an API holding crudZone
+// with the record r1 and every zone setting.
+func writeCalls() map[string]func(dnsprovider.Provider) error {
+	ctx := context.Background()
+	rec := dnsprovider.Record{ID: "r1", Type: "TXT", Name: "example.com", Value: `"hi"`, TTL: 300}
+	on := true
+	tls := dnsprovider.TLSVersions[len(dnsprovider.TLSVersions)-1]
+
+	return map[string]func(dnsprovider.Provider) error{
+		"CreateZone": func(p dnsprovider.Provider) error { _, err := p.CreateZone(ctx, "new.example"); return err },
+		"DeleteZone": func(p dnsprovider.Provider) error { return p.DeleteZone(ctx, crudZone) },
+		"CreateRecord": func(p dnsprovider.Provider) error {
+			_, err := p.CreateRecord(ctx, crudZone, dnsprovider.Record{Type: "TXT", Name: "example.com", Value: `"new"`, TTL: 300})
+			return err
+		},
+		"UpdateRecord's PATCH": func(p dnsprovider.Provider) error {
+			after := rec
+			after.Value = `"bye"`
+			_, err := p.UpdateRecord(ctx, crudZone, rec, after)
+
+			return err
+		},
+		"UpdateRecord's PUT": func(p dnsprovider.Provider) error {
+			_, err := p.UpdateRecord(ctx, crudZone, rec, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300})
+			return err
+		},
+		"DeleteRecord": func(p dnsprovider.Provider) error { return p.DeleteRecord(ctx, crudZone, rec) },
+		"UpdateZone's DNSSEC": func(p dnsprovider.Provider) error {
+			_, err := p.UpdateZone(ctx, crudZone, dnsprovider.ZoneUpdate{DNSSEC: &on})
+			return err
+		},
+		"UpdateZone's HSTS": func(p dnsprovider.Provider) error {
+			_, err := p.UpdateZone(ctx, crudZone, dnsprovider.ZoneUpdate{HSTS: &on})
+			return err
+		},
+		"UpdateZone's MinTLS": func(p dnsprovider.Provider) error {
+			_, err := p.UpdateZone(ctx, crudZone, dnsprovider.ZoneUpdate{MinTLS: &tls})
+			return err
+		},
+	}
+}
+
+// answering is an API holding crudZone whose answer answers every request
+// of method other than GET, and of GET too when reads is set.
+func answering(answer func(w http.ResponseWriter), reads bool) *cfAPI {
+	api := &cfAPI{
+		zones:   []map[string]any{cfZone("z1", "example.com")},
+		records: map[string][]map[string]any{"z1": {cfRecord("r1", "TXT", "example.com", `"hi"`, 300, false, false)}},
+		dnssec:  map[string]string{"z1": "disabled"},
+	}
+	api.intercept = func(w http.ResponseWriter, r *http.Request) bool {
+		if r.Method == http.MethodGet && !reads {
+			return false
+		}
+
+		answer(w)
+
+		return true
+	}
+
+	return api
+}
+
+// loseAnswer drops the connection before any answer.
+func loseAnswer(t *testing.T) func(w http.ResponseWriter) {
+	return func(w http.ResponseWriter) {
+		conn, _, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Errorf("hijack: %v", err)
+
+			return
+		}
+
+		_ = conn.Close()
+	}
+}
+
+func TestAWriteAnsweredWithAServerErrorOrNotAtAllIsUnconfirmed(t *testing.T) {
+	t.Parallel()
+
+	for answer, w := range map[string]func(http.ResponseWriter){"a 502": serverError, "a lost answer": loseAnswer(t)} {
+		for name, call := range writeCalls() {
+			t.Run(name+" with "+answer, func(t *testing.T) {
+				t.Parallel()
+
+				if err := call(newProvider(t, answering(w, false))); !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+					t.Errorf("err = %v, want ErrUnconfirmed", err)
+				}
+			})
+		}
+	}
+}
+
+func TestAWriteCloudflareRefusesInItsAnswerIsNotUnconfirmed(t *testing.T) {
+	t.Parallel()
+
+	for answer, w := range map[string]func(http.ResponseWriter){
+		"a 400": func(w http.ResponseWriter) { writeErrors(w, http.StatusBadRequest, 1004, "DNS Validation Error") },
+		"success false": func(w http.ResponseWriter) {
+			writeJSON(w, http.StatusOK, map[string]any{"success": false, "errors": []map[string]any{{"code": 1000, "message": "no"}}, "result": nil})
+		},
+	} {
+		for name, call := range writeCalls() {
+			t.Run(name+" with "+answer, func(t *testing.T) {
+				t.Parallel()
+
+				if err := call(newProvider(t, answering(w, false))); err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+					t.Errorf("err = %v, want a refusal that is not ErrUnconfirmed", err)
+				}
+			})
+		}
+	}
+}
+
+func TestAReadThatFailsIsNotUnconfirmed(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	reads := map[string]func(dnsprovider.Provider) error{
+		"ListRecords": func(p dnsprovider.Provider) error {
+			_, err := p.ListRecords(ctx, crudZone, dnsprovider.RecordFilter{})
+			return err
+		},
+		"GetZone":                      func(p dnsprovider.Provider) error { _, err := p.GetZone(ctx, "example.com"); return err },
+		"the read before a DeleteZone": func(p dnsprovider.Provider) error { return p.DeleteZone(ctx, crudZone) },
+		"the read before an UpdateRecord's PUT": func(p dnsprovider.Provider) error {
+			rec := dnsprovider.Record{ID: "r1", Type: "TXT", Name: "example.com", Value: `"hi"`, TTL: 300}
+			_, err := p.UpdateRecord(ctx, crudZone, rec, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300})
+
+			return err
+		},
+	}
+
+	for answer, w := range map[string]func(http.ResponseWriter){"a 502": serverError, "a lost answer": loseAnswer(t)} {
+		for name, call := range reads {
+			t.Run(name+" with "+answer, func(t *testing.T) {
+				t.Parallel()
+
+				if err := call(newProvider(t, answering(w, true))); err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+					t.Errorf("err = %v, want an error that is not ErrUnconfirmed", err)
+				}
+			})
+		}
+	}
+}

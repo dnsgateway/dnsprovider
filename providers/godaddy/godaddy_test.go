@@ -49,6 +49,8 @@ type gdAPI struct {
 	deny *apiErr
 	// reject, when it returns a message, fails the write with 422.
 	reject func(method string, body map[string]any) string
+	// answer, when set, answers each write in place of the API.
+	answer func(w http.ResponseWriter)
 	// acknowledgeOnly makes writes answer success but change nothing.
 	acknowledgeOnly bool
 	// onWrite, when set, runs once before the next write is applied: a
@@ -272,6 +274,12 @@ func (api *gdAPI) writeRecord(w http.ResponseWriter, r *http.Request) {
 	defer api.mu.Unlock()
 
 	api.writes = append(api.writes, write{Method: r.Method, Path: strings.TrimPrefix(r.URL.Path, "/v3/domains/zones/"+zone), Body: maps.Clone(body)})
+
+	if api.answer != nil {
+		api.answer(w)
+
+		return
+	}
 
 	if api.reject != nil {
 		if msg := api.reject(r.Method, body); msg != "" {

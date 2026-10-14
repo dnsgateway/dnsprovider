@@ -86,7 +86,7 @@ func TestMalformedAcknowledgementAndReadbackDoNotResubmit(t *testing.T) {
 			defer s.Close()
 			p, _ := hetzner.New(hetzner.Config{Token: "secret"}, dnsprovider.WithBaseURL(s.URL))
 			_, err := p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "new", Value: "192.0.2.1", TTL: 300})
-			if err == nil || !strings.Contains(err.Error(), "unconfirmed") || writes != 1 {
+			if !errors.Is(err, dnsprovider.ErrUnconfirmed) || writes != 1 {
 				t.Fatalf("malformed=%v writes=%d", err, writes)
 			}
 		})
@@ -94,8 +94,48 @@ func TestMalformedAcknowledgementAndReadbackDoNotResubmit(t *testing.T) {
 	f := newFixture(t)
 	f.readFail = true
 	_, err := f.p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "new", Value: "192.0.2.1", TTL: 300})
-	if err == nil || !strings.Contains(err.Error(), "unconfirmed") || len(f.writes) != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || len(f.writes) != 1 {
 		t.Fatalf("readback=%v writes=%v", err, f.writes)
+	}
+}
+
+func TestAWriteWithoutAnAnswerIsUnconfirmedAndARefusedOneIsNot(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		answer      func(w http.ResponseWriter)
+		unconfirmed bool
+	}{
+		{"5xx", func(w http.ResponseWriter) { w.WriteHeader(http.StatusServiceUnavailable) }, true},
+		{"lost", func(w http.ResponseWriter) {
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close()
+		}, true},
+		{"4xx", func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			_, _ = w.Write([]byte(`{"error":{"code":"invalid_input","message":"rejected"}}`))
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writes := 0
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet {
+					if strings.HasSuffix(r.URL.Path, "/rrsets") {
+						_, _ = w.Write([]byte(`{"rrsets":[],"meta":{"pagination":{"page":1,"next_page":null}}}`))
+					} else {
+						_, _ = w.Write([]byte(`{"zone":{"id":1,"name":"example.com","ttl":300,"mode":"primary"}}`))
+					}
+					return
+				}
+				writes++
+				tc.answer(w)
+			}))
+			defer s.Close()
+			p, _ := hetzner.New(hetzner.Config{Token: "secret"}, dnsprovider.WithBaseURL(s.URL))
+			_, err := p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "new", Value: "192.0.2.1", TTL: 300})
+			if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) != tc.unconfirmed || writes != 1 {
+				t.Fatalf("write=%v writes=%d, want unconfirmed: %v", err, writes, tc.unconfirmed)
+			}
+		})
 	}
 }
 

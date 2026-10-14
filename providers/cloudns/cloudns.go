@@ -81,7 +81,19 @@ func New(cfg Config, opts ...dnsprovider.Option) (*Provider, error) {
 	return &Provider{cfg: cfg, baseURL: strings.TrimRight(base, "/"), client: client, limit: endpointQuota(strings.TrimRight(base, "/")), log: o.Logger}, nil
 }
 
+// call sends a command that reads.
 func (p *Provider) call(ctx context.Context, path string, params url.Values, out any) error {
+	return p.send(ctx, false, path, params, out)
+}
+
+// write sends a command that changes what ClouDNS holds. Once sent, a
+// failure its answer does not refuse it with, a malformed answer among
+// them, is an Unconfirmed Write.
+func (p *Provider) write(ctx context.Context, path string, params url.Values, out any) error {
+	return p.send(ctx, true, path, params, out)
+}
+
+func (p *Provider) send(ctx context.Context, write bool, path string, params url.Values, out any) error {
 	if params == nil {
 		params = url.Values{}
 	}
@@ -94,10 +106,24 @@ func (p *Provider) call(ctx context.Context, path string, params url.Values, out
 	default:
 		params.Set("sub-auth-user", p.cfg.SubAuthUser)
 	}
+	send := p.api().Do
+	if write {
+		send = p.api().Write
+	}
 	var body []byte
-	if err := p.api().Do(ctx, http.MethodPost, path, nil, params, &body); err != nil {
+	if err := send(ctx, http.MethodPost, path, nil, params, &body); err != nil {
 		return err
 	}
+	err := p.decode(path, body, out)
+	if write {
+		err = dnsprovider.Unconfirmed(err)
+	}
+	return err
+}
+
+// decode reads an answer; one whose status is Failed is an *APIError
+// without a status.
+func (p *Provider) decode(path string, body []byte, out any) error {
 	var envelope struct {
 		Status      json.RawMessage `json:"status"`
 		Description string          `json:"statusDescription"`

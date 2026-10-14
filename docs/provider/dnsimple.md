@@ -49,8 +49,9 @@ the same owner: these type moves check siblings, delete first, then create.
 If creation fails, the error explicitly reports that the original was deleted;
 re-read the Zone before deciding how to recover. A type replacement transfers
 supported regional metadata; server-generated metadata and the old native ID
-cannot transfer. There is no transaction or automatic rollback. A malformed or
-lost mutation response reports an unconfirmed outcome; re-read before retrying.
+cannot transfer. There is no transaction or automatic rollback. A malformed,
+lost or failed-server mutation response is an Unconfirmed Write, matching
+`ErrUnconfirmed`; a 4xx answer is a plain failure.
 
 Duplicates conflict regardless of TTL. Updates and deletes select exactly the
 native Record ID; siblings are retained. Successful creates and updates return

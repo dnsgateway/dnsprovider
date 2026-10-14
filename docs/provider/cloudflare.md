@@ -88,6 +88,14 @@ validity through the parent Zone.
 Use canonical `GetZone` and `ListZones` reads; see the
 [Zone CRUD migration guide](../zone-crud-migration.md).
 
+## Unconfirmed Writes
+
+A write (a Zone create, delete or setting update, a Record create, update
+or delete) whose answer is a server error, is lost, or cannot be decoded
+is an Unconfirmed Write matching `dnsprovider.ErrUnconfirmed`: re-read
+before retrying. A 4xx answer, or one with `success: false`, refuses the
+write and is not. A failing read never is.
+
 ## Live tests
 
 Set `DNSPROVIDER_CLOUDFLARE_TOKEN` and optionally

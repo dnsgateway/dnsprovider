@@ -33,7 +33,7 @@ func TestIDsThatAreNotUUIDsNameNoRecordAndAreNeverSent(t *testing.T) {
 }
 
 // A write the rate limiter refuses before sending, as its wait would pass
-// the deadline, plainly failed: it is not reported unconfirmed.
+// the deadline, plainly failed: it is not an Unconfirmed Write.
 func TestWritesRefusedBeforeSendingAreNotUnconfirmed(t *testing.T) {
 	s := newRecords(t)
 	var posts int
@@ -48,7 +48,7 @@ func TestWritesRefusedBeforeSendingAreNotUnconfirmed(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Millisecond)
 	defer cancel()
 	_, err := p.CreateRecord(ctx, exampleZone, dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300})
-	if !errors.Is(err, context.DeadlineExceeded) || strings.Contains(err.Error(), "unconfirmed") || posts != 0 {
+	if !errors.Is(err, context.DeadlineExceeded) || errors.Is(err, dnsprovider.ErrUnconfirmed) || posts != 0 {
 		t.Fatalf("create: %v posts=%d", err, posts)
 	}
 }
@@ -70,8 +70,7 @@ func TestSameOwnerCNAMETypeMoveDoesNotRestoreWhenTheReplacementMayExist(t *testi
 	before := dnsprovider.Record{ID: id, Type: "CNAME", Name: "www.example.com", Value: "target.example.net.", TTL: 300}
 	after := dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
 	_, err := p.UpdateRecord(context.Background(), exampleZone, before, after)
-	if err == nil || !strings.Contains(err.Error(), "original Record "+id+" was deleted") ||
-		!strings.Contains(err.Error(), "may have completed") || !strings.Contains(err.Error(), "not restored") {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || !strings.Contains(err.Error(), "original Record "+id+" was deleted") || !strings.Contains(err.Error(), "not restored") {
 		t.Fatalf("partial move: %v", err)
 	}
 	if posts != 1 {

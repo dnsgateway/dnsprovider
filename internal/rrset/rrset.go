@@ -107,8 +107,9 @@ type Adapter interface {
 // RRsets that a change moves a value between are written together, the
 // ones that add first, and read back. A change fails with the first
 // error of its group; after a write began the error says so, as the group
-// may be partly applied. A read-back that misses this Changeset's own
-// effects is an error matching ErrConflict.
+// may be partly applied. A read-back that fails is an Unconfirmed Write
+// (ErrUnconfirmed); one that misses this Changeset's own effects matches
+// ErrConflict as well.
 func Apply(ctx context.Context, a Adapter, cs dnsprovider.Changeset, sets []Set) (dnsprovider.ApplyResult, error) {
 	res := dnsprovider.ApplyResult{Results: make([]dnsprovider.ChangeResult, len(cs.Changes))}
 	for i, c := range cs.Changes {
@@ -388,7 +389,7 @@ func (p *plan) apply(ctx context.Context, g group, deltas map[Key]Delta, res *dn
 	case wrote:
 		stored, err := p.a.ReadBack(ctx, g.keys)
 		if err != nil {
-			failure = p.uncertain(err)
+			failure = p.unconfirmed(err)
 
 			break
 		}
@@ -409,7 +410,7 @@ func (p *plan) apply(ctx context.Context, g group, deltas map[Key]Delta, res *dn
 	if failure == nil {
 		stored, failure = readback.Verify(p.effects(g, deltas), held, p.same)
 		if failure != nil {
-			failure = p.uncertain(failure)
+			failure = p.unconfirmed(failure)
 		}
 	}
 
@@ -453,12 +454,14 @@ func (p *plan) same(a, b dnsprovider.Record) bool {
 	return KeyOf(a) == KeyOf(b) && p.a.Same(KeyOf(a).Type, a.Value, b.Value)
 }
 
-func (p *plan) uncertain(err error) error {
-	if errors.Is(err, dnsprovider.ErrConflict) {
-		return fmt.Errorf("%s: read-back completion is unconfirmed, another write may have replaced this Changeset's; re-read Records before retrying: %w", p.a.Name(), err)
+// unconfirmed makes err, a failed or missed read-back after a write, an
+// Unconfirmed Write.
+func (p *plan) unconfirmed(err error) error {
+	if errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		return fmt.Errorf("%s: read-back: %w", p.a.Name(), err)
 	}
 
-	return fmt.Errorf("%s: read-back completion is unconfirmed; re-read Records before retrying: %w", p.a.Name(), err)
+	return fmt.Errorf("%s: read-back: %w; %w", p.a.Name(), err, dnsprovider.ErrUnconfirmed)
 }
 
 func rank(d Delta) int {

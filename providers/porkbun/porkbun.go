@@ -106,11 +106,29 @@ func (p *Provider) apiError(status int, b []byte) error {
 	}}
 }
 
+// call sends a request that reads.
 func (p *Provider) call(ctx context.Context, method, path string, q url.Values, in, out any) error {
 	var b []byte
 	if err := p.api.Do(ctx, method, path, q, in, &b); err != nil {
 		return err
 	}
+	return p.decode(b, out)
+}
+
+// write sends a request that changes what Porkbun holds. Once sent, a
+// failure its answer does not refuse it with, a malformed answer among
+// them, is an Unconfirmed Write.
+func (p *Provider) write(ctx context.Context, method, path string, q url.Values, in, out any) error {
+	var b []byte
+	if err := p.api.Write(ctx, method, path, q, in, &b); err != nil {
+		return err
+	}
+	return dnsprovider.Unconfirmed(p.decode(b, out))
+}
+
+// decode reads an answer's envelope; an ERROR is an *APIError without a
+// status.
+func (p *Provider) decode(b []byte, out any) error {
 	var env struct{ Status string }
 	if json.Unmarshal(b, &env) != nil {
 		return errors.New("porkbun: malformed JSON response")

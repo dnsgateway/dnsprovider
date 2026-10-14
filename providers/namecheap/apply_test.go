@@ -389,11 +389,76 @@ func TestApplyFailsWholeWhenTheWriteIsNotAuthorized(t *testing.T) {
 	applyFails(t, api, "1011102: Parameter APIKey is invalid", dnsprovider.ErrUnauthorized, changesForAll()...)
 }
 
-func TestApplyFailsWholeWhenTheWriteIsNotASuccess(t *testing.T) {
+func TestAWriteAnsweredWithoutSuccessIsUnconfirmed(t *testing.T) {
 	api := zoneAPI()
 	api.setHostsFalse = true
 
-	applyFails(t, api, "setHosts answered without success; Namecheap may or may not have applied the changes", nil, changesForAll()...)
+	applyFails(t, api, "setHosts answered without success", dnsprovider.ErrUnconfirmed, changesForAll()...)
+}
+
+func TestAWriteRefusedInItsAnswerIsNotUnconfirmed(t *testing.T) {
+	for name, refuse := range map[string]func(*ncAPI){
+		"an ERROR answer": func(api *ncAPI) {
+			api.fail = func(command string) []ncError {
+				if command == "namecheap.domains.dns.setHosts" {
+					return []ncError{{2050900, "Unknown error when adding host"}}
+				}
+
+				return nil
+			}
+		},
+		"an HTTP 4xx answer": func(api *ncAPI) { api.httpStatus = statusOf("namecheap.domains.dns.setHosts", 403) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			api := zoneAPI()
+			refuse(api)
+
+			_, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changesForAll()})
+			if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Errorf("Apply: err = %v, want a refusal that is not ErrUnconfirmed", err)
+			}
+		})
+	}
+}
+
+func TestAWriteWhoseAnswerIsAServerErrorOrLostIsUnconfirmed(t *testing.T) {
+	for name, status := range map[string]int{"HTTP 502": 502, "a lost answer": lostAnswer} {
+		t.Run(name, func(t *testing.T) {
+			api := zoneAPI()
+			api.httpStatus = statusOf("namecheap.domains.dns.setHosts", status)
+
+			applyFails(t, api, "namecheap: ", dnsprovider.ErrUnconfirmed, changesForAll()...)
+
+			if got := len(api.setHostsSent()); got != 1 {
+				t.Errorf("setHosts sent %d times, want once", got)
+			}
+		})
+	}
+}
+
+func TestAFailingReadIsNotUnconfirmed(t *testing.T) {
+	for name, status := range map[string]int{"HTTP 502": 502, "a lost answer": lostAnswer} {
+		t.Run(name, func(t *testing.T) {
+			api := zoneAPI()
+			api.httpStatus = statusOf("namecheap.domains.dns.getHosts", status)
+
+			_, err := newProvider(t, api).ListRecords(context.Background(), example, dnsprovider.RecordFilter{})
+			if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Errorf("ListRecords: err = %v, want an error that is not ErrUnconfirmed", err)
+			}
+		})
+	}
+}
+
+// statusOf is an httpStatus answering command with status.
+func statusOf(command string, status int) func(string) int {
+	return func(c string) int {
+		if c == command {
+			return status
+		}
+
+		return 0
+	}
 }
 
 func TestApplyFailsWholeWhenTheZoneCannotBeRead(t *testing.T) {
@@ -778,7 +843,7 @@ func TestApplyReturnsTheRecordsAsListRecordsReadsThemBack(t *testing.T) {
 	}
 }
 
-func TestApplyIsAConflictWhenAConcurrentWriteReplacesItsHosts(t *testing.T) {
+func TestApplyIsAnUnconfirmedConflictWhenAConcurrentWriteReplacesItsHosts(t *testing.T) {
 	for name, concurrent := range map[string]func([]ncHost) []ncHost{
 		// Another writer's setHosts, built from the hosts before ours.
 		"an added host is gone": func([]ncHost) []ncHost { return zoneHosts() },
@@ -799,7 +864,14 @@ func TestApplyIsAConflictWhenAConcurrentWriteReplacesItsHosts(t *testing.T) {
 			api := zoneAPI()
 			api.concurrent = concurrent
 
-			applyFails(t, api, "a concurrent change at Namecheap replaced this Changeset's write", dnsprovider.ErrConflict, changesForAll()...)
+			_, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changesForAll()})
+			if err == nil || !strings.Contains(err.Error(), "a concurrent change at Namecheap replaced this Changeset's write") {
+				t.Errorf("err = %v, want it to say a concurrent change replaced the write", err)
+			}
+
+			if !errors.Is(err, dnsprovider.ErrConflict) || !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Errorf("err = %v, want ErrConflict and ErrUnconfirmed", err)
+			}
 		})
 	}
 }
@@ -815,7 +887,7 @@ func TestApplySucceedsWhenAConcurrentWriteChangesOnlyOtherHosts(t *testing.T) {
 	applyOK(t, api, changesForAll()...)
 }
 
-func TestApplyCompletionIsUncertainWhenTheReadBackFails(t *testing.T) {
+func TestAReadBackThatFailsAfterTheWriteIsUnconfirmedNotAConflict(t *testing.T) {
 	api := zoneAPI()
 	gets := 0
 	api.fail = func(command string) []ncError {
@@ -832,7 +904,11 @@ func TestApplyCompletionIsUncertainWhenTheReadBackFails(t *testing.T) {
 	}
 
 	res, err := dnsprovider.Apply(context.Background(), newProvider(t, api), dnsprovider.Changeset{Zone: example, Changes: changesForAll()[:1]})
-	failsWhole(t, res, err, "Namecheap may or may not have applied the changes", dnsprovider.ErrRateLimited)
+	failsWhole(t, res, err, "read back the hosts", dnsprovider.ErrRateLimited)
+
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Errorf("err = %v, want ErrUnconfirmed", err)
+	}
 
 	if errors.Is(err, dnsprovider.ErrConflict) {
 		t.Errorf("err = %v, want it not to match ErrConflict", err)

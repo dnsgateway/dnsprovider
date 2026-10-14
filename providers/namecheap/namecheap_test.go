@@ -70,6 +70,9 @@ type ncAPI struct {
 
 	// fail, when it returns errors, answers the request with Status="ERROR".
 	fail func(command string) []ncError
+	// httpStatus, when it returns a status, answers the request with it
+	// and an HTML page; lostAnswer drops the connection with no answer.
+	httpStatus func(command string) int
 
 	mu sync.Mutex
 	// requests records each request's parameters, query and form.
@@ -93,6 +96,9 @@ func (api *ncAPI) Commands() []string {
 
 	return out
 }
+
+// lostAnswer is an httpStatus that drops the connection with no answer.
+const lostAnswer = -1
 
 func newProvider(t *testing.T, api *ncAPI) dnsprovider.Provider {
 	t.Helper()
@@ -123,6 +129,28 @@ func (api *ncAPI) handler(t *testing.T) http.Handler {
 		api.mu.Unlock()
 
 		cmd := r.Form.Get("Command")
+
+		if api.httpStatus != nil {
+			switch status := api.httpStatus(cmd); status {
+			case 0:
+			case lostAnswer:
+				conn, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					t.Errorf("Hijack: %v", err)
+
+					return
+				}
+
+				_ = conn.Close()
+
+				return
+			default:
+				w.WriteHeader(status)
+				_, _ = w.Write([]byte(`<html>error</html>`))
+
+				return
+			}
+		}
 
 		if api.fail != nil {
 			if errs := api.fail(cmd); len(errs) > 0 {

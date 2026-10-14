@@ -278,13 +278,13 @@ func TestReadBackIgnoresRecordsAnotherWriterAdded(t *testing.T) {
 	}
 }
 
-func TestReadBackMissingAnAddedRecordIsAConflict(t *testing.T) {
+func TestReadBackMissingAnAddedRecordIsAnUnconfirmedConflict(t *testing.T) {
 	api := wwwAPI()
 	api.acknowledgeOnly = true
 
 	_, err := newProvider(t, api).CreateRecord(context.Background(), example, dnsprovider.Record{Type: "A", Name: "www", Value: "192.0.2.3", TTL: 600})
-	if !errors.Is(err, dnsprovider.ErrConflict) {
-		t.Fatalf("lost write = %v, want ErrConflict", err)
+	if !errors.Is(err, dnsprovider.ErrConflict) || !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("lost write = %v, want ErrConflict and ErrUnconfirmed", err)
 	}
 }
 
@@ -310,8 +310,35 @@ func TestADuplicatePostIsAConflictNeverRepeated(t *testing.T) {
 	}
 
 	_, err := newProvider(t, api).CreateRecord(context.Background(), example, dnsprovider.Record{Type: "A", Name: "www", Value: "192.0.2.3", TTL: 600})
-	if !errors.Is(err, dnsprovider.ErrConflict) || len(api.Writes()) != 1 {
+	if !errors.Is(err, dnsprovider.ErrConflict) || errors.Is(err, dnsprovider.ErrUnconfirmed) || len(api.Writes()) != 1 {
 		t.Fatalf("duplicate POST = %v, writes %v; want ErrConflict from one POST", err, api.WriteLines())
+	}
+}
+
+func TestAWriteWithoutAnAnswerIsUnconfirmedAndARefusedOneIsNot(t *testing.T) {
+	for _, c := range []struct {
+		name        string
+		answer      func(w http.ResponseWriter)
+		unconfirmed bool
+	}{
+		{"5xx", func(w http.ResponseWriter) { writeError(w, http.StatusBadGateway, "BAD_GATEWAY", "Bad gateway") }, true},
+		{"lost", func(w http.ResponseWriter) {
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close()
+		}, true},
+		{"4xx", func(w http.ResponseWriter) {
+			writeError(w, http.StatusUnprocessableEntity, "INVALID_BODY", "Invalid")
+		}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			api := wwwAPI()
+			api.answer = c.answer
+
+			_, err := newProvider(t, api).CreateRecord(context.Background(), example, dnsprovider.Record{Type: "A", Name: "www", Value: "192.0.2.3", TTL: 600})
+			if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) != c.unconfirmed || len(api.Writes()) != 1 {
+				t.Fatalf("POST = %v, writes %v; want unconfirmed: %v", err, api.WriteLines(), c.unconfirmed)
+			}
+		})
 	}
 }
 
@@ -331,7 +358,7 @@ func TestAFailedPostLeavesTheSourceOfAMove(t *testing.T) {
 	after.ID, after.Name = "", "api.example.com"
 
 	_, err := p.UpdateRecord(context.Background(), example, before, after)
-	if err == nil || !strings.Contains(err.Error(), "partial side effects") {
+	if err == nil || !strings.Contains(err.Error(), "partial side effects") || errors.Is(err, dnsprovider.ErrUnconfirmed) {
 		t.Fatalf("UpdateRecord = %v, want a partial-side-effects error", err)
 	}
 

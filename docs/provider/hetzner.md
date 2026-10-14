@@ -104,10 +104,13 @@ success or failure through the Cloud DNS action endpoint, then reads stored
 Records back and checks only the Changeset's own effects: each value it
 added is present with the planned TTL, and each value it removed is absent.
 Other values of the same RRset are ignored. A miss returns an error
-matching `ErrConflict`, as another write may have replaced the Changeset's;
-re-read and retry. Waits are bounded and honor cancellation. A failed action,
-lost response, cancellation, or failed readback returns an error that can
-leave completion uncertain; re-read before deciding to retry. Cross-RRset
+matching both `ErrConflict` and `ErrUnconfirmed`, as another write may have
+replaced the Changeset's; re-read and retry. Waits are bounded and honor
+cancellation. A write that was sent but not answered (a 5xx, a lost or
+malformed acknowledgement, a failed poll, a wait that runs out) or whose
+readback fails is an Unconfirmed Write matching `ErrUnconfirmed`; re-read
+before deciding to retry. A 4xx answer or an action that reports failure is
+not unconfirmed: Hetzner refused the write. Cross-RRset
 changes are not atomic and do not trigger automatic rollback. Action
 completion does not guarantee immediate global DNS propagation.
 

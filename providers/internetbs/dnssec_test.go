@@ -198,7 +198,7 @@ func TestRegistrationErrorsPreserveRefusalAndProveAbsence(t *testing.T) {
 			kind = dnsprovider.ErrUnauthorized
 		}
 		var api *dnsprovider.APIError
-		if !errors.Is(err, kind) || !errors.As(err, &api) || strings.Contains(err.Error(), "signing-password") {
+		if !errors.Is(err, kind) || errors.Is(err, dnsprovider.ErrUnconfirmed) || !errors.As(err, &api) || strings.Contains(err.Error(), "signing-password") {
 			t.Fatalf("owned=%v error=%v", owned, err)
 		}
 		if err := p.DeleteDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}); !errors.Is(err, kind) || len(f.writes) != 0 {
@@ -209,7 +209,7 @@ func TestRegistrationErrorsPreserveRefusalAndProveAbsence(t *testing.T) {
 	f.fail["/Domain/Update"] = `{"status":"FAILURE","code":100002,"message":"Registry refused signing-key"}`
 	err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, []dnsprovider.SigningKey{{KeyTag: 1, DS: []string{"1 13 2 AA"}}})
 	var api *dnsprovider.APIError
-	if !errors.As(err, &api) || errors.Is(err, dnsprovider.ErrUnsupported) || len(f.writes) != 1 || strings.Contains(err.Error(), "signing-key") {
+	if !errors.As(err, &api) || errors.Is(err, dnsprovider.ErrUnsupported) || errors.Is(err, dnsprovider.ErrUnconfirmed) || len(f.writes) != 1 || strings.Contains(err.Error(), "signing-key") {
 		t.Fatalf("generic refusal lost or retried: %v, writes=%v", err, f.writes)
 	}
 }
@@ -299,7 +299,7 @@ func TestSigningKeyWritesNeverRetryHTTPFailures(t *testing.T) {
 	}
 	err = p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, []dnsprovider.SigningKey{{KeyTag: 1, DS: []string{"1 13 2 AA"}}})
 	var api *dnsprovider.APIError
-	if !errors.As(err, &api) || api.StatusCode != http.StatusServiceUnavailable || calls != 1 {
+	if !errors.As(err, &api) || api.StatusCode != http.StatusServiceUnavailable || !errors.Is(err, dnsprovider.ErrUnconfirmed) || calls != 1 {
 		t.Fatalf("write error=%v, calls=%d", err, calls)
 	}
 }

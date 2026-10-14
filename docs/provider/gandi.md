@@ -69,9 +69,9 @@ no conditional write.
 Each write is read back from the `PATCH` answer, or with a `GET` after a
 `POST`. Only the Changeset's own effects are checked: each value it added is
 present with the planned TTL, and each value it removed is absent. Other values
-are not compared. A miss is an error matching `ErrConflict`, as another write
-may have replaced the Changeset's; re-read and retry. Returned Records are as
-stored.
+are not compared. A miss is an error matching both `ErrConflict` and
+`ErrUnconfirmed`, as another write may have replaced the Changeset's; re-read
+and retry. Returned Records are as stored.
 
 LiveDNS documents neither how `PATCH` answers a missing RRset, nor whether
 adding a value already present or removing an absent one is an error. The
@@ -83,8 +83,10 @@ There is **no cross-RRset transaction**. RRsets a move joins are written as a
 group, and a failure fails every change of the group, saying it may be partly
 applied: a failed destination leaves the source as it was, while a failed
 source leaves the value at both ends. Independent RRsets can still succeed.
-Read-back failures are reported even after a write succeeded. Mutations are
-never automatically retried.
+A write answered 5xx, with a lost or unreadable answer, or whose read-back
+fails is an Unconfirmed Write matching `ErrUnconfirmed`; re-read before
+retrying. A 4xx answer, or a failure reported inside a 2xx one, is not:
+LiveDNS refused the write. Mutations are never automatically retried.
 
 The Provider is a registrar adapter (`dnsprovider.CapDSRegistrar`) through the
 Domain API's `dnskeys` routes, at the sibling of the LiveDNS endpoint

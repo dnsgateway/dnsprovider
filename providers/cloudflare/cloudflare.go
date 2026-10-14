@@ -298,7 +298,7 @@ func (p *Provider) CreateZone(ctx context.Context, name string) (dnsprovider.Zon
 		return dnsprovider.Zone{}, fmt.Errorf("cloudflare: encode zone: %w", err)
 	}
 
-	result, err := p.do(ctx, body, func(opts ...option.RequestOption) error {
+	result, err := p.write(ctx, body, nil, func(opts ...option.RequestOption) error {
 		_, err := p.zones.New(ctx, zones.ZoneNewParams{}, append(opts, option.WithMaxRetries(0))...)
 
 		return err
@@ -365,7 +365,7 @@ func (p *Provider) DeleteZone(ctx context.Context, zone dnsprovider.Zone) error 
 		return res, err
 	})
 
-	_, err := p.doCoded(ctx, nil, deleteZoneCodes, func(opts ...option.RequestOption) error {
+	_, err := p.write(ctx, nil, deleteZoneCodes, func(opts ...option.RequestOption) error {
 		_, err := p.zones.Delete(ctx, params, append(opts, watch)...)
 
 		return err
@@ -669,7 +669,7 @@ func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 	var params cfdns.RecordNewParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	result, err := p.do(ctx, body, func(opts ...option.RequestOption) error {
+	result, err := p.write(ctx, body, nil, func(opts ...option.RequestOption) error {
 		_, err := p.records.New(ctx, params, append(opts, option.WithMaxRetries(0))...)
 
 		return err
@@ -724,7 +724,7 @@ func (p *Provider) patchRecord(ctx context.Context, zone dnsprovider.Zone, id st
 	var params cfdns.RecordEditParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	return p.do(ctx, body, func(opts ...option.RequestOption) error {
+	return p.write(ctx, body, nil, func(opts ...option.RequestOption) error {
 		_, err := p.records.Edit(ctx, id, params, opts...)
 
 		return err
@@ -781,7 +781,7 @@ func (p *Provider) replaceRecord(ctx context.Context, zone dnsprovider.Zone, id 
 	var params cfdns.RecordUpdateParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	return p.do(ctx, body, func(opts ...option.RequestOption) error {
+	return p.write(ctx, body, nil, func(opts ...option.RequestOption) error {
 		_, err := p.records.Update(ctx, id, params, opts...)
 
 		return err
@@ -809,7 +809,7 @@ func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 		return next(req)
 	})
 
-	_, err := p.do(ctx, nil, func(opts ...option.RequestOption) error {
+	_, err := p.write(ctx, nil, nil, func(opts ...option.RequestOption) error {
 		_, err := p.records.Delete(ctx, r.ID, params, append(opts, count)...)
 
 		return err
@@ -826,21 +826,38 @@ func noID(r dnsprovider.Record) error {
 	return fmt.Errorf("cloudflare: %s %s has no record ID", r.Type, r.Name)
 }
 
-// do makes one request about a record or a zone setting, sending body
-// when it is set, and returns the answer's result: the record or setting
-// as Cloudflare holds it, for a read or a write, which storedRecord
-// decodes after a record write.
+// do makes one request about a record or a zone setting that reads it,
+// sending body when it is set, and returns the answer's result: the
+// record or setting as Cloudflare holds it.
 func (p *Provider) do(ctx context.Context, body []byte, call func(...option.RequestOption) error) (json.RawMessage, error) {
-	return p.doCoded(ctx, body, nil, call)
+	return p.exchange(ctx, body, nil, false, call)
 }
 
-// doCoded is do, with codes classifying the answer's error codes for this
-// call alone, ahead of errorCodes.
-func (p *Provider) doCoded(ctx context.Context, body []byte, codes map[int]error, call func(...option.RequestOption) error) (json.RawMessage, error) {
+// write is do for a request that changes what Cloudflare holds, with
+// codes classifying the answer's error codes for this call alone, ahead
+// of errorCodes; its result is what Cloudflare holds after it, which
+// storedRecord decodes after a record write. Once a try of it was sent,
+// a failure Cloudflare's answer does not refuse it with, a server error,
+// a lost answer, a timeout or a success answer that cannot be decoded,
+// is an Unconfirmed Write (dnsprovider.Unconfirmed). A 4xx answer refuses
+// it, and so does an answer of success false, whatever its status.
+func (p *Provider) write(ctx context.Context, body []byte, codes map[int]error, call func(...option.RequestOption) error) (json.RawMessage, error) {
+	return p.exchange(ctx, body, codes, true, call)
+}
+
+func (p *Provider) exchange(ctx context.Context, body []byte, codes map[int]error, write bool, call func(...option.RequestOption) error) (json.RawMessage, error) {
 	var (
 		env  envelope
 		raw  *http.Response
-		opts = []option.RequestOption{option.WithResponseBodyInto(&env), option.WithResponseInto(&raw)}
+		sent bool
+		opts = []option.RequestOption{
+			option.WithResponseBodyInto(&env), option.WithResponseInto(&raw),
+			option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+				sent = true
+
+				return next(req)
+			}),
+		}
 	)
 
 	if body != nil {
@@ -848,7 +865,12 @@ func (p *Provider) doCoded(ctx context.Context, body []byte, codes map[int]error
 	}
 
 	if err := call(opts...); err != nil {
-		return nil, apiError(err, raw, codes)
+		err = apiError(err, raw, codes)
+		if write && sent {
+			err = dnsprovider.Unconfirmed(err)
+		}
+
+		return nil, err
 	}
 
 	// Any 2xx is an answer; Cloudflare says in the body when it did not
@@ -1201,7 +1223,7 @@ func (p *Provider) setMinTLS(ctx context.Context, zone dnsprovider.Zone, v dnspr
 	var params zones.SettingEditParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	result, err := p.do(ctx, body, func(opts ...option.RequestOption) error {
+	result, err := p.write(ctx, body, nil, func(opts ...option.RequestOption) error {
 		_, err := p.settings.Edit(ctx, "min_tls_version", params, opts...)
 
 		return err
@@ -1234,7 +1256,7 @@ func (p *Provider) setDNSSEC(ctx context.Context, zone dnsprovider.Zone, on bool
 	var params cfdns.DNSSECEditParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	result, err := p.do(ctx, body, func(opts ...option.RequestOption) error {
+	result, err := p.write(ctx, body, nil, func(opts ...option.RequestOption) error {
 		_, err := p.dnssec.Edit(ctx, params, opts...)
 
 		return err
@@ -1311,7 +1333,7 @@ func (p *Provider) setHSTS(ctx context.Context, zone dnsprovider.Zone, on bool) 
 	var params zones.SettingEditParams
 	params.ZoneID.Value, params.ZoneID.Present = zone.ID, true
 
-	result, err := p.do(ctx, body, func(opts ...option.RequestOption) error {
+	result, err := p.write(ctx, body, nil, func(opts ...option.RequestOption) error {
 		_, err := p.settings.Edit(ctx, "security_header", params, opts...)
 
 		return err

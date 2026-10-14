@@ -73,6 +73,11 @@ func (p *Provider) data(ctx context.Context, method, path string, q url.Values, 
 	if err := p.api().Do(ctx, method, path, q, body, &raw); err != nil {
 		return nil, err
 	}
+	return decodeData(raw, path, out)
+}
+
+// decodeData decodes the documented success envelope of an answer.
+func decodeData(raw []byte, path string, out any) (*pagination, error) {
 	var envelope struct {
 		Data       json.RawMessage `json:"data"`
 		Pagination *pagination     `json:"pagination"`

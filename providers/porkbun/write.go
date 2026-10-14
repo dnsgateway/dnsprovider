@@ -3,6 +3,7 @@ package porkbun
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math"
 	"net/http"
 	"net/url"
@@ -80,15 +81,15 @@ func (p *Provider) CreateRecord(ctx context.Context, z dnsprovider.Zone, r dnspr
 		return dnsprovider.Record{}, err
 	}
 	var env struct{ ID string }
-	if err := p.call(ctx, http.MethodPost, "/dns/create/"+zonePath(z), nil, body, &env); err != nil {
+	if err := p.write(ctx, http.MethodPost, "/dns/create/"+zonePath(z), nil, body, &env); err != nil {
 		return dnsprovider.Record{}, err
 	}
 	if env.ID == "" {
-		return dnsprovider.Record{}, errors.New("porkbun: create succeeded without a record ID")
+		return dnsprovider.Record{}, fmt.Errorf("porkbun: create succeeded without a record ID: %w", dnsprovider.ErrUnconfirmed)
 	}
 	stored, err := p.record(ctx, z, env.ID)
 	if err != nil {
-		return dnsprovider.Record{}, errors.Join(errors.New("porkbun: record created but readback failed"), err)
+		return dnsprovider.Record{}, fmt.Errorf("porkbun: record created but readback failed: %w; %w", err, dnsprovider.ErrUnconfirmed)
 	}
 	return stored, nil
 }
@@ -105,12 +106,12 @@ func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before,
 	if err := p.collision(ctx, z, normalized, before.ID); err != nil {
 		return dnsprovider.Record{}, err
 	}
-	if err := p.call(ctx, http.MethodPost, "/dns/edit/"+zonePath(z)+"/"+url.PathEscape(before.ID), nil, body, nil); err != nil {
+	if err := p.write(ctx, http.MethodPost, "/dns/edit/"+zonePath(z)+"/"+url.PathEscape(before.ID), nil, body, nil); err != nil {
 		return dnsprovider.Record{}, err
 	}
 	stored, err := p.record(ctx, z, before.ID)
 	if err != nil {
-		return dnsprovider.Record{}, errors.Join(errors.New("porkbun: record updated but readback failed"), err)
+		return dnsprovider.Record{}, fmt.Errorf("porkbun: record updated but readback failed: %w; %w", err, dnsprovider.ErrUnconfirmed)
 	}
 	return stored, nil
 }
@@ -120,7 +121,7 @@ func (p *Provider) DeleteRecord(ctx context.Context, z dnsprovider.Zone, r dnspr
 	if r.ID == "" {
 		return dnsprovider.ErrNotFound
 	}
-	return p.call(ctx, http.MethodPost, "/dns/delete/"+zonePath(z)+"/"+url.PathEscape(r.ID), nil, map[string]any{}, nil)
+	return p.write(ctx, http.MethodPost, "/dns/delete/"+zonePath(z)+"/"+url.PathEscape(r.ID), nil, map[string]any{}, nil)
 }
 
 // Authentication field names accepted by Factory.

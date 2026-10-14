@@ -4,7 +4,9 @@ import (
 	"context"
 )
 
-// Provider is one Account at a DNS hosting service.
+// Provider is one Account at a DNS hosting service. A write the Provider
+// may or may not have applied, its answer lost or its read-back failed,
+// fails with an error matching ErrUnconfirmed.
 type Provider interface { //nolint:interfacebloat // Zone and Record CRUD form the shared public Provider seam.
 	// Account describes the Account and proves its credentials work, even
 	// when it has no Zones: ErrUnauthorized when they do not.

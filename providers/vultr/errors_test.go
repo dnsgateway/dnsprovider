@@ -95,13 +95,13 @@ func TestDeniedDNSPermissionLeavesRecordsAsTheyWere(t *testing.T) {
 			})
 			ctx := context.Background()
 			_, err := p.CreateRecord(ctx, exampleZone, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300})
-			if !errors.Is(err, dnsprovider.ErrUnauthorized) || strings.Contains(err.Error(), "unconfirmed") {
+			if !errors.Is(err, dnsprovider.ErrUnauthorized) || errors.Is(err, dnsprovider.ErrUnconfirmed) {
 				t.Fatalf("denied create: %v", err)
 			}
 			before := dnsprovider.Record{ID: id, Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
 			after := before
 			after.Value = "192.0.2.2"
-			if _, err := p.UpdateRecord(ctx, exampleZone, before, after); !errors.Is(err, dnsprovider.ErrUnauthorized) || strings.Contains(err.Error(), "unconfirmed") {
+			if _, err := p.UpdateRecord(ctx, exampleZone, before, after); !errors.Is(err, dnsprovider.ErrUnauthorized) || errors.Is(err, dnsprovider.ErrUnconfirmed) {
 				t.Fatalf("denied update: %v", err)
 			}
 			if err := p.DeleteRecord(ctx, exampleZone, before); !errors.Is(err, dnsprovider.ErrUnauthorized) {

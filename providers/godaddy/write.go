@@ -216,7 +216,7 @@ func (w writer) Write(ctx context.Context, d rrset.Delta) error {
 			id := rec.RecordID
 			rec.RecordID, rec.TTL = "", d.TTL
 
-			if err := w.p.api().Do(ctx, http.MethodPut, recordsPath(w.zone)+"/"+url.PathEscape(id), nil, rec, nil); err != nil {
+			if err := w.p.api().Write(ctx, http.MethodPut, recordsPath(w.zone)+"/"+url.PathEscape(id), nil, rec, nil); err != nil {
 				return fmt.Errorf("godaddy: TTL of %s: %w", d.Key, err)
 			}
 		}
@@ -226,7 +226,7 @@ func (w writer) Write(ctx context.Context, d rrset.Delta) error {
 	post.Attempts = 1
 
 	for _, v := range d.Add {
-		if err := post.Do(ctx, http.MethodPost, recordsPath(w.zone), nil, v.Wire.(wireValue).rec, nil); err != nil {
+		if err := post.Write(ctx, http.MethodPost, recordsPath(w.zone), nil, v.Wire.(wireValue).rec, nil); err != nil {
 			return fmt.Errorf("godaddy: add to %s: %w", d.Key, err)
 		}
 	}
@@ -234,7 +234,7 @@ func (w writer) Write(ctx context.Context, d rrset.Delta) error {
 	for _, v := range d.Remove {
 		id := v.Wire.(wireValue).rec.RecordID
 
-		err := w.p.api().Do(ctx, http.MethodDelete, recordsPath(w.zone)+"/"+url.PathEscape(id), nil, nil, nil)
+		err := w.p.api().Write(ctx, http.MethodDelete, recordsPath(w.zone)+"/"+url.PathEscape(id), nil, nil, nil)
 		if err != nil && !errors.Is(err, dnsprovider.ErrNotFound) {
 			return fmt.Errorf("godaddy: remove from %s: %w", d.Key, err)
 		}

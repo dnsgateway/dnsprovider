@@ -393,6 +393,11 @@ func TestActionsWaitFailAndCancelWithoutResubmitting(t *testing.T) {
 			if status == "running" && !errors.Is(err, context.DeadlineExceeded) {
 				t.Fatalf("canceled=%v", err)
 			}
+			// An action the answer reports failed was refused; one still
+			// running, or of an unknown status, may yet apply.
+			if unconfirmed := status == "running" || status == "bogus"; errors.Is(err, dnsprovider.ErrUnconfirmed) != unconfirmed {
+				t.Fatalf("%s=%v, want unconfirmed: %v", status, err, unconfirmed)
+			}
 		})
 	}
 }
@@ -460,7 +465,7 @@ func TestDeletionRequiresAuthoritativeAbsence(t *testing.T) {
 	f.sets = map[string]rrset{"www/A": {Name: "www", Type: "A", Records: []value{{Value: "192.0.2.1"}}}}
 	r := readRecords(t, f)[0]
 	err := f.p.DeleteRecord(context.Background(), testZone, r)
-	if err == nil || !strings.Contains(err.Error(), "unconfirmed") || len(f.writes) != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || len(f.writes) != 1 {
 		t.Fatalf("unconfirmed deletion=%v writes=%v", err, f.writes)
 	}
 }
@@ -558,7 +563,7 @@ func TestTXTReadbackDoesNotIgnoreChunkBoundaries(t *testing.T) {
 	f := newFixture(t)
 	f.normalize = map[string]string{`"ab" "cd"`: `"abcd"`}
 	_, err := f.p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "TXT", Name: "new", Value: `"ab" "cd"`, TTL: 300})
-	if err == nil || !strings.Contains(err.Error(), "unconfirmed") || len(f.writes) != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || len(f.writes) != 1 {
 		t.Fatalf("different TXT=%v writes=%v", err, f.writes)
 	}
 }
@@ -752,11 +757,11 @@ func TestReadBackIgnoresValuesAnotherWriterAdded(t *testing.T) {
 	}
 }
 
-func TestReadBackMissingAnAddedValueIsAConflict(t *testing.T) {
+func TestReadBackMissingAnAddedValueIsAnUnconfirmedConflict(t *testing.T) {
 	f := newFixture(t)
 	f.acknowledgeOnly = true
 	_, err := f.p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "www", Value: "192.0.2.3", TTL: 300})
-	if !errors.Is(err, dnsprovider.ErrConflict) || !strings.Contains(err.Error(), "unconfirmed") {
+	if !errors.Is(err, dnsprovider.ErrConflict) || !errors.Is(err, dnsprovider.ErrUnconfirmed) {
 		t.Fatalf("lost write=%v", err)
 	}
 }
@@ -780,7 +785,7 @@ func TestPerValueWriteErrorsMapToTheCommonSentinels(t *testing.T) {
 			} else {
 				err = f.p.DeleteRecord(context.Background(), testZone, readRecords(t, f)[0])
 			}
-			if !errors.Is(err, tc.want) || strings.Contains(err.Error(), "unconfirmed") {
+			if !errors.Is(err, tc.want) || errors.Is(err, dnsprovider.ErrUnconfirmed) {
 				t.Fatalf("%s=%v, want %v", tc.action, err, tc.want)
 			}
 		})

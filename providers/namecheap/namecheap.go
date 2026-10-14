@@ -432,26 +432,49 @@ type wireError struct {
 	Text   string `xml:",chardata"`
 }
 
-// call sends a command with its parameters and the Account's through
-// rest, and decodes its CommandResponse. The parameters go in a POST form,
-// so the API key stays out of URLs and the errors that quote them.
+// call sends a command that reads with its parameters and the Account's
+// through rest, and decodes its CommandResponse. The parameters go in a
+// POST form, so the API key stays out of URLs and the errors that quote
+// them.
 func call[T any](ctx context.Context, p *Provider, command string, params url.Values) (T, error) {
+	return send[T](ctx, p, false, command, params)
+}
+
+// callWrite is call for a command that changes what Namecheap holds. Once
+// it was sent, a failure its answer does not refuse it with, an ERROR, is
+// an Unconfirmed Write (rest.Client.Write), and so is an answer that
+// cannot be decoded.
+func callWrite[T any](ctx context.Context, p *Provider, command string, params url.Values) (T, error) {
+	return send[T](ctx, p, true, command, params)
+}
+
+func send[T any](ctx context.Context, p *Provider, write bool, command string, params url.Values) (T, error) {
 	var zero T
 
 	form := url.Values{"Command": {command}}
 	maps.Copy(form, p.auth)
 	maps.Copy(form, params)
 
+	post := p.api.Do
+	if write {
+		post = p.api.Write
+	}
+
 	// Every command is a POST, so none is tried again: rest retries only
 	// GET, PUT and DELETE.
 	var data []byte
-	if err := p.api.Do(ctx, http.MethodPost, "", nil, form, &data); err != nil {
+	if err := post(ctx, http.MethodPost, "", nil, form, &data); err != nil {
 		return zero, err
 	}
 
 	var body apiResponse[T]
 	if err := xml.Unmarshal(data, &body); err != nil {
-		return zero, fmt.Errorf("namecheap: decode %s: %w", command, err)
+		err = fmt.Errorf("namecheap: decode %s: %w", command, err)
+		if write {
+			err = dnsprovider.Unconfirmed(err)
+		}
+
+		return zero, err
 	}
 
 	if !strings.EqualFold(body.Status, "OK") {

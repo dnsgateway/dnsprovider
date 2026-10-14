@@ -82,10 +82,27 @@ type Client struct {
 //
 // No Secret shows in the error, nor in any cause errors.As finds in it.
 func (c *Client) Do(ctx context.Context, method, path string, q url.Values, body, out any) error {
-	return c.RedactError(c.do(ctx, method, path, q, body, out))
+	_, err := c.do(ctx, method, path, q, body, out)
+
+	return c.RedactError(err)
 }
 
-func (c *Client) do(ctx context.Context, method, path string, q url.Values, body, out any) error {
+// Write is Do for a call that changes what the Provider holds. Once its
+// request was sent, an error the Provider's answer does not refuse it
+// with is an Unconfirmed Write (dnsprovider.Unconfirmed), and so is an
+// answer of success that cannot be decoded. An error before any request
+// was sent is returned as it is: the write did not happen.
+func (c *Client) Write(ctx context.Context, method, path string, q url.Values, body, out any) error {
+	sent, err := c.do(ctx, method, path, q, body, out)
+	if sent {
+		err = dnsprovider.Unconfirmed(err)
+	}
+
+	return c.RedactError(err)
+}
+
+// do makes the call; sent reports whether a request of it was sent.
+func (c *Client) do(ctx context.Context, method, path string, q url.Values, body, out any) (sent bool, err error) {
 	var (
 		data        []byte
 		contentType string
@@ -98,7 +115,7 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, body
 	default:
 		var err error
 		if data, err = json.Marshal(body); err != nil {
-			return fmt.Errorf("%s: encode %s: %w", c.Provider, path, err)
+			return false, fmt.Errorf("%s: encode %s: %w", c.Provider, path, err)
 		}
 
 		contentType = "application/json"
@@ -120,33 +137,35 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, body
 	backoff := cmp.Or(c.Backoff, DefaultBackoff)
 
 	for try := 1; ; try++ {
-		answer, err := c.send(ctx, method, u, contentType, accept, data)
+		answer, tried, err := c.send(ctx, method, u, contentType, accept, data)
+		sent = sent || tried
+
 		if err == nil {
 			if isRaw {
 				*raw = answer
 
-				return nil
+				return sent, nil
 			}
 
 			if out == nil {
-				return nil
+				return sent, nil
 			}
 
 			if err := json.Unmarshal(answer, out); err != nil {
-				return fmt.Errorf("%s: decode %s: %w", c.Provider, path, err)
+				return sent, fmt.Errorf("%s: decode %s: %w", c.Provider, path, err)
 			}
 
-			return nil
+			return sent, nil
 		}
 
 		if try > 1 && method == http.MethodDelete && isStatus(err, http.StatusNotFound) {
 			// An earlier try may have deleted it and lost the answer.
-			return nil
+			return sent, nil
 		}
 
 		wait, ok := c.retryWait(method, err, backoff)
 		if !ok || try >= attempts {
-			return err
+			return sent, err
 		}
 
 		if c.Log != nil {
@@ -158,7 +177,7 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, body
 		case <-ctx.Done():
 			t.Stop()
 
-			return fmt.Errorf("%s: %w", c.Provider, ctx.Err())
+			return sent, fmt.Errorf("%s: %w", c.Provider, ctx.Err())
 		case <-t.C:
 		}
 
@@ -168,27 +187,28 @@ func (c *Client) do(ctx context.Context, method, path string, q url.Values, body
 }
 
 // send makes one try of a request and reads its answer. A non-2xx answer
-// is the error Decode makes of it.
-func (c *Client) send(ctx context.Context, method, u, contentType, accept string, data []byte) ([]byte, error) {
+// is the error Decode makes of it. sent reports whether the request was
+// sent: an error before is one of a request the Provider never saw.
+func (c *Client) send(ctx context.Context, method, u, contentType, accept string, data []byte) (answer []byte, sent bool, err error) {
 	if c.Limit != nil {
 		if err := c.Limit.Wait(ctx); err != nil {
 			if ctx.Err() != nil {
-				return nil, fmt.Errorf("%s: %w", c.Provider, ctx.Err())
+				return nil, false, fmt.Errorf("%s: %w", c.Provider, ctx.Err())
 			}
 
 			// A limiter refuses at once a wait past the deadline; a
 			// *rate.Limiter says so without context.DeadlineExceeded.
 			if _, has := ctx.Deadline(); has && !errors.Is(err, context.DeadlineExceeded) {
-				return nil, fmt.Errorf("%s: %w: %w", c.Provider, context.DeadlineExceeded, err)
+				return nil, false, fmt.Errorf("%s: %w: %w", c.Provider, context.DeadlineExceeded, err)
 			}
 
-			return nil, fmt.Errorf("%s: %w", c.Provider, err)
+			return nil, false, fmt.Errorf("%s: %w", c.Provider, err)
 		}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(data))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", c.Provider, err)
+		return nil, false, fmt.Errorf("%s: %w", c.Provider, err)
 	}
 
 	if accept != "" {
@@ -205,7 +225,7 @@ func (c *Client) send(ctx context.Context, method, u, contentType, accept string
 
 	res, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", c.Provider, err)
+		return nil, true, fmt.Errorf("%s: %w", c.Provider, err)
 	}
 	defer func() { _ = res.Body.Close() }()
 
@@ -215,20 +235,20 @@ func (c *Client) send(ctx context.Context, method, u, contentType, accept string
 	}
 
 	// One byte past the limit tells a cut-off answer from one that fits.
-	answer, err := io.ReadAll(io.LimitReader(res.Body, limit+1))
+	answer, err = io.ReadAll(io.LimitReader(res.Body, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", c.Provider, err)
+		return nil, true, fmt.Errorf("%s: %w", c.Provider, err)
 	}
 
 	if res.StatusCode < 200 || res.StatusCode > 299 {
-		return nil, c.decode(res, answer[:min(int64(len(answer)), limit)])
+		return nil, true, c.decode(res, answer[:min(int64(len(answer)), limit)])
 	}
 
 	if int64(len(answer)) > limit {
-		return nil, fmt.Errorf("%s: the answer is over %d bytes", c.Provider, limit)
+		return nil, true, fmt.Errorf("%s: the answer is over %d bytes", c.Provider, limit)
 	}
 
-	return answer, nil
+	return answer, true, nil
 }
 
 // retryWait is how long to wait before trying a failed call again: what

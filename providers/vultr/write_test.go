@@ -93,7 +93,7 @@ func TestServiceValidationFailuresKeepTheirMessageAndAreNotUnconfirmed(t *testin
 	_, err := p.CreateRecord(context.Background(), exampleZone, dnsprovider.Record{Type: "A", Name: "www.example.com", Value: "192.0.2.2", TTL: 60})
 	var apiErr *dnsprovider.APIError
 	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusBadRequest || !strings.Contains(err.Error(), "same TTL") ||
-		strings.Contains(err.Error(), "unconfirmed") || errors.Is(err, dnsprovider.ErrConflict) || len(s.writes) != 0 {
+		errors.Is(err, dnsprovider.ErrUnconfirmed) || errors.Is(err, dnsprovider.ErrConflict) || len(s.writes) != 0 {
 		t.Fatalf("create: %v", err)
 	}
 }
@@ -116,8 +116,8 @@ func TestCreateIsNeverAutomaticallyRetried(t *testing.T) {
 			if err == nil || posts != 1 {
 				t.Fatalf("create: %v posts=%d", err, posts)
 			}
-			if status >= 500 && !strings.Contains(err.Error(), "unconfirmed") {
-				t.Fatalf("lost create not reported unconfirmed: %v", err)
+			if errors.Is(err, dnsprovider.ErrUnconfirmed) != (status >= 500) {
+				t.Fatalf("create: %v, want ErrUnconfirmed only for a server error", err)
 			}
 		})
 	}
@@ -157,7 +157,7 @@ func TestMalformedCreateAcknowledgementWithFailedReadBackReportsPossiblyComplete
 		s.handler(w, r)
 	})
 	_, err := p.CreateRecord(context.Background(), exampleZone, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300})
-	if err == nil || !strings.Contains(err.Error(), "acknowledged") || !strings.Contains(err.Error(), "may have completed") || len(s.writes) != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || !strings.Contains(err.Error(), "acknowledged") || len(s.writes) != 1 {
 		t.Fatalf("malformed create: %v writes=%v", err, s.writes)
 	}
 }
@@ -198,7 +198,7 @@ func TestFailedReadBackAfterPatchReportsPossiblyCompletedWrite(t *testing.T) {
 	after := before
 	after.Value = "192.0.2.2"
 	_, err := p.UpdateRecord(context.Background(), exampleZone, before, after)
-	if err == nil || !strings.Contains(err.Error(), "acknowledged") || !strings.Contains(err.Error(), "may have completed") || len(s.writes) != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || !strings.Contains(err.Error(), "acknowledged") || len(s.writes) != 1 {
 		t.Fatalf("update: %v writes=%v", err, s.writes)
 	}
 }
@@ -219,8 +219,26 @@ func TestLostPatchAnswerIsUnconfirmedAndNotRetried(t *testing.T) {
 	after := before
 	after.TTL = 600
 	_, err := p.UpdateRecord(context.Background(), exampleZone, before, after)
-	if err == nil || !strings.Contains(err.Error(), "unconfirmed") || patches != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || patches != 1 {
 		t.Fatalf("update: %v patches=%d", err, patches)
+	}
+}
+
+func TestAWriteWhoseAnswerIsLostIsUnconfirmed(t *testing.T) {
+	s := newRecords(t)
+	posts := 0
+	p := provider(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			posts++
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			conn.Close()
+			return
+		}
+		s.handler(w, r)
+	})
+	_, err := p.CreateRecord(context.Background(), exampleZone, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300})
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || posts != 1 {
+		t.Fatalf("create: %v posts=%d", err, posts)
 	}
 }
 

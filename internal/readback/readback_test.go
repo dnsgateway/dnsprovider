@@ -56,8 +56,8 @@ func TestVerifyIsAConflictWhenAnAddedRecordIsNotHeldAsWritten(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := readback.Verify(readback.Effects{Added: []dnsprovider.Record{txt("a", 300)}}, held, dnsprovider.SameRecord)
-			if !errors.Is(err, dnsprovider.ErrConflict) {
-				t.Errorf("Verify = %v, want ErrConflict", err)
+			if !errors.Is(err, dnsprovider.ErrConflict) || !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Errorf("Verify = %v, want ErrConflict and ErrUnconfirmed", err)
 			}
 		})
 	}
@@ -80,8 +80,8 @@ func TestVerifyIsAConflictWhenARemovedRecordIsHeldMoreOftenThanLeft(t *testing.T
 			e := readback.Effects{Removed: []readback.Removal{{Record: txt("old", 300), Leave: c.leave}}}
 
 			_, err := readback.Verify(e, c.held, dnsprovider.SameRecord)
-			if got := errors.Is(err, dnsprovider.ErrConflict); got != c.fails {
-				t.Errorf("Verify = %v, want a conflict: %v", err, c.fails)
+			if got := errors.Is(err, dnsprovider.ErrConflict) && errors.Is(err, dnsprovider.ErrUnconfirmed); got != c.fails {
+				t.Errorf("Verify = %v, want an unconfirmed conflict: %v", err, c.fails)
 			}
 		})
 	}

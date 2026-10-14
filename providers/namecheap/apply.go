@@ -36,13 +36,14 @@ type sendHost struct {
 // one call.
 //
 // The Changeset succeeds or fails as a whole. When it fails, nothing was
-// applied (or, when the write's answer was lost, Namecheap may have taken
-// it), so it returns an error of its own rather than per-change errors.
+// applied, or the write is an Unconfirmed Write (dnsprovider.ErrUnconfirmed:
+// its answer was lost or did not say it took), so it returns an error of
+// its own rather than per-change errors.
 //
 // After the write, it reads the hosts once more and checks the Changeset's
-// own effects (readback.Verify): a concurrent setHosts built from an older
-// list can replace them, and then the error matches
-// dnsprovider.ErrConflict. Hosts the Changeset did not touch are not
+// own effects (readback.Verify): a read-back that fails is an Unconfirmed
+// Write, and a concurrent setHosts built from an older list can replace
+// them, and then the error matches dnsprovider.ErrConflict as well. Hosts the Changeset did not touch are not
 // compared. On success, each added or modified Record is returned as
 // ListRecords reads it back, with its content ID, so a consumer need not
 // read the Zone again.
@@ -80,12 +81,12 @@ func (p *Provider) ApplyChangeset(ctx context.Context, cs dnsprovider.Changeset)
 
 	held, err := p.ListRecords(ctx, cs.Zone, dnsprovider.RecordFilter{})
 	if err != nil {
-		return dnsprovider.ApplyResult{}, fmt.Errorf("namecheap: read back the hosts: %w; Namecheap may or may not have applied the changes", err)
+		return dnsprovider.ApplyResult{}, fmt.Errorf("namecheap: read back the hosts: %w; %w", err, dnsprovider.ErrUnconfirmed)
 	}
 
 	stored, err := readback.Verify(effects, held.Records, sameHost)
 	if err != nil {
-		return dnsprovider.ApplyResult{}, fmt.Errorf("namecheap: a concurrent change at Namecheap replaced this Changeset's write; re-read the Zone and retry: %w", err)
+		return dnsprovider.ApplyResult{}, fmt.Errorf("namecheap: a concurrent change at Namecheap replaced this Changeset's write: %w", err)
 	}
 
 	for i := range res.Results {
@@ -372,19 +373,20 @@ func (p *Provider) setHosts(ctx context.Context, zone dnsprovider.Zone, emailTyp
 		}
 	}
 
-	res, err := call[setHostsResult](ctx, p, "namecheap.domains.dns.setHosts", form)
+	res, err := callWrite[setHostsResult](ctx, p, "namecheap.domains.dns.setHosts", form)
 
 	// An ERROR answer (StatusCode 0) is Namecheap refusing the write. Any
-	// other failure may come after Namecheap took it.
+	// other failure after it was sent is an Unconfirmed Write already
+	// (callWrite), and so is an OK answer that does not say it succeeded.
 	var apiErr *dnsprovider.APIError
 
 	switch {
 	case errors.As(err, &apiErr) && apiErr.StatusCode == 0:
 		return fmt.Errorf("%w; nothing was applied", err)
 	case err != nil:
-		return fmt.Errorf("%w; Namecheap may or may not have applied the changes", err)
+		return err
 	case !res.Result.IsSuccess:
-		return errors.New("namecheap: setHosts answered without success; Namecheap may or may not have applied the changes")
+		return fmt.Errorf("namecheap: setHosts answered without success: %w", dnsprovider.ErrUnconfirmed)
 	}
 
 	return nil

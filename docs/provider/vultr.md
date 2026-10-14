@@ -111,8 +111,8 @@ Records, or by keeping the TTLs equal.
 `CreateRecord` first lists the Zone's Records, and fails with `ErrConflict`
 when one has the same type, name (ignoring case) and Value, whatever its
 TTL. It then POSTs once: creates are never retried automatically. A lost or
-failed-server answer is reported as an unconfirmed outcome; re-read the
-Records before retrying. A write refused before it was sent, such as one
+failed-server answer to any write is an Unconfirmed Write, an error matching
+`ErrUnconfirmed`. A write refused before it was sent, such as one
 whose rate-limit wait would pass the context's deadline, and a 4xx answer
 are plain failures: nothing was written.
 
@@ -121,29 +121,28 @@ are plain failures: nothing was written.
 `after`, and edits name, Value and TTL in place with one PATCH, keeping the
 ID. PATCH does not take the type. Vultr acknowledges a PATCH with 204 and no
 Record, so the stored Record is read back by ID, never written again; when
-that read fails, the error says the update was acknowledged and may have
-completed. PATCH is not retried automatically. A type change creates the
-new Record, then deletes the original, and returns the new ID; the old
-type's priority is not carried over. A CNAME cannot share its owner name, so
-a type change to or from CNAME at one owner deletes first. Such a move is
-refused before any write when the original could not be written back (a
-type the module does not write, or a TTL outside the writable range). When
-the replacement definitely failed (a 4xx answer, or never sent), the
-original is re-created as a best effort under a new ID, even if the
-context has ended; when the replacement may have completed (a lost,
-server-failed or unreadable answer), the original is not re-created, and
-the error says so. A failure between the writes says which Records may
-remain: the replacement and the original, the original restored under its
-new ID, the original deleted with its replacement unconfirmed, or the
-original deleted and not restored. `DeleteRecord`
+that read fails, the error is an Unconfirmed Write. PATCH is not retried
+automatically. A type change creates the new Record, then deletes the
+original, and returns the new ID; the old type's priority is not carried
+over. A CNAME cannot share its owner name, so a type change to or from CNAME
+at one owner deletes first. Such a move is refused before any write when the
+original could not be written back (a type the module does not write, or a
+TTL outside the writable range). When the replacement definitely failed (a
+4xx answer, or never sent), the original is re-created as a best effort
+under a new ID, even if the context has ended; when the replacement is an
+Unconfirmed Write (a lost, server-failed or unreadable answer), the original
+is not re-created, and the error says so. A failure between the writes says
+which Records may remain: the replacement and the original, the original
+restored under its new ID, the original deleted with its replacement
+unconfirmed, or the original deleted and not restored. `DeleteRecord`
 deletes only the Record of the given ID; siblings of the same name and type
 remain. An ID that is not a UUID names no Record (`ErrNotFound`) and is
 never sent.
 
 Successful creates return the Record as Vultr answered it. A create
 acknowledged without a well-formed Record is read back as the one Record of
-that content, without writing again, with the same "may have completed"
-error when that read fails.
+that content, without writing again; when that read fails, the error is an
+Unconfirmed Write.
 
 `dnsprovider.Apply` works through the common CRUD fallback: its stale check
 writes nothing when a modified or deleted Record changed, deletions,

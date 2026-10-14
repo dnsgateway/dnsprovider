@@ -196,8 +196,8 @@ func (p *Provider) write(ctx context.Context, z dnsprovider.Zone, method, path s
 	operation := map[string]string{http.MethodPost: "creation", http.MethodPut: "update"}[method]
 
 	var raw []byte
-	if err := p.api().Do(ctx, method, path, nil, body, &raw); err != nil {
-		return dnsprovider.Record{}, unconfirmed(operation, err)
+	if err := p.api().Write(ctx, method, path, nil, body, &raw); err != nil {
+		return dnsprovider.Record{}, err
 	}
 
 	var answer struct {
@@ -214,7 +214,7 @@ func (p *Provider) write(ctx context.Context, z dnsprovider.Zone, method, path s
 	r, err := p.readBack(ctx, z, body, id)
 	if err != nil {
 		return dnsprovider.Record{}, fmt.Errorf("digitalocean: the Record %s was acknowledged without a well-formed Record, "+
-			"and reading it back failed; it may have completed, so re-read Records before retrying: %w", operation, err)
+			"and reading it back failed: %w; %w", operation, err, dnsprovider.ErrUnconfirmed)
 	}
 
 	return r, nil
@@ -282,7 +282,7 @@ func wireFields(z dnsprovider.Zone, body map[string]any) dnsprovider.Record {
 
 // CreateRecord checks that the Zone holds no identical Record, whatever
 // its TTL, then POSTs the Record once: a create is never retried, and a
-// lost answer is reported unconfirmed.
+// lost answer is an Unconfirmed Write.
 func (p *Provider) CreateRecord(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
 	body, err := p.payload(z, r)
 	if err != nil {
@@ -338,7 +338,7 @@ func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before,
 		return dnsprovider.Record{}, err
 	}
 
-	if err := p.api().Do(ctx, http.MethodDelete, path, nil, nil, nil); err != nil {
+	if err := p.api().Write(ctx, http.MethodDelete, path, nil, nil, nil); err != nil {
 		return r, fmt.Errorf("digitalocean: the replacement Record %s was created; deleting the original Record %s failed, and both may remain: %w", r.ID, before.ID, err)
 	}
 
@@ -349,8 +349,8 @@ func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before,
 // replacement fails, it re-creates current, as best it can, and reports
 // whether it did and under which new ID.
 func (p *Provider) replaceAtOwner(ctx context.Context, z dnsprovider.Zone, current dnsprovider.Record, body map[string]any, path string) (dnsprovider.Record, error) {
-	if err := p.api().Do(ctx, http.MethodDelete, path, nil, nil, nil); err != nil {
-		return dnsprovider.Record{}, fmt.Errorf("digitalocean: deleting the original Record %s failed or is unconfirmed; its replacement was not created: %w", current.ID, err)
+	if err := p.api().Write(ctx, http.MethodDelete, path, nil, nil, nil); err != nil {
+		return dnsprovider.Record{}, fmt.Errorf("digitalocean: deleting the original Record %s failed; its replacement was not created: %w", current.ID, err)
 	}
 
 	r, err := p.write(ctx, z, http.MethodPost, recordsPath(z), body, "")
@@ -358,7 +358,7 @@ func (p *Provider) replaceAtOwner(ctx context.Context, z dnsprovider.Zone, curre
 		return r, nil
 	}
 
-	failed := fmt.Errorf("digitalocean: the original Record %s was deleted; creating its replacement failed or is unconfirmed: %w", current.ID, err)
+	failed := fmt.Errorf("digitalocean: the original Record %s was deleted; creating its replacement failed: %w", current.ID, err)
 
 	restore, rerr := p.payload(z, current)
 	if rerr == nil {
@@ -384,5 +384,5 @@ func (p *Provider) DeleteRecord(ctx context.Context, z dnsprovider.Zone, r dnspr
 
 	path, _ := p.recordPath(z, r.ID)
 
-	return p.api().Do(ctx, http.MethodDelete, path, nil, nil, nil)
+	return p.api().Write(ctx, http.MethodDelete, path, nil, nil, nil)
 }

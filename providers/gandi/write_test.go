@@ -430,13 +430,58 @@ func TestMutationIsNeverRetriedAndReadbackFailureReportsWrittenState(t *testing.
 			if err == nil || got.ID != "" {
 				t.Fatalf("unconfirmed = %+v %v", got, err)
 			}
-			if (strings.Contains(mode, "readback") || mode == "authoritative-ttl") && !strings.Contains(err.Error(), "unconfirmed") {
+			if !errors.Is(err, dnsprovider.ErrUnconfirmed) {
 				t.Fatalf("lost written context: %v", err)
 			}
 			// Stored with another TTL than planned, or without the value:
 			// another write may have replaced this one.
 			if (mode == "missing-readback" || mode == "authoritative-ttl") != errors.Is(err, dnsprovider.ErrConflict) {
 				t.Fatalf("conflict = %v", err)
+			}
+		})
+	}
+}
+
+func TestAWriteWithoutAnAnswerIsUnconfirmedAndARefusedOneIsNot(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		answer      func(w http.ResponseWriter)
+		unconfirmed bool
+	}{
+		{"5xx", func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadGateway)
+			_, _ = w.Write([]byte(`{"code":502,"message":"bad gateway"}`))
+		}, true},
+		{"lost", func(w http.ResponseWriter) {
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			_ = conn.Close()
+		}, true},
+		{"4xx", func(w http.ResponseWriter) {
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"code":400,"message":"invalid value"}`))
+		}, false},
+		{"refused in a 200", func(w http.ResponseWriter) {
+			_, _ = w.Write([]byte(`{"code":403,"message":"denied"}`))
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writes := 0
+			s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != http.MethodGet {
+					writes++
+					tc.answer(w)
+					return
+				}
+				_, _ = w.Write([]byte(`[]`))
+			}))
+			defer s.Close()
+			p, err := gandi.New(gandi.Config{Token: "pat_test"}, dnsprovider.WithBaseURL(s.URL))
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Name: "www", Type: "A", Value: "192.0.2.1", TTL: 300})
+			if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) != tc.unconfirmed || writes != 1 {
+				t.Fatalf("write = %v, writes = %d, want unconfirmed: %v", err, writes, tc.unconfirmed)
 			}
 		})
 	}
@@ -623,13 +668,13 @@ func TestReadBackIgnoresValuesAnotherWriterAdded(t *testing.T) {
 	}
 }
 
-func TestReadBackMissingAnAddOrHoldingARemovalIsAConflict(t *testing.T) {
+func TestReadBackMissingAnAddOrHoldingARemovalIsAnUnconfirmedConflict(t *testing.T) {
 	f, p := newService(t, aSet("www", 300, "192.0.2.1", "192.0.2.2"))
 	f.acknowledgeOnly = true
-	if _, err := p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Name: "www", Type: "A", Value: "192.0.2.3", TTL: 300}); !errors.Is(err, dnsprovider.ErrConflict) {
+	if _, err := p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Name: "www", Type: "A", Value: "192.0.2.3", TTL: 300}); !errors.Is(err, dnsprovider.ErrConflict) || !errors.Is(err, dnsprovider.ErrUnconfirmed) {
 		t.Fatalf("missing add = %v", err)
 	}
-	if err := p.DeleteRecord(context.Background(), testZone, read(t, p)[0]); !errors.Is(err, dnsprovider.ErrConflict) {
+	if err := p.DeleteRecord(context.Background(), testZone, read(t, p)[0]); !errors.Is(err, dnsprovider.ErrConflict) || !errors.Is(err, dnsprovider.ErrUnconfirmed) {
 		t.Fatalf("held removal = %v", err)
 	}
 }
@@ -646,7 +691,7 @@ func TestAPatchRejectionIsReturnedWithoutFallingBackToDelete(t *testing.T) {
 			f, p := newService(t, aSet("www", 300, "192.0.2.1"))
 			f.fail, f.failStatus = "www/A", tc.status
 			err := p.DeleteRecord(context.Background(), testZone, read(t, p)[0])
-			if !errors.Is(err, tc.want) || !slices.Equal(f.writes, []string{"PATCH www/A"}) {
+			if !errors.Is(err, tc.want) || errors.Is(err, dnsprovider.ErrUnconfirmed) || !slices.Equal(f.writes, []string{"PATCH www/A"}) {
 				t.Fatalf("delete = %v, writes = %v", err, f.writes)
 			}
 		})

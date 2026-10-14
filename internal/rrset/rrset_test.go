@@ -170,6 +170,10 @@ func TestAMissingBeforeOrADuplicateFailsAloneWithTheSentinel(t *testing.T) {
 	if !errors.Is(res.Results[0].Err, dnsprovider.ErrNotFound) || !errors.Is(res.Results[1].Err, dnsprovider.ErrConflict) || res.Results[2].Err != nil {
 		t.Errorf("results = %+v", res.Results)
 	}
+
+	if errors.Is(res.Results[1].Err, dnsprovider.ErrUnconfirmed) {
+		t.Errorf("duplicate = %v, want no ErrUnconfirmed: nothing was written", res.Results[1].Err)
+	}
 }
 
 func TestAMoveAddsAtTheDestinationBeforeRemovingFromTheSource(t *testing.T) {
@@ -206,24 +210,24 @@ func TestAFailedWriteFailsItsGroupAndStopsIt(t *testing.T) {
 	}
 }
 
-func TestAWriteTheReadBackMissesIsAConflict(t *testing.T) {
+func TestAWriteTheReadBackMissesIsAnUnconfirmedConflict(t *testing.T) {
 	f := www()
 	f.drop = true
 	res := apply(t, f, dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: a("www.example.com", "192.0.2.3", 300)})
 
-	if !errors.Is(res.Results[0].Err, dnsprovider.ErrConflict) {
-		t.Errorf("result = %v, want ErrConflict", res.Results[0].Err)
+	if err := res.Results[0].Err; !errors.Is(err, dnsprovider.ErrConflict) || !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Errorf("result = %v, want ErrConflict and ErrUnconfirmed", err)
 	}
 }
 
-func TestAFailedReadBackIsUncertainNotAConflict(t *testing.T) {
+func TestAFailedReadBackIsUnconfirmedNotAConflict(t *testing.T) {
 	f := www()
 	f.readFail = errors.New("timeout")
 	res := apply(t, f, dnsprovider.Change{Kind: dnsprovider.ChangeAdd, After: a("www.example.com", "192.0.2.3", 300)})
 
 	err := res.Results[0].Err
-	if err == nil || errors.Is(err, dnsprovider.ErrConflict) || !strings.Contains(err.Error(), "unconfirmed") {
-		t.Errorf("result = %v, want an unconfirmed completion", err)
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || errors.Is(err, dnsprovider.ErrConflict) {
+		t.Errorf("result = %v, want ErrUnconfirmed only", err)
 	}
 }
 

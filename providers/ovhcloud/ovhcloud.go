@@ -278,6 +278,19 @@ func (p *Provider) restClient(auth func(*http.Request)) *rest.Client {
 // sent once more. The API refuses such a request before running it, so
 // even a POST is not repeated; a second refusal is returned.
 func (p *Provider) do(ctx context.Context, method, path string, q url.Values, body, out any) error {
+	return p.send(ctx, (*rest.Client).Do, method, path, q, body, out)
+}
+
+// write is do for a call that changes what the API holds: once sent, a
+// failure the API's answer does not refuse is an Unconfirmed Write
+// (rest.Client.Write).
+func (p *Provider) write(ctx context.Context, method, path string, q url.Values, body, out any) error {
+	return p.send(ctx, (*rest.Client).Write, method, path, q, body, out)
+}
+
+type sender func(c *rest.Client, ctx context.Context, method, path string, q url.Values, body, out any) error
+
+func (p *Provider) send(ctx context.Context, call sender, method, path string, q url.Values, body, out any) error {
 	lookup, err := p.syncClock(ctx)
 	if err != nil {
 		return err
@@ -285,7 +298,7 @@ func (p *Provider) do(ctx context.Context, method, path string, q url.Values, bo
 
 	api := p.restClient(p.sign)
 
-	err = api.Do(ctx, method, path, q, body, out)
+	err = call(api, ctx, method, path, q, body, out)
 	if !errors.Is(err, errClockRejected) {
 		return err
 	}
@@ -296,7 +309,7 @@ func (p *Provider) do(ctx context.Context, method, path string, q url.Values, bo
 		return errors.Join(err, syncErr)
 	}
 
-	return api.Do(ctx, method, path, q, body, out)
+	return call(api, ctx, method, path, q, body, out)
 }
 
 func (p *Provider) apiError(res *http.Response, body []byte) error {

@@ -90,29 +90,29 @@ func (p *Provider) stored(ctx context.Context, z dnsprovider.Zone, id string) (w
 	return w, nil
 }
 
-func (p *Provider) create(ctx context.Context, z dnsprovider.Zone, body map[string]any) (dnsprovider.Record, error) {
-	var w wireRecord
-	if _, err := p.data(ctx, http.MethodPost, p.recordPath(z), nil, body, &w); err != nil {
-		return dnsprovider.Record{}, unconfirmed("creation", err)
-	}
-	r, err := toRecord(z.Name, w)
-	return r, unconfirmed("creation", err)
-}
-
-// A lost or malformed mutation answer cannot prove whether DNS changed.
-func unconfirmed(operation string, err error) error {
-	if err == nil {
-		return nil
-	}
-	var apiErr *dnsprovider.APIError
-	if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
+// written is data for a write: an answer of success it cannot decode is
+// an Unconfirmed Write.
+func (p *Provider) written(ctx context.Context, method, path string, body, out any) error {
+	var raw []byte
+	if err := p.api().Write(ctx, method, path, nil, body, &raw); err != nil {
 		return err
 	}
-	return fmt.Errorf("dnsimple: Record %s outcome is unconfirmed; re-read Records before retrying: %w", operation, err)
+	_, err := decodeData(raw, path, out)
+	return dnsprovider.Unconfirmed(err)
+}
+
+func (p *Provider) create(ctx context.Context, z dnsprovider.Zone, body map[string]any) (dnsprovider.Record, error) {
+	var w wireRecord
+	if err := p.written(ctx, http.MethodPost, p.recordPath(z), body, &w); err != nil {
+		return dnsprovider.Record{}, err
+	}
+	r, err := toRecord(z.Name, w)
+	return r, dnsprovider.Unconfirmed(err)
 }
 
 // CreateRecord checks duplicates regardless of TTL and returns the API's
-// authoritative Record. POST is never retried after an uncertain response.
+// authoritative Record. POST is never retried: a lost answer is an
+// Unconfirmed Write.
 func (p *Provider) CreateRecord(ctx context.Context, z dnsprovider.Zone, r dnsprovider.Record) (dnsprovider.Record, error) {
 	body, err := p.payload(z, r)
 	if err != nil {
@@ -150,14 +150,14 @@ func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before,
 	if strings.EqualFold(current.Type, after.Type) {
 		delete(body, "type")
 		var w wireRecord
-		if _, err := p.data(ctx, http.MethodPatch, p.recordPath(z)+"/"+url.PathEscape(before.ID), nil, body, &w); err != nil {
-			return dnsprovider.Record{}, unconfirmed("update", err)
+		if err := p.written(ctx, http.MethodPatch, p.recordPath(z)+"/"+url.PathEscape(before.ID), body, &w); err != nil {
+			return dnsprovider.Record{}, err
 		}
 		if strconv.FormatUint(w.ID, 10) != before.ID {
-			return dnsprovider.Record{}, unconfirmed("update", errors.New("dnsimple: response names a different Record"))
+			return dnsprovider.Record{}, fmt.Errorf("dnsimple: response names a different Record: %w", dnsprovider.ErrUnconfirmed)
 		}
 		r, err := toRecord(z.Name, w)
-		return r, unconfirmed("update", err)
+		return r, dnsprovider.Unconfirmed(err)
 	}
 	// Do not resend the default global region: regional writes are plan gated.
 	// A non-default placement must transfer, or creation fails before deletion.
@@ -168,12 +168,12 @@ func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before,
 	// deleting first is unavoidable; a failed creation leaves a partial move.
 	deleteFirst := strings.EqualFold(*current.Name, body["name"].(string)) && (current.Type == "CNAME" || strings.EqualFold(after.Type, "CNAME"))
 	if deleteFirst {
-		if err := p.api().Do(ctx, http.MethodDelete, p.recordPath(z)+"/"+url.PathEscape(before.ID), nil, nil, nil); err != nil {
-			return dnsprovider.Record{}, fmt.Errorf("dnsimple: deleting original Record %s failed or is unconfirmed; replacement was not requested: %w", before.ID, err)
+		if err := p.api().Write(ctx, http.MethodDelete, p.recordPath(z)+"/"+url.PathEscape(before.ID), nil, nil, nil); err != nil {
+			return dnsprovider.Record{}, fmt.Errorf("dnsimple: deleting original Record %s failed; replacement was not requested: %w", before.ID, err)
 		}
 		replacement, err := p.create(ctx, z, body)
 		if err != nil {
-			return dnsprovider.Record{}, fmt.Errorf("dnsimple: original Record %s was deleted; replacement creation failed or is unconfirmed: %w", before.ID, err)
+			return dnsprovider.Record{}, fmt.Errorf("dnsimple: original Record %s was deleted; replacement creation failed: %w", before.ID, err)
 		}
 		return replacement, nil
 	}
@@ -181,7 +181,7 @@ func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before,
 	if err != nil {
 		return dnsprovider.Record{}, err
 	}
-	if err := p.api().Do(ctx, http.MethodDelete, p.recordPath(z)+"/"+url.PathEscape(before.ID), nil, nil, nil); err != nil {
+	if err := p.api().Write(ctx, http.MethodDelete, p.recordPath(z)+"/"+url.PathEscape(before.ID), nil, nil, nil); err != nil {
 		return replacement, fmt.Errorf("dnsimple: replacement Record %s was created; deleting original %s failed (both may remain): %w", replacement.ID, before.ID, err)
 	}
 	return replacement, nil
@@ -196,5 +196,5 @@ func (p *Provider) DeleteRecord(ctx context.Context, z dnsprovider.Zone, r dnspr
 	if restricted(current) {
 		return restriction()
 	}
-	return p.api().Do(ctx, http.MethodDelete, p.recordPath(z)+"/"+url.PathEscape(r.ID), nil, nil, nil)
+	return p.api().Write(ctx, http.MethodDelete, p.recordPath(z)+"/"+url.PathEscape(r.ID), nil, nil, nil)
 }

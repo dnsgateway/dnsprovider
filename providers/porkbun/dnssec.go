@@ -237,11 +237,11 @@ func (p *Provider) replaceDelegationSigners(ctx context.Context, z dnsprovider.Z
 }
 
 func (p *Provider) createDS(ctx context.Context, z dnsprovider.Zone, d dsValue) error {
-	return p.call(ctx, http.MethodPost, "/dns/createDnssecRecord/"+zonePath(z), nil, d.wire(), nil)
+	return p.write(ctx, http.MethodPost, "/dns/createDnssecRecord/"+zonePath(z), nil, d.wire(), nil)
 }
 
 // deleteDS deletes the registry's DS of a key tag; Porkbun answers
 // success when it holds none.
 func (p *Provider) deleteDS(ctx context.Context, z dnsprovider.Zone, tag uint16) error {
-	return p.call(ctx, http.MethodPost, "/dns/deleteDnssecRecord/"+zonePath(z)+"/"+strconv.Itoa(int(tag)), nil, map[string]any{}, nil)
+	return p.write(ctx, http.MethodPost, "/dns/deleteDnssecRecord/"+zonePath(z)+"/"+strconv.Itoa(int(tag)), nil, map[string]any{}, nil)
 }

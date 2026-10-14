@@ -278,13 +278,16 @@ func TestReplacementRestorationAndUncertainty(t *testing.T) {
 				defer func() { f.readFail = true }()
 			}
 			if mode == "lost-after-write" {
-				if len(f.writes) != 2 || len(f.records) != 1 || f.records[0]["name"] != "new.example.com" || !strings.Contains(err.Error(), "uncertain") {
+				if len(f.writes) != 2 || len(f.records) != 1 || f.records[0]["name"] != "new.example.com" || !errors.Is(err, dnsprovider.ErrUnconfirmed) {
 					t.Fatalf("uncertainty %+v %v", f.records, err)
 				}
 				return
 			}
 			if len(f.records) != 1 || f.records[0]["name"] != "old.example.com" || len(f.writes) != 3 || !strings.Contains(err.Error(), "restored") {
 				t.Fatalf("restore %+v %v", f.records, err)
+			}
+			if mode == "reject" && errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Fatalf("refused add = %v, want no ErrUnconfirmed", err)
 			}
 		})
 	}
@@ -302,7 +305,7 @@ func TestAcknowledgedReadbackAndFailedRemove(t *testing.T) {
 	}
 	f.fail["Domain/DnsRecord/Add"] = "acknowledged-read-failure"
 	_, err := p.CreateRecord(context.Background(), zone, dnsprovider.Record{Name: "txt", Type: "TXT", Value: "x", TTL: 300})
-	if err == nil || !strings.Contains(err.Error(), "acknowledged") || len(f.records) != 2 || len(f.writes) != 2 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || !strings.Contains(err.Error(), "acknowledged") || len(f.records) != 2 || len(f.writes) != 2 {
 		t.Fatalf("readback %v %+v", err, f.records)
 	}
 }
@@ -433,7 +436,7 @@ func TestNativeMXPriorityUpdateSelectsStoredTTLSibling(t *testing.T) {
 	}
 }
 
-func TestUncertainReplacementFailedReadDoesNotRestore(t *testing.T) {
+func TestUnconfirmedReplacementFailedReadDoesNotRestore(t *testing.T) {
 	p, fixture := newDNSFixture(t, rr("old.example.com", "A", "192.0.2.1", 300))
 	zone := dnsprovider.Zone{Name: "example.com"}
 	set, err := p.ListRecords(context.Background(), zone, dnsprovider.RecordFilter{})
@@ -444,7 +447,38 @@ func TestUncertainReplacementFailedReadDoesNotRestore(t *testing.T) {
 	after := set.Records[0]
 	after.Name = "new.example.com"
 	_, err = p.UpdateRecord(context.Background(), zone, set.Records[0], after)
-	if err == nil || !strings.Contains(err.Error(), "completion uncertain") || !strings.Contains(err.Error(), "readback failed") || len(fixture.writes) != 2 || len(fixture.records) != 0 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || !strings.Contains(err.Error(), "readback failed") || len(fixture.writes) != 2 || len(fixture.records) != 0 {
 		t.Fatalf("unsafe compensation or missing uncertainty: %v %+v", err, fixture.writes)
+	}
+}
+
+func TestAWriteAnsweredWithAServerErrorIsUnconfirmed(t *testing.T) {
+	for _, mode := range []string{"uncertain", "lost-after-write"} {
+		t.Run(mode, func(t *testing.T) {
+			p, f := newDNSFixture(t)
+			f.fail["Domain/DnsRecord/Add"] = mode
+			_, err := p.CreateRecord(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.Record{Name: "txt", Type: "TXT", Value: "x", TTL: 300})
+			if !errors.Is(err, dnsprovider.ErrUnconfirmed) || len(f.writes) != 1 {
+				t.Fatalf("create = %v, %d writes; want ErrUnconfirmed after one write", err, len(f.writes))
+			}
+		})
+	}
+}
+
+func TestAWriteRefusedInTheAnswerIsNotUnconfirmed(t *testing.T) {
+	p, f := newDNSFixture(t)
+	f.fail["Domain/DnsRecord/Add"] = "reject"
+	_, err := p.CreateRecord(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.Record{Name: "txt", Type: "TXT", Value: "x", TTL: 300})
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("refused create = %v, want an error without ErrUnconfirmed", err)
+	}
+}
+
+func TestAFailedReadIsNotUnconfirmed(t *testing.T) {
+	p, f := newDNSFixture(t)
+	f.readFail = true
+	_, err := p.ListRecords(context.Background(), dnsprovider.Zone{Name: "example.com"}, dnsprovider.RecordFilter{})
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("read = %v, want an error without ErrUnconfirmed", err)
 	}
 }

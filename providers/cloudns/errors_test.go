@@ -82,9 +82,66 @@ func TestMutationsAreNeverRetried(t *testing.T) {
 		default:
 			err = p.DeleteRecord(context.Background(), testZone, r)
 		}
-		if err == nil || attempts != 1 {
-			t.Fatalf("%s: attempts %d, error %v", path, attempts, err)
+		if !errors.Is(err, dnsprovider.ErrUnconfirmed) || attempts != 1 {
+			t.Fatalf("%s: attempts %d, error %v, want ErrUnconfirmed", path, attempts, err)
 		}
+	}
+}
+
+// writeAnswered creates a Record against a Provider whose add-record
+// command is answered by add.
+func writeAnswered(t *testing.T, add http.HandlerFunc) error {
+	t.Helper()
+	p := newProvider(t, func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/dns/records.json":
+			fmt.Fprint(w, `{}`)
+		case "/dns/get-available-ttl.json":
+			fmt.Fprint(w, `[300]`)
+		default:
+			add(w, r)
+		}
+	})
+	_, err := p.CreateRecord(context.Background(), testZone, dnsprovider.Record{Type: "A", Name: "new.example.com", Value: "192.0.2.1", TTL: 300})
+	return err
+}
+
+func TestAWriteWithALostOrMalformedAnswerIsUnconfirmed(t *testing.T) {
+	for name, add := range map[string]http.HandlerFunc{
+		"lost":      func(http.ResponseWriter, *http.Request) { panic(http.ErrAbortHandler) },
+		"malformed": func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `{"status":"mystery"}`) },
+		"not json":  func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, `not json`) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := writeAnswered(t, add); !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Fatalf("create = %v, want ErrUnconfirmed", err)
+			}
+		})
+	}
+}
+
+func TestAWriteTheAnswerRefusesIsNotUnconfirmed(t *testing.T) {
+	for name, status := range map[string]int{"in the answer": http.StatusOK, "4xx": http.StatusBadRequest} {
+		t.Run(name, func(t *testing.T) {
+			err := writeAnswered(t, func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(status)
+				fmt.Fprint(w, `{"status":"Failed","statusDescription":"Invalid record"}`)
+			})
+			if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+				t.Fatalf("refused create = %v, want an error without ErrUnconfirmed", err)
+			}
+		})
+	}
+}
+
+func TestAFailedReadIsNotUnconfirmed(t *testing.T) {
+	p := newProvider(t, func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		fmt.Fprint(w, `{"status":"Failed","statusDescription":"unavailable"}`)
+	})
+	_, err := p.ListRecords(context.Background(), testZone, dnsprovider.RecordFilter{})
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("read = %v, want an error without ErrUnconfirmed", err)
 	}
 }
 

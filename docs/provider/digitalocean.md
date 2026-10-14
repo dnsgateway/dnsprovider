@@ -100,8 +100,9 @@ validation errors.
 `CreateRecord` first lists the Zone's Records of the type, and fails with
 `ErrConflict` when one has the same name (ignoring case) and Value, whatever
 its TTL. It then POSTs once: creates are never retried automatically. A lost
-or failed-server answer is reported as an unconfirmed outcome; re-read the
-Records before retrying.
+or failed-server answer to any write is an Unconfirmed Write, an error
+matching `ErrUnconfirmed`; a 4xx answer is a plain failure: nothing was
+written.
 
 `UpdateRecord` finds `before` by its native ID (`ErrNotFound` when absent),
 checks that no other Record is identical to `after`, and writes the whole
@@ -120,8 +121,8 @@ remain.
 Successful writes return the Record as DigitalOcean answered it. An
 acknowledgement without a well-formed Record, empty or malformed, is read
 back (by ID, or for a create as the one Record of that content) without
-writing again; when that read fails, the error says the write was
-acknowledged and may have completed.
+writing again; when that read fails, the error is an Unconfirmed Write
+(`ErrUnconfirmed`).
 
 `dnsprovider.Apply` works through the common CRUD fallback: its stale check
 writes nothing when a modified or deleted Record changed, deletions,

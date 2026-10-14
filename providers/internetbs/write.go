@@ -95,22 +95,10 @@ func selectRecord(records []dnsprovider.Record, before dnsprovider.Record) (int,
 	return index, nil
 }
 
-func definitive(err error) bool {
-	var api *dnsprovider.APIError
-	return errors.As(err, &api) && api.StatusCode == 0
-}
-
-func mutationError(command string, err error) error {
-	if definitive(err) {
-		return fmt.Errorf("internetbs: %s rejected; %w", command, err)
-	}
-	return fmt.Errorf("internetbs: %s completion uncertain; refresh records: %w", command, err)
-}
-
 func (p *Provider) stored(ctx context.Context, zone dnsprovider.Zone, want dnsprovider.Record) (dnsprovider.Record, error) {
 	records, err := p.listRecords(ctx, zone)
 	if err != nil {
-		return dnsprovider.Record{}, fmt.Errorf("internetbs: mutation acknowledged but readback failed; refresh records: %w", err)
+		return dnsprovider.Record{}, fmt.Errorf("internetbs: mutation acknowledged but readback failed: %w; %w", err, dnsprovider.ErrUnconfirmed)
 	}
 	var matches []dnsprovider.Record
 	for _, r := range records {
@@ -119,7 +107,7 @@ func (p *Provider) stored(ctx context.Context, zone dnsprovider.Zone, want dnspr
 		}
 	}
 	if len(matches) != 1 {
-		return dnsprovider.Record{}, fmt.Errorf("internetbs: mutation acknowledged but readback missing or ambiguous (%d matches); refresh records", len(matches))
+		return dnsprovider.Record{}, fmt.Errorf("internetbs: mutation acknowledged but readback missing or ambiguous (%d matches): %w", len(matches), dnsprovider.ErrUnconfirmed)
 	}
 	return matches[0], nil
 }
@@ -140,8 +128,8 @@ func (p *Provider) CreateRecord(ctx context.Context, zone dnsprovider.Zone, r dn
 	if err := rejectConflict(records, r, -1); err != nil {
 		return dnsprovider.Record{}, err
 	}
-	if _, err := p.call(ctx, "Domain/DnsRecord/Add", params(r, "", false)); err != nil {
-		return dnsprovider.Record{}, mutationError("add", err)
+	if _, err := p.mutate(ctx, "Domain/DnsRecord/Add", params(r, "", false)); err != nil {
+		return dnsprovider.Record{}, fmt.Errorf("internetbs: add: %w", err)
 	}
 	return p.stored(ctx, zone, r)
 }
@@ -162,9 +150,9 @@ func (p *Provider) DeleteRecord(ctx context.Context, zone dnsprovider.Zone, befo
 	if !slices.Contains([]string{"A", "AAAA", "CNAME", "MX", "TXT", "NS"}, records[index].Type) {
 		return errors.New("internetbs: unsupported source record deletion")
 	}
-	_, err = p.call(ctx, "Domain/DnsRecord/Remove", params(records[index], "", true))
+	_, err = p.mutate(ctx, "Domain/DnsRecord/Remove", params(records[index], "", true))
 	if err != nil {
-		return mutationError("remove", err)
+		return fmt.Errorf("internetbs: remove: %w", err)
 	}
 	return nil
 }
@@ -201,8 +189,8 @@ func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, befo
 				form[k] = v
 			}
 		}
-		if _, err := p.call(ctx, "Domain/DnsRecord/Update", form); err != nil {
-			return dnsprovider.Record{}, mutationError("update", err)
+		if _, err := p.mutate(ctx, "Domain/DnsRecord/Update", form); err != nil {
+			return dnsprovider.Record{}, fmt.Errorf("internetbs: update: %w", err)
 		}
 		return p.stored(ctx, zone, after)
 	}
@@ -213,29 +201,29 @@ func (p *Provider) UpdateRecord(ctx context.Context, zone dnsprovider.Zone, befo
 }
 
 func (p *Provider) replace(ctx context.Context, zone dnsprovider.Zone, source, after dnsprovider.Record) (dnsprovider.Record, error) {
-	if _, err := p.call(ctx, "Domain/DnsRecord/Remove", params(source, "", true)); err != nil {
-		return dnsprovider.Record{}, mutationError("replacement remove", err)
+	if _, err := p.mutate(ctx, "Domain/DnsRecord/Remove", params(source, "", true)); err != nil {
+		return dnsprovider.Record{}, fmt.Errorf("internetbs: replacement remove: %w", err)
 	}
-	_, addErr := p.call(ctx, "Domain/DnsRecord/Add", params(after, "", false))
+	_, addErr := p.mutate(ctx, "Domain/DnsRecord/Add", params(after, "", false))
 	if addErr == nil {
 		return p.stored(ctx, zone, after)
 	}
-	if !definitive(addErr) {
+	if errors.Is(addErr, dnsprovider.ErrUnconfirmed) {
 		records, err := p.listRecords(ctx, zone)
 		if err != nil {
-			return dnsprovider.Record{}, fmt.Errorf("internetbs: replacement add completion uncertain; original removed; readback failed: %w", errors.Join(addErr, err))
+			return dnsprovider.Record{}, fmt.Errorf("internetbs: replacement add; original removed; readback failed: %w", errors.Join(addErr, err))
 		}
 		for _, r := range records {
 			if dnsprovider.SameRecord(r, after) || dnsprovider.SameRecord(r, source) {
-				return dnsprovider.Record{}, fmt.Errorf("internetbs: replacement add completion uncertain; no restoration attempted; refresh records: %w", addErr)
+				return dnsprovider.Record{}, fmt.Errorf("internetbs: replacement add; no restoration attempted: %w", addErr)
 			}
 		}
 	}
 	// A verified rejection or complete read proving both source and destination
 	// absent makes restoring the retained original safe to attempt once.
-	_, restoreErr := p.call(ctx, "Domain/DnsRecord/Add", params(source, "", true))
+	_, restoreErr := p.mutate(ctx, "Domain/DnsRecord/Add", params(source, "", true))
 	if restoreErr != nil {
-		return dnsprovider.Record{}, fmt.Errorf("internetbs: replacement failed; original removed; restoration failed (%s): %w", mutationError("restore", restoreErr), errors.Join(addErr, restoreErr))
+		return dnsprovider.Record{}, fmt.Errorf("internetbs: replacement failed; original removed; restoration failed: %w", errors.Join(addErr, restoreErr))
 	}
 	if _, err := p.stored(ctx, zone, source); err != nil {
 		return dnsprovider.Record{}, fmt.Errorf("internetbs: replacement failed; restoration acknowledged: %w", errors.Join(addErr, err))

@@ -71,9 +71,9 @@ There are no clear operations or implicit sub-Zone creation.
 A batch is not a transaction guarantee. Endpoint failures are whole-Changeset
 errors. Successful responses are matched to stored Records, with readback
 when insufficient; missing outcomes retain per-change errors and a whole
-error indicating the mutation may have completed. Server failures, lost
-responses and failed post-write reads also leave completion uncertain. Re-read
-Records before retrying; the adapter never automatically repeats PATCH or
+error, all Unconfirmed Writes matching `ErrUnconfirmed`. Server failures, lost
+responses and failed post-write reads are Unconfirmed Writes too; a 4xx answer
+is a plain failure. The adapter never automatically repeats PATCH or
 requests containing additions. API validation errors retain their status and
 message; 409 matches `ErrConflict`. GET uses shared bounded retries for 429
 and 5xx, honoring Retry-After. A conservative local limiter allows ten requests

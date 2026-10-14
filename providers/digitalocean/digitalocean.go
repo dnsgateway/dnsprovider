@@ -9,7 +9,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -202,19 +201,4 @@ func firstOf(s ...string) string {
 	}
 
 	return ""
-}
-
-// unconfirmed marks an error after a write was sent whose outcome is not
-// known: a lost, failed-server or malformed answer.
-func unconfirmed(operation string, err error) error {
-	if err == nil {
-		return nil
-	}
-
-	var apiErr *dnsprovider.APIError
-	if errors.As(err, &apiErr) && apiErr.StatusCode >= 400 && apiErr.StatusCode < 500 {
-		return err
-	}
-
-	return fmt.Errorf("digitalocean: Record %s outcome is unconfirmed; re-read Records before retrying: %w", operation, err)
 }

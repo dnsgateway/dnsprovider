@@ -37,7 +37,12 @@ Record needs main API credentials because the note endpoint documents only
 main-user authentication. A move with unfamiliar metadata fails before writes
 instead of silently discarding it. Same-type updates retain server metadata.
 `dnsprovider.Apply` supplies stale checks and CRUD execution/result ordering;
-changes are not atomic. Mutations are never automatically retried. Clients
+changes are not atomic. Mutations are never automatically retried. A
+mutation whose answer was lost, was a 5xx or was malformed, and an
+acknowledged one whose read-back failed or did not identify exactly one new
+Record, is an Unconfirmed Write matching `dnsprovider.ErrUnconfirmed`:
+re-read before retrying. A `Failed` status or a 4xx answer is a plain
+failure. Reads, POSTed like every command, are never unconfirmed. Clients
 share a conservative 10 requests/second pace and 600/minute budget per API
 endpoint, across credential identities, within the published per-IP quotas
 (20/second, 600/minute, 36,000/hour). Processes sharing an IP must also coordinate

@@ -129,11 +129,11 @@ func (p *Provider) create(ctx context.Context, z dnsprovider.Zone, q url.Values)
 	}
 	rs, err := p.ListRecords(ctx, z, dnsprovider.RecordFilter{})
 	if err != nil {
-		return dnsprovider.Record{}, fmt.Errorf("cloudns: create acknowledged but readback failed: %w", err)
+		return dnsprovider.Record{}, fmt.Errorf("cloudns: create acknowledged but readback failed: %w; %w", err, dnsprovider.ErrUnconfirmed)
 	}
 	expected, err := expectedRecord(z, q)
 	if err != nil {
-		return dnsprovider.Record{}, errors.New("cloudns: create acknowledged but expected record could not be decoded")
+		return dnsprovider.Record{}, fmt.Errorf("cloudns: create acknowledged but expected record could not be decoded: %w", dnsprovider.ErrUnconfirmed)
 	}
 	var found []dnsprovider.Record
 	for _, r := range rs.Records {
@@ -142,7 +142,7 @@ func (p *Provider) create(ctx context.Context, z dnsprovider.Zone, q url.Values)
 		}
 	}
 	if len(found) != 1 {
-		return dnsprovider.Record{}, errors.New("cloudns: create acknowledged but readback did not identify exactly one new Record; write may have succeeded")
+		return dnsprovider.Record{}, fmt.Errorf("cloudns: create acknowledged but readback did not identify exactly one new Record: %w", dnsprovider.ErrUnconfirmed)
 	}
 	return found[0], nil
 }
@@ -178,11 +178,11 @@ func (p *Provider) ack(ctx context.Context, path string, q url.Values) error {
 	var env struct {
 		Status string `json:"status"`
 	}
-	if err := p.call(ctx, path, q, &env); err != nil {
+	if err := p.write(ctx, path, q, &env); err != nil {
 		return err
 	}
 	if !strings.EqualFold(env.Status, "Success") {
-		return errors.New("cloudns: malformed mutation acknowledgement; write may have succeeded")
+		return fmt.Errorf("cloudns: malformed mutation acknowledgement: %w", dnsprovider.ErrUnconfirmed)
 	}
 	return nil
 }
@@ -212,7 +212,7 @@ func (p *Provider) UpdateRecord(ctx context.Context, z dnsprovider.Zone, before,
 	}
 	r, err := p.stored(ctx, z, before.ID)
 	if err != nil {
-		return dnsprovider.Record{}, fmt.Errorf("cloudns: update acknowledged but readback failed: %w", err)
+		return dnsprovider.Record{}, fmt.Errorf("cloudns: update acknowledged but readback failed: %w; %w", err, dnsprovider.ErrUnconfirmed)
 	}
 	return r, nil
 }
@@ -251,7 +251,7 @@ func (p *Provider) moveType(ctx context.Context, z dnsprovider.Zone, raw wireRec
 	}
 	stored, err := p.stored(ctx, z, created.ID)
 	if err != nil {
-		return dnsprovider.Record{}, fmt.Errorf("cloudns: replacement completed but readback failed: %w", err)
+		return dnsprovider.Record{}, fmt.Errorf("cloudns: replacement completed but readback failed: %w; %w", err, dnsprovider.ErrUnconfirmed)
 	}
 	return stored, nil
 }

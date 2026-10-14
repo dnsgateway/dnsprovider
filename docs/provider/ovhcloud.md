@@ -146,9 +146,15 @@ changes, and, joined to their own errors, an update whose read-back failed,
 a type move that was only partly staged and a write whose answer was lost.
 Changes the API refused keep their own errors, and the Changeset returns a
 whole-operation error. Nothing is rolled back or resubmitted: re-read and
-refresh again. A lost write answer is reported as unconfirmed and is never
-resubmitted; a Zone refresh still follows. A confirmed refresh means the
-service accepted publication, not that the change has propagated globally.
+refresh again. A confirmed refresh means the service accepted publication,
+not that the change has propagated globally.
+
+A write whose answer was lost or a 5xx, a create answer that cannot be
+read, an update whose read-back failed, and a failed refresh (with every
+`ErrUnpublished` it marks) are Unconfirmed Writes matching
+`dnsprovider.ErrUnconfirmed`. An unconfirmed write is never resubmitted; a
+Zone refresh still follows it. A write the API refused with a 4xx answer is
+a plain failure: nothing was staged.
 
 ## Rate limits and retries
 

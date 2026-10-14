@@ -32,7 +32,11 @@ without it leaves the stored notes as they are, and an empty value clears
 them, as Porkbun documents for its edit endpoints.
 Creates and updates read the stored Record back. `dnsprovider.Apply` provides
 stale checking and ordered CRUD with per-change results; changes are not atomic.
-Mutations are never automatically retried, including after an uncertain reply.
+Mutations are never automatically retried. A mutation whose answer was lost,
+was a 5xx or was malformed (a create without an ID among them), and one whose
+read-back failed, is an Unconfirmed Write matching `dnsprovider.ErrUnconfirmed`:
+re-read before retrying. An `ERROR` status or a 4xx answer is a plain
+failure. DS writes follow the same rule.
 
 The Provider is a registrar adapter (`dnsprovider.CapDSRegistrar`); its DS
 writes need the `domains` scope (or `full`), which `Account` does not check. `ListDelegationSigners` reads the registry's DS records with

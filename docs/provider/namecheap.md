@@ -14,9 +14,13 @@ same domain can lose each other's changes, on any record of the domain.
 After each write the adapter reads the hosts back and checks the
 Changeset's own effects: hosts it added or modified are present with their
 TTL, and hosts it deleted are gone. Hosts it did not touch are not
-compared. A miss fails the Changeset with an error matching `ErrConflict`:
-re-read the Zone and retry. The read-back catches only some losses: a write
-that replaces ours after our read-back goes undetected.
+compared. A miss fails the Changeset with an error matching both
+`ErrConflict` and `ErrUnconfirmed`. A read-back that fails, a `setHosts`
+whose answer is a server error, is lost, or does not say it succeeded, is
+an Unconfirmed Write matching `ErrUnconfirmed`: re-read the Zone before
+retrying. An ERROR answer refuses the write, and is not. The read-back
+catches only some losses: a write that replaces ours after our read-back
+goes undetected.
 
 Callers that need safe concurrent writes serialize them per Zone, for
 example with a lock in the Gateway.

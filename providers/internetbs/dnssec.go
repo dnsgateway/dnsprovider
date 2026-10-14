@@ -267,6 +267,6 @@ func (p *Provider) replaceDelegationSigners(ctx context.Context, z dnsprovider.Z
 		// SigningKey does not carry a TTL; use the reference's example TTL.
 		lines = append(lines, fmt.Sprintf("%s. 86400 IN %s %s", names.ZoneName(z.Name), r.typ, r.value))
 	}
-	_, err = p.command(ctx, "Domain/Update", url.Values{"Domain": {names.ZoneName(z.Name)}, "dnssec": {strings.Join(lines, "\n")}}, true)
+	_, err = p.command(ctx, "Domain/Update", url.Values{"Domain": {names.ZoneName(z.Name)}, "dnssec": {strings.Join(lines, "\n")}}, true, true)
 	return err
 }

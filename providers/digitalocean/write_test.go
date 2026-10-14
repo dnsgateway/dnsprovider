@@ -95,8 +95,46 @@ func TestCreateIsNeverAutomaticallyRetried(t *testing.T) {
 		s.handler(w, r)
 	})
 	_, err := p.CreateRecord(context.Background(), exampleZone, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300})
-	if err == nil || posts != 1 || !strings.Contains(err.Error(), "unconfirmed") {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || posts != 1 {
 		t.Fatalf("create: %v posts=%d", err, posts)
+	}
+}
+
+func TestAWriteWhoseAnswerIsLostIsUnconfirmed(t *testing.T) {
+	s := newRecords(t)
+	id := s.add(map[string]any{"type": "A", "name": "www", "data": "192.0.2.1", "ttl": 300})
+	p := provider(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			conn, _, _ := w.(http.Hijacker).Hijack()
+			conn.Close()
+			return
+		}
+		s.handler(w, r)
+	})
+	ctx := context.Background()
+	before := dnsprovider.Record{ID: strconv.Itoa(id), Type: "A", Name: "www.example.com", Value: "192.0.2.1", TTL: 300}
+	after := before
+	after.Value = "192.0.2.2"
+	if _, err := p.UpdateRecord(ctx, exampleZone, before, after); !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("update: %v", err)
+	}
+	if err := p.DeleteRecord(ctx, exampleZone, before); !errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("delete: %v", err)
+	}
+}
+
+func TestAWriteTheProviderRefusesIsNotUnconfirmed(t *testing.T) {
+	s := newRecords(t)
+	p := provider(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost {
+			s.fail(w, http.StatusUnprocessableEntity, "unprocessable_entity", "Record limit reached")
+			return
+		}
+		s.handler(w, r)
+	})
+	_, err := p.CreateRecord(context.Background(), exampleZone, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300})
+	if err == nil || errors.Is(err, dnsprovider.ErrUnconfirmed) {
+		t.Fatalf("refused create: %v", err)
 	}
 }
 
@@ -137,7 +175,7 @@ func TestFailedReadBackAfterAcknowledgedUpdateReportsCompletedWrite(t *testing.T
 	after := before
 	after.Value = "192.0.2.2"
 	_, err := p.UpdateRecord(context.Background(), exampleZone, before, after)
-	if err == nil || !strings.Contains(err.Error(), "acknowledged") || len(s.writes) != 1 {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || !strings.Contains(err.Error(), "acknowledged") || len(s.writes) != 1 {
 		t.Fatalf("update: %v writes=%v", err, s.writes)
 	}
 }
@@ -184,7 +222,7 @@ func TestMalformedAcknowledgementWithFailedReadBackReportsPossiblyCompletedWrite
 		s.handler(w, r)
 	})
 	_, err := p.CreateRecord(context.Background(), exampleZone, dnsprovider.Record{Type: "A", Name: "example.com", Value: "192.0.2.1", TTL: 300})
-	if err == nil || !strings.Contains(err.Error(), "acknowledged") {
+	if !errors.Is(err, dnsprovider.ErrUnconfirmed) || !strings.Contains(err.Error(), "acknowledged") {
 		t.Fatalf("malformed create: %v", err)
 	}
 }

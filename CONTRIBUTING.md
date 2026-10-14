@@ -1,5 +1,23 @@
 # Contributing
 
+## Adding a Provider
+
+Every new provider must have an entry in `.github/CODEOWNERS`. If you accept
+responsibility for maintaining the provider, add its directory path and your
+GitHub username:
+
+```text
+/providers/<provider-name>/ @your-github-username
+```
+
+If you do not want to take responsibility for maintaining the provider,
+you must still add its directory path with no owner and an `abandoned` comment:
+
+```text
+# abandoned
+/providers/<provider-name>/
+```
+
 ## Pull Requests
 
 ### Creating Pull Requests

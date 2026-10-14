@@ -1,0 +1,13 @@
+/providers/cloudflare/ @sergelogvinov
+/providers/cloudns/ @sergelogvinov
+/providers/digitalocean/ @sergelogvinov
+/providers/dnsimple/ @sergelogvinov
+/providers/gandi/ @sergelogvinov
+/providers/godaddy/ @sergelogvinov
+/providers/hetzner/ @sergelogvinov
+/providers/internetbs/ @sergelogvinov
+/providers/namecheap/ @sergelogvinov
+/providers/ovhcloud/ @sergelogvinov
+/providers/porkbun/ @sergelogvinov
+/providers/scaleway/ @sergelogvinov
+/providers/vultr/ @sergelogvinov

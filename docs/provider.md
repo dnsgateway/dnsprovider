@@ -50,6 +50,7 @@ dnsprovider/
     ├── hetzner/
     ├── internetbs/
     ├── namecheap/
+    ├── netim/
     ├── ovhcloud/
     ├── porkbun/
     ├── scaleway/
@@ -83,7 +84,7 @@ type Record struct {
 }
 ```
 
-Cloudflare, OVHcloud and GoDaddy assign record IDs. Namecheap, Gandi, Hetzner, and Internet.bs use content-derived
+Cloudflare, OVHcloud and GoDaddy assign record IDs. Namecheap, Gandi, Hetzner, Internet.bs, and Netim use content-derived
 keys, which change when the Record changes. Keep the whole Record as read
 for updates and deletions.
 
@@ -132,6 +133,7 @@ the `ExtraProxied` entry, as `ProxiableTypesOf(p)` does for a built Provider.
 | Hetzner | `labels` | json | No | all |
 | Internet.bs | `internetbs:wire_value` | string | No | CNAME, NS, MX |
 | Internet.bs | `*` (other API fields) | json | No | all |
+| Netim | `*` (other record options) | json | No | all |
 | Porkbun | `notes` | string | Yes | all |
 
 `TTLRangeOf(p)` reads the TTL range, with automatic TTL, from `p.Traits()`:
@@ -149,6 +151,7 @@ the `ExtraProxied` entry, as `ProxiableTypesOf(p)` does for a built Provider.
 | Scaleway | 60 | 2592000 | No; explicit TTL, as validated by the official Terraform provider |
 | Vultr | 30 | 86400 | No; the default range, as Vultr documents no bounds |
 | OVHcloud | 30 | 86400 | No; the default range, as OVHcloud documents no bounds; a native zero TTL inherits the Zone default and reads as that effective TTL |
+| Netim | 30 | 86400 | No; the default range, as Netim documents no bounds; a Record without a custom TTL reads as the Zone's TTL |
 
 `Traits.TTLRange()` reads the declared `TTL`, with a zero `TTL` standing
 for the default range; a Factory carries the same Traits, for a consumer
@@ -173,6 +176,7 @@ validates configuration without making a network call.
 | Scaleway | `SecretKey`, `ProjectID` | `secret_key` (secret), `project_id` |
 | Vultr | `APIKey` | `api_key` |
 | Internet.bs | `Key`, `Password` | `key`, `password` |
+| Netim | `ID` (reseller ID), `Secret` | `id`, `secret` (both secret) |
 | OVHcloud | `ApplicationKey`, `ApplicationSecret`, `ConsumerKey`, `Endpoint` | `application_key`, `application_secret`, `consumer_key` (all secret), `endpoint` (`ovh-eu` default, `ovh-ca`, `ovh-us`) |
 
 Cloudflare's Tenant ID must be 32 lower-case hex digits. Its constructor
@@ -396,7 +400,9 @@ the Delegation. Each adapter sends every key in the form its registrar takes,
 the DNSKEY or the DS, and returns `ErrUnsupported` when the registry refuses
 the key's algorithm, digest type or form for the domain. Porkbun implements
 it, sending the DS, and Gandi, sending the DNSKEY. Internet.bs sends the
-available DS and DNSKEY forms in one Registration update.
+available DS and DNSKEY forms in one Registration update. Netim sends a key's
+DNSKEY when it has one, and otherwise its DS, adding keys before removing
+them.
 
 ## Detailed Zone reads
 
@@ -670,6 +676,7 @@ Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:
 | Hetzner | `DNSPROVIDER_HETZNER_TOKEN` |
 | Internet.bs | `DNSPROVIDER_INTERNETBS_KEY`, `DNSPROVIDER_INTERNETBS_PASSWORD` |
 | Namecheap | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |
+| Netim | `DNSPROVIDER_NETIM_ID`, `DNSPROVIDER_NETIM_SECRET` |
 | OVHcloud | `DNSPROVIDER_OVHCLOUD_APPLICATION_KEY`, `DNSPROVIDER_OVHCLOUD_APPLICATION_SECRET`, `DNSPROVIDER_OVHCLOUD_CONSUMER_KEY`, optional `DNSPROVIDER_OVHCLOUD_ENDPOINT` |
 | Scaleway | `DNSPROVIDER_SCALEWAY_SECRET_KEY`, `DNSPROVIDER_SCALEWAY_PROJECT_ID` |
 | Vultr | `DNSPROVIDER_VULTR_API_KEY` |
@@ -688,6 +695,25 @@ form-encoded POST with body credentials and are never automatically retried.
 Registration state does not establish DNS Hosting State, which is Unknown.
 The adapter uses the common Apply CRUD fallback and content-derived Record
 IDs; retain the complete Before Record for later edits and deletion.
+
+## Netim
+
+[Netim setup and limitations](provider/netim.md) cover the reseller ID and
+API secret, OT&E, sessions, record reads and the sources the wire shapes
+come from. The adapter opens one Netim session per Provider with
+`POST /session/`, shares it between goroutines, reopens it once after a
+401, and ends it with the concrete `(*netim.Provider).Close`. Account
+verification reads `GET /session/`; discovery uses `POST /domains/` and
+`GET /domain/{name}/info/`; Records come from `GET /domain/{name}/zone/info/`.
+Hosting State is Unknown. Record IDs are content-derived. Creates send
+`POST /domain/{name}/zone/` and deletes `DELETE /domain/{name}/zone/`, each
+once; Netim's operation status decides between a confirmed write, a refusal
+and an Unconfirmed Write, and creates are read back. Updates of Value or TTL
+send one `PATCH /domain/{name}/zone/update/` and are read back; a move to
+another owner or type deletes and then creates, restoring the old Record when
+the create did not take. As a registrar adapter it reads and replaces the
+Signing Keys of domains on other DNS servers through
+`/domain/{name}/ds-record/`, adding keys before removing them.
 
 ## DigitalOcean
 

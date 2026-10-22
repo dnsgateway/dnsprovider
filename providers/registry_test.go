@@ -13,7 +13,7 @@ import (
 func TestRegistryHasOneFactoryPerProvider(t *testing.T) {
 	r := providers.Registry()
 
-	if got, want := r.Types(), []string{"cloudflare", "cloudns", "digitalocean", "dnsimple", "gandi", "godaddy", "hetzner", "internetbs", "namecheap", "ovhcloud", "porkbun", "scaleway", "vultr"}; !slices.Equal(got, want) {
+	if got, want := r.Types(), []string{"cloudflare", "cloudns", "digitalocean", "dnsimple", "gandi", "godaddy", "hetzner", "internetbs", "namecheap", "netim", "ovhcloud", "porkbun", "scaleway", "vultr"}; !slices.Equal(got, want) {
 		t.Fatalf("Types() = %v, want %v", got, want)
 	}
 
@@ -64,6 +64,7 @@ var validFields = map[string]map[string]string{
 	"porkbun":      {"key": "k", "secret": "s"},
 	"cloudns":      {"password": "s", "auth_id": "123"},
 	"namecheap":    {"user": "u", "key": "k", "client_ip": "192.0.2.1"},
+	"netim":        {"id": "r", "secret": "s"},
 	"vultr":        {"api_key": "k"},
 	"scaleway":     {"secret_key": "s", "project_id": "11111111-1111-4111-8111-111111111111"},
 }
@@ -169,6 +170,7 @@ func TestFactoryTTLRangesNeedNoProvider(t *testing.T) {
 	for typ, want := range map[string]dnsprovider.TTLRange{
 		"cloudflare": {Min: 60, Max: 86400, Auto: true},
 		"godaddy":    {Min: 600, Max: 86400},
+		"netim":      {Min: 30, Max: 86400},
 		"vultr":      {Min: 30, Max: 86400},
 	} {
 		if got := r[typ].TTLRange(); got != want {
@@ -231,6 +233,7 @@ func TestFactoriesDeclareTheRecordExtrasTheirProvidersRead(t *testing.T) {
 			{Key: "internetbs:wire_value", Label: "Wire value", Kind: s, Types: []string{"CNAME", "NS", "MX"}},
 			{Key: "*", Label: "Record metadata", Kind: j},
 		},
+		"netim":   {{Key: "*", Label: "Record options", Kind: j}},
 		"porkbun": {{Key: "notes", Label: "Notes", Kind: s, Writable: true}},
 	}
 

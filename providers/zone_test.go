@@ -28,6 +28,7 @@ func TestRegisteredProvidersDeclareTraitsIndependently(t *testing.T) {
 				"hetzner":    {dnsprovider.CapBatcher},
 				"internetbs": {dnsprovider.CapDSRegistrar},
 				"namecheap":  {dnsprovider.CapBatcher},
+				"netim":      {dnsprovider.CapDSRegistrar},
 				"ovhcloud":   {dnsprovider.CapBatcher},
 				"porkbun":    {dnsprovider.CapDSRegistrar},
 				"scaleway":   {dnsprovider.CapBatcher},
@@ -152,8 +153,8 @@ func TestDSRegistrarsRefuseSettingNoKeysWithoutNetworkTraffic(t *testing.T) {
 		}
 		s.Close()
 	}
-	if registrars != 3 {
-		t.Errorf("found %d DS registrars, want porkbun, gandi and internetbs", registrars)
+	if registrars != 4 {
+		t.Errorf("found %d DS registrars, want porkbun, gandi, internetbs and netim", registrars)
 	}
 }
 

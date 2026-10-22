@@ -105,6 +105,7 @@ linters:
       locale: US
       ignore-rules:
         - internetbs
+        - cancelled
     nolintlint:
       require-explanation: false
       require-specific: true

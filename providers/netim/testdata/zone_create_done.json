@@ -1,0 +1,8 @@
+{
+  "ID_OPE": 100001,
+  "STATUS": "Done",
+  "MESSAGE": "",
+  "TYPE": "domainZoneCreate",
+  "DATE": "2026-01-01 12:00:00",
+  "DATA": "example.com"
+}

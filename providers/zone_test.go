@@ -26,7 +26,7 @@ func TestRegisteredProvidersDeclareTraitsIndependently(t *testing.T) {
 				"gandi":      {dnsprovider.CapBatcher, dnsprovider.CapDSRegistrar},
 				"godaddy":    {dnsprovider.CapBatcher},
 				"hetzner":    {dnsprovider.CapBatcher},
-				"infomaniak": {dnsprovider.CapDSRegistrar},
+				"infomaniak": {dnsprovider.CapZoneUpdater, dnsprovider.CapDSRegistrar},
 				"internetbs": {dnsprovider.CapDSRegistrar},
 				"namecheap":  {dnsprovider.CapBatcher},
 				"netim":      {dnsprovider.CapDSRegistrar},

@@ -83,19 +83,21 @@ func TestFactoryRefusesUnknownFieldsAndABadAccountIDWithoutEchoingThem(t *testin
 	}
 }
 
-func TestTraitsDeclareDSRegistrarAndATTLRangeOf60To86400(t *testing.T) {
+func TestTraitsDeclareZoneUpdaterDSRegistrarAndATTLRangeOf60To86400(t *testing.T) {
 	p, err := infomaniak.New(infomaniak.Config{Token: "t"})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	tr := p.Traits()
-	if !slices.Equal(tr.Capabilities, []dnsprovider.Capability{dnsprovider.CapDSRegistrar}) || len(tr.Extras) != 0 {
-		t.Fatalf("Traits = %+v, want CapDSRegistrar alone and no Extras", tr)
+	if !slices.Equal(tr.Capabilities, []dnsprovider.Capability{dnsprovider.CapZoneUpdater, dnsprovider.CapDSRegistrar}) || len(tr.Extras) != 0 {
+		t.Fatalf("Traits = %+v, want CapZoneUpdater and CapDSRegistrar alone and no Extras", tr)
 	}
 
-	if !dnsprovider.Can(p, dnsprovider.CapDSRegistrar) {
-		t.Fatal("Can(p, CapDSRegistrar) = false")
+	for _, c := range []dnsprovider.Capability{dnsprovider.CapZoneUpdater, dnsprovider.CapDSRegistrar} {
+		if !dnsprovider.Can(p, c) {
+			t.Fatalf("Can(p, %s) = false", c)
+		}
 	}
 
 	if got, want := tr.TTLRange(), (dnsprovider.TTLRange{Min: 60, Max: 86400}); got != want {

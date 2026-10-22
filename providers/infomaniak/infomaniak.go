@@ -2,6 +2,9 @@
 // the domains of the token's Account are its Zones, and their records
 // are read, created, updated and deleted by native ID.
 //
+// UpdateZone switches DNSSEC on and off for a domain the Account
+// registers and Infomaniak serves; HSTS and minimum TLS are unsupported.
+//
 // As a registrar, it reads and replaces the Signing Keys of a
 // Registration on other nameservers.
 package infomaniak
@@ -43,7 +46,7 @@ const (
 type Config struct {
 	// Token is an API token with the domain:read and dns:read scopes;
 	// dns:write to create and delete records, and domain:write to set
-	// Signing Keys.
+	// Signing Keys or switch DNSSEC.
 	Token string
 	// AccountID, when set, is the positive integer ID of the Account
 	// whose domains are the Zones; empty means every Account the token
@@ -119,12 +122,13 @@ func Factory() dnsprovider.Factory {
 
 // traits are the Traits of every Provider, which Traits and Factory
 // report: TTLs from 60 to 86400 seconds, as Infomaniak's API schema
-// bounds them, without an automatic TTL; and the registrar's Signing
-// Keys of a Registration on other nameservers. Traits have no field for
+// bounds them, without an automatic TTL; the DNSSEC switch of UpdateZone;
+// and the registrar's Signing Keys of a Registration on other
+// nameservers. Traits have no field for
 // the write types; they are those of writable: the module's
 // EditableTypes but URI.
 var traits = dnsprovider.Traits{
-	Capabilities: []dnsprovider.Capability{dnsprovider.CapDSRegistrar},
+	Capabilities: []dnsprovider.Capability{dnsprovider.CapZoneUpdater, dnsprovider.CapDSRegistrar},
 	TTL:          dnsprovider.TTLRange{Min: 60, Max: 86400},
 }
 

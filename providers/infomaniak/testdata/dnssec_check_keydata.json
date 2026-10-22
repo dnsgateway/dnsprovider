@@ -1,0 +1,3 @@
+{"result":"success","data":{"has_dnssec":true,"dnssec_type":"keydata","dnssec_data":[
+  {"flags":"257","protocol":"3","algorithm":"13","public_key":"GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edbkrSqQpF64cYbcB7wNcP+e+MAnLr+Wi9xMWyQLc8NAA=="}
+ ],"ksk":{"algorithm":"","public_key":""}}}

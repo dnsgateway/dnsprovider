@@ -1,0 +1,3 @@
+{"result":"success","data":{"has_dnssec":true,"dnssec_type":"dsdata","dnssec_data":[
+  {"key":"55648","algorithm":"13","digest_type":"2","digest":"b4c8c1fe2e7477127b27115656ad6256f424625bf5c1e2770ce6d6e37df61d17"}
+ ],"ksk":{"algorithm":"","public_key":""}}}

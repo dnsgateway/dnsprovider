@@ -18,6 +18,8 @@ you must still add its directory path with no owner and an `abandoned` comment:
 /providers/<provider-name>/
 ```
 
+If the code was generated from API specifications and has not yet been tested, this must be clearly stated in the PR description.
+
 ## Pull Requests
 
 ### Creating Pull Requests

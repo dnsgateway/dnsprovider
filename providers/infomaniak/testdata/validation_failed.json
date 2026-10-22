@@ -1,0 +1,1 @@
+{"result":"error","error":{"code":"validation_failed","description":"Validation failed","errors":[{"code":"validation_rule_record_dns_ttl","description":"validation.record_dns_ttl","context":{"attribute":"ttl"}}]}}

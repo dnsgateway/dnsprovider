@@ -1,0 +1,6 @@
+{
+  "result": "success",
+  "data": [
+    {"id": 100004, "name": "example.net", "tld": "net", "status": ["ok"], "resale_status": "not_authorized", "is_premium": false, "created_at": 1702908000, "expires_at": 1734444000, "options": {"dns_anycast": false, "dnssec": true, "domain_privacy": false, "renewal_warranty": false}, "contacts": {}}
+  ]
+}

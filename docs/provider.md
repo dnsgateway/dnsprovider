@@ -48,6 +48,7 @@ dnsprovider/
     ├── gandi/
     ├── godaddy/
     ├── hetzner/
+    ├── infomaniak/
     ├── internetbs/
     ├── namecheap/
     ├── netim/
@@ -84,7 +85,7 @@ type Record struct {
 }
 ```
 
-Cloudflare, OVHcloud and GoDaddy assign record IDs. Namecheap, Gandi, Hetzner, Internet.bs, and Netim use content-derived
+Cloudflare, OVHcloud, GoDaddy and Infomaniak assign record IDs. Namecheap, Gandi, Hetzner, Internet.bs, and Netim use content-derived
 keys, which change when the Record changes. Keep the whole Record as read
 for updates and deletions.
 
@@ -151,6 +152,7 @@ the `ExtraProxied` entry, as `ProxiableTypesOf(p)` does for a built Provider.
 | Scaleway | 60 | 2592000 | No; explicit TTL, as validated by the official Terraform provider |
 | Vultr | 30 | 86400 | No; the default range, as Vultr documents no bounds |
 | OVHcloud | 30 | 86400 | No; the default range, as OVHcloud documents no bounds; a native zero TTL inherits the Zone default and reads as that effective TTL |
+| Infomaniak | 60 | 86400 | No; the bounds of Infomaniak's API schema |
 | Netim | 30 | 86400 | No; the default range, as Netim documents no bounds; a Record without a custom TTL reads as the Zone's TTL |
 
 `Traits.TTLRange()` reads the declared `TTL`, with a zero `TTL` standing
@@ -176,6 +178,7 @@ validates configuration without making a network call.
 | Scaleway | `SecretKey`, `ProjectID` | `secret_key` (secret), `project_id` |
 | Vultr | `APIKey` | `api_key` |
 | Internet.bs | `Key`, `Password` | `key`, `password` |
+| Infomaniak | `Token`, optional `AccountID` | `token` (secret), `account_id` (Tenant, a positive integer) |
 | Netim | `ID` (reseller ID), `Secret` | `id`, `secret` (both secret) |
 | OVHcloud | `ApplicationKey`, `ApplicationSecret`, `ConsumerKey`, `Endpoint` | `application_key`, `application_secret`, `consumer_key` (all secret), `endpoint` (`ovh-eu` default, `ovh-ca`, `ovh-us`) |
 
@@ -314,10 +317,11 @@ Provider.
 `ZoneCreator`, `ZoneUpdater`, and `ZoneDeleter` have been removed; use
 `Provider` instead.
 
-Cloudflare's `ZoneDetails` reads Zone Status and Signing Keys; every other
+Cloudflare's `ZoneDetails` reads Zone Status and Signing Keys, and
+Infomaniak's reads the DNSSEC State; every other
 built-in adapter embeds `dnsprovider.UnimplementedZoneDetails`, which reports
-each property unsupported without a request. Porkbun, Gandi, and Internet.bs
-declare `CapDSRegistrar`.
+each property unsupported without a request. Porkbun, Gandi, Internet.bs,
+Netim, and Infomaniak declare `CapDSRegistrar`.
 
 `CreateZone(ctx, name)` Onboards a name with `type: full` in the configured
 Tenant. It returns `ErrNoTenant` without a request when unscoped and
@@ -402,7 +406,10 @@ the key's algorithm, digest type or form for the domain. Porkbun implements
 it, sending the DS, and Gandi, sending the DNSKEY. Internet.bs sends the
 available DS and DNSKEY forms in one Registration update. Netim sends a key's
 DNSKEY when it has one, and otherwise its DS, adding keys before removing
-them.
+them. Infomaniak replaces the whole set in one call, all in one form: DS
+records when every key has some, DNSKEYs when every key has one, and
+otherwise DS records, computing the SHA-256 DS of a key given only as a
+DNSKEY; it does so only for a domain without an Infomaniak Zone.
 
 ## Detailed Zone reads
 
@@ -674,6 +681,7 @@ Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:
 | DigitalOcean | `DNSPROVIDER_DIGITALOCEAN_TOKEN` |
 | GoDaddy | `DNSPROVIDER_GODADDY_TOKEN` |
 | Hetzner | `DNSPROVIDER_HETZNER_TOKEN` |
+| Infomaniak | `DNSPROVIDER_INFOMANIAK_TOKEN`, optional `DNSPROVIDER_INFOMANIAK_ACCOUNT_ID` |
 | Internet.bs | `DNSPROVIDER_INTERNETBS_KEY`, `DNSPROVIDER_INTERNETBS_PASSWORD` |
 | Namecheap | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |
 | Netim | `DNSPROVIDER_NETIM_ID`, `DNSPROVIDER_NETIM_SECRET` |
@@ -695,6 +703,33 @@ form-encoded POST with body credentials and are never automatically retried.
 Registration state does not establish DNS Hosting State, which is Unknown.
 The adapter uses the common Apply CRUD fallback and content-derived Record
 IDs; retain the complete Before Record for later edits and deletion.
+
+## Infomaniak
+
+[Infomaniak setup and limitations](provider/infomaniak.md) cover the API
+token and its scopes, the optional `account_id`, Zones, records, errors, rate
+limits and the sources the wire shapes come from. Every call sends the token as
+a Bearer token to API v2 and is limited to 60 a minute per token. Account
+verification reads `GET /2/domains/domains?per_page=1`; discovery reads every
+page of `GET /2/domains/domains`, scoped by `account_id` when set, with
+`ZoneFilter.Contains` pushed down as `search`; `GetZone` reads
+`GET /2/zones/{name}`, and with `account_id` checks the domain list holds
+the name; Records come from every page of
+`GET /2/zones/{name}/records`. Hosting State is Unknown. A domain the Account
+registers without an Infomaniak Zone is `ErrNotServed`. Record IDs are
+Infomaniak's native IDs. `CreateRecord` checks a fresh list for a duplicate,
+then sends `POST /2/zones/{name}/records` once and returns the stored Record;
+`UpdateRecord` sends one `PUT /2/zones/{name}/records/{id}` for a change of
+Value or TTL, and moves a Record to another name or type by a create, then a
+delete, never undone; `DeleteRecord` sends
+`DELETE /2/zones/{name}/records/{id}`. A lost answer, a
+5xx, an undecodable success or an `asynchronous` result is an Unconfirmed
+Write. `ZoneDetails` reads the DNSSEC State from `dnssec.is_enabled` of
+`GET /2/zones/{name}`; HSTS, minimum TLS and Signing Keys are unsupported.
+As a registrar adapter it reads and replaces the Signing Keys of a
+Registration on other nameservers through
+`/2/domains/domains/{domain}/dnssec/check`, `enable` and `disable`; a domain
+with an Infomaniak Zone is `ErrUnsupported`.
 
 ## Netim
 

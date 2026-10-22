@@ -1,0 +1,8 @@
+{
+  "result": "success",
+  "data": [
+    {"id": 100001, "name": "example.ch", "tld": "ch", "status": ["ok"], "resale_status": "not_authorized", "is_premium": false, "created_at": 1702908000, "expires_at": 1734444000, "options": {"dns_anycast": false, "dnssec": true, "domain_privacy": null, "renewal_warranty": false}, "contacts": {}},
+    {"id": 100002, "name": "external-dns.com", "tld": "com", "status": ["clientTransferProhibited"], "resale_status": "not_authorized", "is_premium": false, "created_at": 1702908000, "expires_at": 1734444000, "options": {"dns_anycast": false, "dnssec": false, "domain_privacy": true, "renewal_warranty": null}, "contacts": {}},
+    {"id": 100003, "name": "example.org", "tld": "org", "status": ["ok"], "resale_status": "not_authorized", "is_premium": false, "created_at": 1702908000, "expires_at": 1734444000, "options": {"dns_anycast": false, "dnssec": false, "domain_privacy": false, "renewal_warranty": false}, "contacts": {}}
+  ]
+}

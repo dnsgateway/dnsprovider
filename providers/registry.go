@@ -12,6 +12,7 @@ import (
 	"github.com/dnsgateway/dnsprovider/providers/gandi"
 	"github.com/dnsgateway/dnsprovider/providers/godaddy"
 	"github.com/dnsgateway/dnsprovider/providers/hetzner"
+	"github.com/dnsgateway/dnsprovider/providers/infomaniak"
 	"github.com/dnsgateway/dnsprovider/providers/internetbs"
 	"github.com/dnsgateway/dnsprovider/providers/namecheap"
 	"github.com/dnsgateway/dnsprovider/providers/netim"
@@ -32,6 +33,7 @@ func Registry() dnsprovider.Registry {
 		"godaddy":      godaddy.Factory(),
 		"gandi":        gandi.Factory(),
 		"hetzner":      hetzner.Factory(),
+		"infomaniak":   infomaniak.Factory(),
 		"internetbs":   internetbs.Factory(),
 		"namecheap":    namecheap.Factory(),
 		"netim":        netim.Factory(),

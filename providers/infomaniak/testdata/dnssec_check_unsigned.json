@@ -1,0 +1,1 @@
+{"result":"success","data":{"has_dnssec":false,"dnssec_type":"dsdata","dnssec_data":[],"ksk":{"algorithm":"","public_key":""}}}

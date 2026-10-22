@@ -29,6 +29,7 @@ policies:
           - gandi
           - godaddy
           - hetzner
+          - infomaniak
           - internetbs
           - namecheap
           - netim

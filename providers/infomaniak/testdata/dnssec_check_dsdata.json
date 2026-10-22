@@ -1,0 +1,5 @@
+{"result":"success","data":{"has_dnssec":true,"dnssec_type":"dsdata","dnssec_data":[
+  {"key":"55648","algorithm":"13","digest_type":"1","digest":"0123456789abcdef0123456789abcdef01234567"},
+  {"key":"55648","algorithm":"13","digest_type":"2","digest":"b4c8c1fe2e7477127b27115656ad6256f424625bf5c1e2770ce6d6e37df61d17"},
+  {"key":"60485","algorithm":"5","digest_type":"1","digest":"2BB183AF5F22588179A53B0A98631FAD1A292118"}
+ ],"ksk":{"algorithm":"","public_key":""}}}

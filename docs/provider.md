@@ -310,8 +310,8 @@ then Pending, then the first listed Zone.
 ## Zone operations and optional settings reads
 
 Every Provider exposes Zone CRUD. Cloudflare declares support for all three
-Zone writes; other built-in adapters return `ErrNotImplemented` before any
-network request. Test support with `Can(p, CapZoneCreator)`,
+Zone writes, and Infomaniak for `UpdateZone` alone; other built-in adapters
+return `ErrNotImplemented` before any network request. Test support with `Can(p, CapZoneCreator)`,
 `CapZoneUpdater`, or `CapZoneDeleter`, then call the method directly on the
 Provider.
 `ZoneCreator`, `ZoneUpdater`, and `ZoneDeleter` have been removed; use
@@ -351,7 +351,8 @@ type ZoneUpdate struct {
 ```
 
 `Setting` is Unknown, Off, On, or Pending. DNSSEC may be Pending while
-Cloudflare signs or unsigns the Zone. `TLSVersion` is a string;
+Cloudflare signs or unsigns the Zone, or while Infomaniak's Zone does not yet
+show a switch it took. `TLSVersion` is a string;
 `TLSVersions` lists TLS10, TLS11, TLS12, and TLS13 in order. TLSUnknown is
 the empty string. Unknown settings and TLS versions display as `?`.
 
@@ -366,6 +367,9 @@ writes remain applied. An empty update reads the Zone Status, failing only
 when every read fails.
 HSTS writes preserve existing security-header fields, supplying a six-month
 max-age when enabling it without one. MinTLS accepts only `TLSVersions`.
+Infomaniak switches DNSSEC alone, for a domain the Account registers and
+Infomaniak serves; HSTS and then MinTLS, when set, fail in turn with
+`ErrUnsupported`, after DNSSEC is written or read.
 
 ```go
 type SigningKey struct {
@@ -726,6 +730,10 @@ delete, never undone; `DeleteRecord` sends
 5xx, an undecodable success or an `asynchronous` result is an Unconfirmed
 Write. `ZoneDetails` reads the DNSSEC State from `dnssec.is_enabled` of
 `GET /2/zones/{name}`; HSTS, minimum TLS and Signing Keys are unsupported.
+The Traits declare `CapZoneUpdater`: `UpdateZone` switches DNSSEC on or off
+with one `POST /2/domains/domains/{domain}/dnssec/enable` or `disable` of
+`{}`, sent once, for a domain the Account registers and Infomaniak serves,
+then reads the Zone again; HSTS and MinTLS are `ErrUnsupported`.
 As a registrar adapter it reads and replaces the Signing Keys of a
 Registration on other nameservers through
 `/2/domains/domains/{domain}/dnssec/check`, `enable` and `disable`; a domain

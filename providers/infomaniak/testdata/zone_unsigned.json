@@ -1,0 +1,1 @@
+{"result":"success","data":{"id":4242,"fqdn":"example.ch","dnssec":{"is_enabled":false},"nameservers":["ns11.infomaniak.ch","NS12.infomaniak.ch."]}}

@@ -5,9 +5,9 @@ Import `providers/infomaniak`, or use Registry key `infomaniak`. Typed
 Factory fields are `token` (secret) and `account_id`, the Tenant field.
 Constructors validate locally, without network calls: they reject an empty
 token or one holding whitespace, and an `account_id` that is not a positive
-integer, and their errors never echo the token. The one optional
-capability is `CapDSRegistrar`: no Zone writes, no TenantLister and no
-Batcher.
+integer, and their errors never echo the token. The optional
+capabilities are `CapZoneUpdater` and `CapDSRegistrar`: no Zone creates or
+deletes, no TenantLister and no Batcher.
 
 ```go
 p, err := infomaniak.New(infomaniak.Config{Token: token, AccountID: "12345"})
@@ -22,7 +22,8 @@ after 30 seconds); `WithLogger` receives retry diagnostics, never the token.
 
 The adapter reads, creates, updates and deletes Records.
 `ApplyChangeset` returns `ErrNotImplemented` without a request. `ZoneDetails`
-reads the DNSSEC State; see [Zone details](#zone-details). As a registrar
+reads the DNSSEC State, and `UpdateZone` switches it; see
+[Zone details](#zone-details) and [DNSSEC switch](#dnssec-switch). As a registrar
 adapter it reads and replaces a Registration's Signing Keys; see
 [Registration Signing Keys](#registration-signing-keys).
 
@@ -42,6 +43,7 @@ left unused for a year. Give it the scopes of the operations it will run:
 | `CreateRecord` | `GET /2/zones/{name}/records`, then `POST /2/zones/{name}/records` | `dns:read`, `dns:write` |
 | `DeleteRecord` | `DELETE /2/zones/{name}/records/{id}` | `dns:write` |
 | `ZoneDetails` | `GET /2/zones/{name}` | `dns:read` |
+| `UpdateZone` | `GET /2/zones/{name}`, `GET /2/domains/domains?search={name}`, then `POST /2/domains/domains/{name}/dnssec/enable` or `disable`, then `GET /2/zones/{name}` | `dns:read`, `domain:read`, `domain:write` |
 | `ListDelegationSigners` | `GET /2/domains/domains?search={domain}`, `GET /2/zones/{domain}`, `GET /2/domains/domains/{domain}/dnssec/check` | `domain:read`, `dns:read` |
 | `SetDelegationSigners` | as `ListDelegationSigners`, then `POST /2/domains/domains/{domain}/dnssec/enable` | `domain:read`, `dns:read`, `domain:write` |
 | `DeleteDelegationSigners` | `GET /2/domains/domains?search={domain}`, `GET /2/zones/{domain}`, `POST /2/domains/domains/{domain}/dnssec/disable` | `domain:read`, `dns:read`, `domain:write` |
@@ -113,6 +115,41 @@ the one the Delegation names is unknown (see below): a domain with an
 Infomaniak Zone whose Delegation names other nameservers is read as
 Infomaniak-served, and its State says nothing of the Zone those nameservers
 serve.
+
+## DNSSEC switch
+
+The Traits declare `CapZoneUpdater`. `UpdateZone` with `DNSSEC` set signs or
+unsigns a Zone through the registrar's DNSSEC calls, the inverse of the rule
+in [Registration Signing Keys](#registration-signing-keys):
+
+- A Zone Infomaniak does not hold is `ErrNotServed` when the Account
+  registers the domain, else `ErrNotFound`, as for `GetZone`.
+- A Zone Infomaniak holds for a domain the Account does not register is
+  `ErrUnsupported`: the DNSSEC calls are the registrar's, and Infomaniak has
+  no DNSSEC switch for a Zone it only hosts.
+
+Neither sends a write. Otherwise `true` sends one
+`POST /2/domains/domains/{name}/dnssec/enable` and `false` one
+`POST .../dnssec/disable`, each with `{}` and no `dnssec_data`. The call is
+sent once and never replayed, whatever the Zone's state: like Cloudflare,
+the adapter does not skip a switch to the state the Zone already reads. It
+follows the [Unconfirmed Write rules](#refusals-and-unconfirmed-writes): a
+lost answer, a 5xx (including `dnssec_management_failed`), an answer that
+does not decode or a `result` of `asynchronous` is `ErrUnconfirmed`; a 4xx,
+or a `result` of `error` in a 2xx, is a refusal. A failed switch returns
+every setting Unknown.
+
+The answer, `data: true`, holds no state, so the adapter reads the Zone
+again as `ZoneDetails` does: DNSSEC is the state asked for when
+`dnssec.is_enabled` shows it, Pending while it still shows the old one, and
+Unknown, without an error, when that read fails.
+
+`UpdateZone` processes DNSSEC, HSTS, then MinTLS. Infomaniak has no HSTS or
+minimum TLS setting, so either, when set, is `ErrUnsupported` and stops the
+update: DNSSEC is returned as written or read before it, HSTS Unknown and
+MinTLS `TLSUnknown`. A DNSSEC switch sent before it stays applied. A nil
+DNSSEC is read; an update setting nothing reads it, and fails when that read
+fails.
 
 ## Records
 
@@ -368,6 +405,10 @@ questions stay open:
 - Whether the domain list's `search` matches a substring of the name, as
   the adapter assumes, or only a prefix or the whole name. A narrower match
   would make a filtered `ListZones` miss Zones.
+- Whether an empty `dnssec/enable` on a domain Infomaniak serves makes
+  Infomaniak sign its Zone, and `dnssec/disable` unsign it. This is inferred
+  from the API document's wording that `dnssec_data` is "only necessary when
+  domain has external nameservers", and is to be captured by issue #83.
 - Whether `dnssec/enable` replaces the held set or adds to it (the adapter
   assumes it replaces), and which forms each registry takes: the schema's
   example, `"256 3 2 ABCDEFGH1234"`, reads as a DNSKEY.

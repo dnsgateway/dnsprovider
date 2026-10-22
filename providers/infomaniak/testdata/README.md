@@ -16,6 +16,7 @@ Replace these files with real captures when someone runs them with a token.
 | --- | --- | --- |
 | `domains.json` | `GET /2/domains/domains` | OpenAPI schema `api-domain_domain` (required fields only); `contacts` left empty. The fake adds the paging fields `total`, `page`, `pages` and `items_per_page`, which the OpenAPI `Pagination` schema says are "added when using query parameter `page`". |
 | `zone.json` | `GET /2/zones/{zone}` | OpenAPI schema `api_dns_zone` (`id`, `fqdn`, `dnssec`, `nameservers`). The nameservers are an assumed pair, one in upper case with a trailing dot to test normalisation. `dnssec.is_enabled` is `true`; the `false` form the ZoneDetails tests script is built the same way. |
+| `zone_unsigned.json` | `GET /2/zones/{zone}` | As `zone.json`, with `dnssec.is_enabled` `false`. |
 | `records.json` | `GET /2/zones/{zone}/records` | octodns-infomaniak `tests/fixtures/get_example.test.json` at `968f55c`, which looks like a real capture; addresses changed to RFC 5737/3849. The wildcard, quoted multi-string TXT, null MX and `Www` CNAME rows are hand-added: the quoted TXT form is unverified. |
 | `not_authorized.json` | any, HTTP 401 | Captured unauthenticated, 2026-10-22, with a bad token. |
 | `zone_does_not_exists.json` | `GET /2/zones/{zone}`, HTTP 404 | Code from the OpenAPI document; description `SYNTHETIC:`. |
@@ -36,7 +37,7 @@ Replace these files with real captures when someone runs them with a token.
 | `dnssec_check_rfc6605_ds.json` | same | As above, the RFC 6605 SHA-256 DS alone. |
 | `dnssec_check_keydata.json` | same | Same schema, key data: RFC 6605 section 6.1's DNSKEY, of key tag 55648. |
 | `dnssec_check_unsigned.json` | same | Same schema, `has_dnssec` false. |
-| `dnssec_done.json` | `POST .../dnssec/enable` and `.../disable` | OpenAPI: `data` `true`. |
+| `dnssec_done.json` | `POST .../dnssec/enable` and `.../disable` | OpenAPI: `data` `true`. Served for the Signing Key writes and for `UpdateZone`'s empty enable and disable alike. |
 | `dnssec_management_failed.json` | DNSSEC calls, HTTP 500 | Code from the OpenAPI document; description `SYNTHETIC:`. |
 
 Domains are `example.ch`, `external-dns.com` (registered, without an

@@ -34,7 +34,7 @@ such as reading all pages of a record list and following rate limits.
 
 Some features depend on the provider. Cloudflare supports creating and deleting
 zones, changing zone settings, and reading Signing Keys for DNSSEC. Porkbun,
-Gandi, and Internet.bs support reading and changing DNSSEC Delegation Signer
+Gandi, Internet.bs, and Netim support reading and changing DNSSEC Delegation Signer
 (DS) records at the registrar. Check the provider documentation for available
 features, supported record types, and limits.
 
@@ -55,6 +55,7 @@ Each link covers setup, features, and limitations.
 - [Hetzner](docs/provider/hetzner.md)
 - [Internet.bs](docs/provider/internetbs.md)
 - [Namecheap](docs/provider/namecheap.md)
+- [Netim](docs/provider/netim.md)
 - [OVHcloud](docs/provider/ovhcloud.md)
 - [Porkbun](docs/provider/porkbun.md)
 - [Scaleway](docs/provider/scaleway.md)

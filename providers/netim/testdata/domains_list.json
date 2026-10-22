@@ -1,0 +1,17 @@
+[
+  {
+    "domain": "example.com",
+    "dateCreate": "2024-01-15",
+    "dateExpiration": "2027-01-15"
+  },
+  {
+    "domain": "example.net",
+    "dateCreate": "2023-06-01",
+    "dateExpiration": "2026-12-01"
+  },
+  {
+    "domain": "example.org",
+    "dateCreate": "2025-03-10",
+    "dateExpiration": "2026-03-10"
+  }
+]

@@ -1,0 +1,23 @@
+{
+  "domain": "example.net",
+  "dateCreate": "2024-01-15",
+  "dateExpiration": "2027-01-15",
+  "dateMinRenew": "2026-01-15",
+  "dateMaxRenew": "2027-02-14",
+  "dateMaxRestore": "2027-03-16",
+  "status": "ACTIVE, DELEGATED",
+  "idOwner": "FAKE0001",
+  "idAdmin": "FAKE0002",
+  "idTech": "FAKE0003",
+  "idBilling": "FAKE0004",
+  "domainIsLock": 1,
+  "whoisPrivacy": 0,
+  "autoRenew": 0,
+  "ns": [
+    "ns1.dns-host.example",
+    "ns2.dns-host.example"
+  ],
+  "authID": "FAKE-AUTHID",
+  "IsSigned": 0,
+  "HasDNS4Service": 0
+}

@@ -19,6 +19,11 @@ func Env(typ, field string) string {
 	return "DNSPROVIDER_" + strings.ToUpper(typ) + "_" + strings.ToUpper(field)
 }
 
+// closer is a Provider that holds a session to end when done.
+type closer interface {
+	Close(ctx context.Context) error
+}
+
 // Run builds a Provider from its Factory's fields, read from the
 // environment (see Env), and reads its Account, its Zones, the first of
 // them by name and its Records, unfiltered and then filtered by the
@@ -27,7 +32,8 @@ func Env(typ, field string) string {
 // Tenants has them listed too. Every read must be a Full View, not a
 // Partial View: the Providers here do not report one.
 // DNSPROVIDER_<TYPE>_BASE_URL may point it at another endpoint, such as a
-// sandbox.
+// sandbox. A Provider with a Close(ctx) method, such as Netim's, which
+// holds a session, is closed when the test ends.
 func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 	t.Helper()
 
@@ -52,6 +58,17 @@ func Run(t *testing.T, typ string, f dnsprovider.Factory) {
 	p, err := f.New(fields, opts...)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	if c, ok := p.(closer); ok {
+		t.Cleanup(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+			defer cancel()
+
+			if err := c.Close(ctx); err != nil {
+				t.Errorf("Close: %v", err)
+			}
+		})
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)

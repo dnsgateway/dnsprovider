@@ -1,0 +1,106 @@
+{
+  "domain": "example.com",
+  "status": "ACTIVE",
+  "signed": false,
+  "ttl": 3,
+  "ttlUnit": "H",
+  "refresh": 6,
+  "refreshUnit": "H",
+  "retry": 1,
+  "retryUnit": "H",
+  "expire": 7,
+  "expireUnit": "D",
+  "minimum": 5,
+  "minimumUnit": "M",
+  "records": [
+    {
+      "subdomain": "",
+      "type": "A",
+      "value": "192.0.2.10",
+      "options": {
+        "ttl": 3,
+        "ttlUnit": "H",
+        "customTtl": false
+      }
+    },
+    {
+      "subdomain": "www",
+      "type": "AAAA",
+      "value": "2001:db8::10",
+      "options": {
+        "ttl": 3,
+        "ttlUnit": "H",
+        "customTtl": false
+      }
+    },
+    {
+      "subdomain": "blog",
+      "type": "CNAME",
+      "value": "www.example.com.",
+      "options": {
+        "ttl": 300,
+        "ttlUnit": "S",
+        "customTtl": true
+      }
+    },
+    {
+      "subdomain": "@",
+      "type": "MX",
+      "value": "mail.example.com.",
+      "options": {
+        "ttl": 3,
+        "ttlUnit": "H",
+        "customTtl": false,
+        "priority": 10
+      }
+    },
+    {
+      "subdomain": "",
+      "type": "TXT",
+      "value": "v=spf1 include:_spf.example.net ~all",
+      "options": {
+        "ttl": 3,
+        "ttlUnit": "H",
+        "customTtl": false
+      }
+    },
+    {
+      "subdomain": "sub",
+      "type": "NS",
+      "value": "ns1.dns-host.example.",
+      "options": {
+        "ttl": 1,
+        "ttlUnit": "D",
+        "customTtl": true
+      }
+    },
+    {
+      "subdomain": "",
+      "type": "SRV",
+      "value": "sip.example.com.",
+      "options": {
+        "ttl": 3,
+        "ttlUnit": "H",
+        "customTtl": false,
+        "service": "sip",
+        "protocol": "TCP",
+        "priority": 10,
+        "weight": 60,
+        "port": 5060
+      }
+    },
+    {
+      "subdomain": "_25._tcp.mail",
+      "type": "TLSA",
+      "value": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+      "options": {
+        "ttl": 3,
+        "ttlUnit": "H",
+        "customTtl": false,
+        "certificateUsage": 3,
+        "selector": 1,
+        "matchingType": 1
+      }
+    }
+  ]
+}

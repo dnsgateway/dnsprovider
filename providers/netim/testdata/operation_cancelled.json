@@ -1,0 +1,8 @@
+{
+  "ID_OPE": 100007,
+  "STATUS": "Cancelled",
+  "MESSAGE": "SYNTHETIC: operation cancelled (real Netim text unknown, do not match on it)",
+  "TYPE": "domainZoneCreate",
+  "DATE": "2026-01-01 12:04:00",
+  "DATA": "example.com"
+}

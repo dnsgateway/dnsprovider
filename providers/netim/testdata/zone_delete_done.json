@@ -1,0 +1,8 @@
+{
+  "ID_OPE": 100005,
+  "STATUS": "Done",
+  "MESSAGE": "",
+  "TYPE": "domainZoneDelete",
+  "DATE": "2026-01-01 12:02:00",
+  "DATA": "example.com"
+}

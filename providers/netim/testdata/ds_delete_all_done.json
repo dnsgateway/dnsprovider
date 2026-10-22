@@ -1,0 +1,8 @@
+{
+  "ID_OPE": 200003,
+  "STATUS": "Done",
+  "MESSAGE": "",
+  "TYPE": "domainDSRecordDeleteAll",
+  "DATE": "2026-01-01 13:02:00",
+  "DATA": "example.net"
+}

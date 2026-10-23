@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"context"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/dnssec"
 )
 
 // dsWire is one DS record as the Porkbun DNSSEC API carries it, every
@@ -34,17 +34,27 @@ type dsValue struct {
 	digest string
 }
 
-// parseDS reads a DS from its fields as text, from the API or from a
-// SigningKey.
+// parseDS reads a DS from its fields as text, from the API.
 func parseDS(tag, alg, digestType, digest string) (dsValue, error) {
-	t, errT := strconv.ParseUint(tag, 10, 16)
-	a, errA := strconv.ParseUint(alg, 10, 8)
-	d, errD := strconv.ParseUint(digestType, 10, 8)
-	b, errH := hex.DecodeString(digest)
-	if errors.Join(errT, errA, errD, errH) != nil || len(b) == 0 {
-		return dsValue{}, errors.New("porkbun: malformed DS record")
+	s, err := dsOf(strings.Join([]string{tag, alg, digestType, digest}, " "))
+	if err != nil {
+		return dsValue{}, err
 	}
-	return dsValue{keyTag: uint16(t), alg: uint8(a), digestType: uint8(d), digest: strings.ToUpper(hex.EncodeToString(b))}, nil
+	return valueOf(s), nil
+}
+
+// dsOf checks a DS in presentation form after its type.
+func dsOf(value string) (dnssec.Signer, error) {
+	s, err := dnssec.Parse(dnssec.DS, value)
+	if err != nil {
+		return dnssec.Signer{}, fmt.Errorf("porkbun: %w", err)
+	}
+	return s, nil
+}
+
+// valueOf is a checked DS as a dsValue.
+func valueOf(s dnssec.Signer) dsValue {
+	return dsValue{keyTag: s.Tag, alg: s.Algorithm, digestType: s.DigestType, digest: strings.Fields(s.Value)[3]}
 }
 
 // String is the DS in presentation form after the type.
@@ -108,30 +118,31 @@ func (p *Provider) ListDelegationSigners(ctx context.Context, z dnsprovider.Zone
 
 // dsToSend is the DS Porkbun is sent for a key: its SHA-256 one, or its
 // first when it has none. Porkbun takes only a DS, one per key tag, and
-// this module has no way to compute one from a DNSKEY.
+// this module has no way to compute one from a DNSKEY. A DS of an
+// algorithm or digest type no registry takes is ErrUnsupported.
 func dsToSend(k dnsprovider.SigningKey) (dsValue, error) {
-	var ds []dsValue
-	for _, s := range k.DS {
-		f := strings.Fields(s)
-		if len(f) < 4 {
-			return dsValue{}, fmt.Errorf("porkbun: malformed DS record %q", s)
-		}
-		d, err := parseDS(f[0], f[1], f[2], strings.Join(f[3:], ""))
+	var ds []dnssec.Signer
+	for _, v := range k.DS {
+		s, err := dsOf(v)
 		if err != nil {
 			return dsValue{}, err
 		}
-		if d.keyTag != k.KeyTag {
-			return dsValue{}, fmt.Errorf("porkbun: DS record %q is not of key tag %d", s, k.KeyTag)
+		if s.Tag != k.KeyTag {
+			return dsValue{}, fmt.Errorf("porkbun: DS record %q is not of key tag %d", v, k.KeyTag)
 		}
-		ds = append(ds, d)
+		ds = append(ds, s)
 	}
 	if len(ds) == 0 {
 		return dsValue{}, fmt.Errorf("porkbun: key tag %d has no DS record, the only form Porkbun takes: %w", k.KeyTag, dnsprovider.ErrUnsupported)
 	}
-	if i := slices.IndexFunc(ds, func(d dsValue) bool { return d.digestType == 2 }); i >= 0 {
-		return ds[i], nil
+	s := ds[0]
+	if i := slices.IndexFunc(ds, func(s dnssec.Signer) bool { return s.DigestType == 2 }); i >= 0 {
+		s = ds[i]
 	}
-	return ds[0], nil
+	if err := s.Sendable(); err != nil {
+		return dsValue{}, fmt.Errorf("porkbun: %w", err)
+	}
+	return valueOf(s), nil
 }
 
 // diffDS plans a replace by key tag, each list ordered by key tag: added

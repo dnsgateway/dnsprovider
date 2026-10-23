@@ -4,17 +4,16 @@ import (
 	"cmp"
 	"context"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/dnsgateway/dnsprovider"
+	"github.com/dnsgateway/dnsprovider/internal/dnssec"
 	"github.com/dnsgateway/dnsprovider/internal/names"
 )
 
@@ -45,15 +44,14 @@ func dnskeysPath(z dnsprovider.Zone) string {
 // returns its public key, flags 257 for a key of type gandiKSK and 256
 // for any other, and its DS.
 func (w wireKey) signingKey() (dnsprovider.SigningKey, error) {
-	digest, err := hex.DecodeString(w.Digest)
-	if w.KeyTag == nil || w.Algorithm == nil || w.DigestType == nil || err != nil || len(digest) == 0 ||
-		*w.KeyTag < 0 || *w.KeyTag > 0xFFFF || *w.Algorithm < 0 || *w.Algorithm > 0xFF || *w.DigestType < 0 || *w.DigestType > 0xFF {
+	if w.KeyTag == nil || w.Algorithm == nil || w.DigestType == nil {
 		return dnsprovider.SigningKey{}, errors.New("gandi: malformed signing key")
 	}
-	k := dnsprovider.SigningKey{
-		KeyTag: uint16(*w.KeyTag),
-		DS:     []string{fmt.Sprintf("%d %d %d %s", *w.KeyTag, *w.Algorithm, *w.DigestType, strings.ToUpper(hex.EncodeToString(digest)))},
+	ds, err := dnssec.Parse(dnssec.DS, fmt.Sprintf("%d %d %d %s", *w.KeyTag, *w.Algorithm, *w.DigestType, w.Digest))
+	if err != nil {
+		return dnsprovider.SigningKey{}, fmt.Errorf("gandi: malformed signing key: %w", err)
 	}
+	k := dnsprovider.SigningKey{KeyTag: ds.Tag, DS: []string{ds.Value}}
 	if w.PublicKey != "" {
 		flags := 256
 		if w.Type == gandiKSK {
@@ -146,19 +144,20 @@ func (w wireKey) compared() comparedKey {
 
 // keyToSend is the key Gandi is sent for a Signing Key: its DNSKEY's
 // algorithm and public key, of type gandiKSK, the key the DS of a
-// Delegation names. Gandi takes no DS.
+// Delegation names. Gandi takes no DS, and no DNSKEY of an algorithm
+// DNSSEC does not sign with.
 func keyToSend(k dnsprovider.SigningKey) (comparedKey, error) {
-	f := strings.Fields(k.DNSKEY)
-	if len(f) < 4 {
+	if k.DNSKEY == "" {
 		return comparedKey{}, fmt.Errorf("gandi: key tag %d has no DNSKEY, the only form Gandi takes: %w", k.KeyTag, dnsprovider.ErrUnsupported)
 	}
-	alg, err := strconv.ParseUint(f[2], 10, 8)
-	pub := strings.Join(f[3:], "")
-	if _, errB := base64.StdEncoding.DecodeString(pub); err != nil || errB != nil || f[1] != "3" {
-		return comparedKey{}, fmt.Errorf("gandi: malformed DNSKEY %q", k.DNSKEY)
+	s, err := dnssec.Parse(dnssec.DNSKEY, k.DNSKEY)
+	if err != nil {
+		return comparedKey{}, fmt.Errorf("gandi: %w", err)
 	}
-	a := int(alg)
-	return wireKey{Algorithm: &a, Type: gandiKSK, PublicKey: pub}.compared(), nil
+	if err := s.Sendable(); err != nil {
+		return comparedKey{}, fmt.Errorf("gandi: %w", err)
+	}
+	return comparedKey{Algorithm: int(s.Algorithm), Type: gandiKSK, PublicKey: strings.Fields(s.Value)[3]}, nil
 }
 
 // canonicalKey is a base64 public key in standard padded form, so two

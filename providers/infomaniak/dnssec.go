@@ -166,38 +166,6 @@ func (p *Provider) ListDelegationSigners(ctx context.Context, zone dnsprovider.Z
 	return keys, nil
 }
 
-// same reports whether the held entries are the wanted keys: each held
-// entry is a form of a wanted key, and each wanted key has a held form.
-func same(domain string, held []dnssec.Signer, want []dnssec.Key) bool {
-	heldIDs := map[string]bool{}
-	wantIDs := map[string]bool{}
-
-	for _, h := range held {
-		for _, id := range h.Identities(domain) {
-			heldIDs[id] = true
-		}
-	}
-
-	for _, w := range want {
-		ids := w.Identities(domain)
-		if !slices.ContainsFunc(ids, func(id string) bool { return heldIDs[id] }) {
-			return false
-		}
-
-		for _, id := range ids {
-			wantIDs[id] = true
-		}
-	}
-
-	for _, h := range held {
-		if !slices.ContainsFunc(h.Identities(domain), func(id string) bool { return wantIDs[id] }) {
-			return false
-		}
-	}
-
-	return true
-}
-
 // dnssecData is the whole set in one form, as the check call reports one
 // form for a set: every key's DS records when each key has some, else
 // every key's DNSKEY when each has one, else each key's DS records or,
@@ -261,7 +229,7 @@ func (p *Provider) SetDelegationSigners(ctx context.Context, zone dnsprovider.Zo
 		return err
 	}
 
-	if same(domain, hs, want) {
+	if dnssec.Diff(domain, hs, func(s dnssec.Signer) []dnssec.Signer { return []dnssec.Signer{s} }, want).Same() {
 		return nil
 	}
 

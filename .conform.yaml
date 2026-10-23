@@ -11,6 +11,8 @@ policies:
       dco: true
       spellcheck:
         locale: US
+        ignore-rules:
+          - internetbs
       maximumOfOneCommit: true
       conventional:
         types:

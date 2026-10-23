@@ -1,7 +1,7 @@
 // Package dnssec holds the DNSSEC handling registrar adapters share: a
 // DNSKEY's key tag and DS digests, the algorithms and digest types a
-// registry can take, and the parsing, checking and grouping of the DS
-// and DNSKEY records of Signing Keys.
+// registry can take, and the parsing, checking, grouping and diffing of
+// the DS and DNSKEY records of Signing Keys.
 package dnssec
 
 import (
@@ -336,4 +336,62 @@ func CheckKeys(keys []dnsprovider.SigningKey) ([]Key, error) {
 	}
 
 	return out, nil
+}
+
+// Plan is how the Signing Keys a registry holds differ from the Keys to
+// set: Add are the indexes of the wanted Keys no held entry is a form
+// of, in Key order, and Remove those of the held entries that are a form
+// of no wanted Key, in held order.
+type Plan struct {
+	Add    []int
+	Remove []int
+}
+
+// Same reports whether the registry already holds the wanted Keys, so
+// that setting them sends no write.
+func (p Plan) Same() bool {
+	return len(p.Add) == 0 && len(p.Remove) == 0
+}
+
+// Diff plans replacing the entries a registry holds for the domain with
+// want. Each held entry is one key as the registry gives it, in the
+// Signers that forms reads from it. A held entry and a wanted Key are one key when
+// they share an Identity: a DNSKEY, or a DS held or computed from a
+// DNSKEY, so a set held in either form is the same set.
+func Diff[H any](domain string, held []H, forms func(H) []Signer, want []Key) Plan {
+	heldIDs := map[string]bool{}
+
+	for _, h := range held {
+		for _, s := range forms(h) {
+			for _, id := range s.Identities(domain) {
+				heldIDs[id] = true
+			}
+		}
+	}
+
+	var plan Plan
+
+	wantIDs := map[string]bool{}
+
+	for i, w := range want {
+		ids := w.Identities(domain)
+		if !slices.ContainsFunc(ids, func(id string) bool { return heldIDs[id] }) {
+			plan.Add = append(plan.Add, i)
+		}
+
+		for _, id := range ids {
+			wantIDs[id] = true
+		}
+	}
+
+	for i, h := range held {
+		wanted := slices.ContainsFunc(forms(h), func(s Signer) bool {
+			return slices.ContainsFunc(s.Identities(domain), func(id string) bool { return wantIDs[id] })
+		})
+		if !wanted {
+			plan.Remove = append(plan.Remove, i)
+		}
+	}
+
+	return plan
 }

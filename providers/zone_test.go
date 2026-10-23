@@ -28,6 +28,7 @@ func TestRegisteredProvidersDeclareTraitsIndependently(t *testing.T) {
 				"hetzner":    {dnsprovider.CapBatcher},
 				"infomaniak": {dnsprovider.CapZoneUpdater, dnsprovider.CapDSRegistrar},
 				"internetbs": {dnsprovider.CapDSRegistrar},
+				"inwx":       {dnsprovider.CapZoneCreator, dnsprovider.CapZoneUpdater, dnsprovider.CapZoneDeleter, dnsprovider.CapDSRegistrar},
 				"namecheap":  {dnsprovider.CapBatcher},
 				"netim":      {dnsprovider.CapDSRegistrar},
 				"ovhcloud":   {dnsprovider.CapBatcher},
@@ -154,14 +155,14 @@ func TestDSRegistrarsRefuseSettingNoKeysWithoutNetworkTraffic(t *testing.T) {
 		}
 		s.Close()
 	}
-	if registrars != 5 {
-		t.Errorf("found %d DS registrars, want porkbun, gandi, internetbs, netim and infomaniak", registrars)
+	if registrars != 6 {
+		t.Errorf("found %d DS registrars, want porkbun, gandi, internetbs, netim, infomaniak and inwx", registrars)
 	}
 }
 
 func TestProvidersWithoutZonePropertiesReportThemUnsupportedWithoutNetworkTraffic(t *testing.T) {
 	for typ, factory := range providers.Registry() {
-		if typ == "cloudflare" || typ == "infomaniak" {
+		if typ == "cloudflare" || typ == "infomaniak" || typ == "inwx" {
 			continue
 		}
 		t.Run(typ, func(t *testing.T) {

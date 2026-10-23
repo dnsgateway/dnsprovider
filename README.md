@@ -34,8 +34,8 @@ such as reading all pages of a record list and following rate limits.
 
 Some features depend on the provider. Cloudflare supports creating and deleting
 zones, changing zone settings, and reading Signing Keys for DNSSEC. Infomaniak
-switches DNSSEC on and off for the zones it serves. Porkbun,
-Gandi, Internet.bs, Netim, and Infomaniak support reading and changing DNSSEC Delegation Signer
+and INWX switch DNSSEC on and off for the zones they serve. Porkbun,
+Gandi, Internet.bs, Netim, Infomaniak, and INWX support reading and changing DNSSEC Delegation Signer
 (DS) records at the registrar. Check the provider documentation for available
 features, supported record types, and limits.
 
@@ -56,6 +56,7 @@ Each link covers setup, features, and limitations.
 - [Hetzner](docs/provider/hetzner.md)
 - [Infomaniak](docs/provider/infomaniak.md)
 - [Internet.bs](docs/provider/internetbs.md)
+- [INWX](docs/provider/inwx.md)
 - [Namecheap](docs/provider/namecheap.md)
 - [Netim](docs/provider/netim.md)
 - [OVHcloud](docs/provider/ovhcloud.md)

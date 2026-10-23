@@ -1,0 +1,7 @@
+{"code":1000,"msg":"Command completed successfully","resData":{
+ "roId":1002,"domain":"example.org","type":"MASTER","SOAserial":"2026100101","count":4,
+ "record":[
+  {"id":"6001","name":"example.org","type":"SOA","content":"ns.inwx.de hostmaster.inwx.de 2026100101 10800 3600 604800 3600","ttl":86400,"prio":0},
+  {"id":"6002","name":"example.org","type":"NS","content":"ns.inwx.de","ttl":86400,"prio":0},
+  {"id":"6003","name":"example.org","type":"NS","content":"ns2.inwx.de","ttl":86400,"prio":0},
+  {"id":"6004","name":"example.org","type":"NS","content":"ns3.inwx.eu","ttl":86400,"prio":0}]}}

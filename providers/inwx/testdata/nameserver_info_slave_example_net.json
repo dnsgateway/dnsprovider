@@ -1,0 +1,5 @@
+{"code":1000,"msg":"Command completed successfully","resData":{
+ "roId":1003,"domain":"slave.example.net","type":"SLAVE","masterIp":"192.0.2.53","SOAserial":"2026090101","count":2,
+ "record":[
+  {"id":"7001","name":"slave.example.net","type":"SOA","content":"ns1.example.org hostmaster.example.org 2026090101 10800 3600 604800 3600","ttl":86400,"prio":0},
+  {"id":"7002","name":"slave.example.net","type":"NS","content":"ns1.example.org","ttl":86400,"prio":0}]}}

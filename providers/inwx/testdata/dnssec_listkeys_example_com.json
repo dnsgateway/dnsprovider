@@ -1,0 +1,9 @@
+{"code":1000,"msg":"Command completed successfully","resData":[
+ {"ownerName":"example.com","id":"7001","domainId":"1001","keyTag":"55648","flagId":"257","algorithmId":"13",
+  "publicKey":"GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edbkrSqQpF64cYbcB7wNcP+e+MAnLr+Wi9xMWyQLc8NAA==",
+  "digestTypeId":"2","digest":"5cf0895ffc0f5544c1260e1f35ed9b80a648d87b8aa335312b552ec003d1d830",
+  "created":"2026-10-01T00:00:00Z","status":"OK","active":"1"},
+ {"ownerName":"example.com","id":"7002","domainId":"1001","keyTag":"55647","flagId":"256","algorithmId":"13",
+  "publicKey":"GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edbkrSqQpF64cYbcB7wNcP+e+MAnLr+Wi9xMWyQLc8NAA==",
+  "digestTypeId":"","digest":"",
+  "created":"2026-10-01T00:00:00Z","status":"OK","active":"1"}]}

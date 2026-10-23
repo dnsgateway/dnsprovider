@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.0](https://github.com/dnsgateway/dnsprovider/compare/v0.1.0...v0.2.0) (2026-10-23)
+
+
+### Features
+
+* **infomaniak:** add an infomaniak provider over api v2 ([52db5e7](https://github.com/dnsgateway/dnsprovider/commit/52db5e7fe7c982e5e87fc6c859b75f045d61d842)), closes [#82](https://github.com/dnsgateway/dnsprovider/issues/82) [#84](https://github.com/dnsgateway/dnsprovider/issues/84) [#85](https://github.com/dnsgateway/dnsprovider/issues/85) [#86](https://github.com/dnsgateway/dnsprovider/issues/86) [#87](https://github.com/dnsgateway/dnsprovider/issues/87) [#88](https://github.com/dnsgateway/dnsprovider/issues/88)
+* **infomaniak:** switch dnssec on and off through updatezone ([5dd0f9c](https://github.com/dnsgateway/dnsprovider/commit/5dd0f9cc5d9440f52ff5d2482b23273b18508f6d))
+* **inwx:** add an inwx provider over domrobot json-rpc ([ee69509](https://github.com/dnsgateway/dnsprovider/commit/ee69509090c4342c6b7f10a911caa69b1ffeeace)), closes [#91](https://github.com/dnsgateway/dnsprovider/issues/91) [#93](https://github.com/dnsgateway/dnsprovider/issues/93) [#94](https://github.com/dnsgateway/dnsprovider/issues/94) [#95](https://github.com/dnsgateway/dnsprovider/issues/95) [#96](https://github.com/dnsgateway/dnsprovider/issues/96) [#97](https://github.com/dnsgateway/dnsprovider/issues/97) [#98](https://github.com/dnsgateway/dnsprovider/issues/98) [#92](https://github.com/dnsgateway/dnsprovider/issues/92)
+* **netim:** add a Netim provider over REST API 3.0 ([b6ee67a](https://github.com/dnsgateway/dnsprovider/commit/b6ee67a00a817ea62373e5697f3785d674abff9a)), closes [#73](https://github.com/dnsgateway/dnsprovider/issues/73) [#74](https://github.com/dnsgateway/dnsprovider/issues/74) [#75](https://github.com/dnsgateway/dnsprovider/issues/75) [#76](https://github.com/dnsgateway/dnsprovider/issues/76) [#77](https://github.com/dnsgateway/dnsprovider/issues/77) [#78](https://github.com/dnsgateway/dnsprovider/issues/78)
+
 ## [0.1.0](https://github.com/dnsgateway/dnsprovider/compare/v0.0.1...v0.1.0) (2026-10-17)
 
 

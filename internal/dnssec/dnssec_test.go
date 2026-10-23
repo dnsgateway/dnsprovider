@@ -3,6 +3,7 @@ package dnssec_test
 import (
 	"encoding/base64"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -187,4 +188,74 @@ func TestCheckKeysRefusesWhatNoRegistryTakes(t *testing.T) {
 	if _, err := dnssec.CheckKeys([]dnsprovider.SigningKey{{KeyTag: 1, DNSKEY: "257 3 13 " + rfc6605Key}}); err == nil || errors.Is(err, dnsprovider.ErrUnsupported) {
 		t.Errorf("a DNSKEY of another key tag: CheckKeys = %v, want a plain error", err)
 	}
+}
+
+func TestDiffTakesAKeyHeldInAnyFormAsHeld(t *testing.T) {
+	// The registry holds the RFC 6605 key's SHA-256 DS, computed for
+	// example.net, and an RSASHA1 key no wanted key is a form of.
+	held := [][]string{
+		{"DS 55648 13 2 B4C8C1FE2E7477127B27115656AD6256F424625BF5C1E2770CE6D6E37DF61D17"},
+		{"DNSKEY 256 3 5 " + rfc4034Key, "DS 60485 5 1 2BB183AF5F22588179A53B0A98631FAD1A292118"},
+	}
+
+	want, err := dnssec.CheckKeys([]dnsprovider.SigningKey{
+		{KeyTag: 55648, DNSKEY: "257 3 13 " + rfc6605Key},
+		{KeyTag: 2371, DS: []string{"2371 13 2 1F987CC6583E92DF0890718C42"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan := dnssec.Diff("example.net", parsed(t, held), func(h []dnssec.Signer) []dnssec.Signer { return h }, want)
+	if !slices.Equal(plan.Add, []int{1}) || !slices.Equal(plan.Remove, []int{1}) || plan.Same() {
+		t.Fatalf("Diff = %+v, want Add [1] and Remove [1]", plan)
+	}
+
+	plan = dnssec.Diff("example.net", parsed(t, held[:1]), func(h []dnssec.Signer) []dnssec.Signer { return h }, want[:1])
+	if !plan.Same() {
+		t.Fatalf("Diff = %+v, want the DNSKEY held as its DS", plan)
+	}
+}
+
+func TestDiffAgainstNothingHeldAddsEveryKey(t *testing.T) {
+	want, err := dnssec.CheckKeys([]dnsprovider.SigningKey{{KeyTag: 55648, DNSKEY: "257 3 13 " + rfc6605Key}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	plan := dnssec.Diff("example.net", []dnssec.Signer(nil), func(s dnssec.Signer) []dnssec.Signer { return []dnssec.Signer{s} }, want)
+	if !slices.Equal(plan.Add, []int{0}) || len(plan.Remove) != 0 {
+		t.Fatalf("Diff = %+v, want Add [0]", plan)
+	}
+}
+
+// parsed is each held entry's forms, each form "TYPE value".
+func parsed(t *testing.T, held [][]string) [][]dnssec.Signer {
+	t.Helper()
+
+	out := make([][]dnssec.Signer, 0, len(held))
+
+	for _, entry := range held {
+		var forms []dnssec.Signer
+
+		for _, f := range entry {
+			typ, value, _ := strings.Cut(f, " ")
+
+			form := dnssec.DS
+			if typ == "DNSKEY" {
+				form = dnssec.DNSKEY
+			}
+
+			s, err := dnssec.Parse(form, value)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			forms = append(forms, s)
+		}
+
+		out = append(out, forms)
+	}
+
+	return out
 }

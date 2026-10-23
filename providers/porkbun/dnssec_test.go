@@ -261,6 +261,7 @@ func TestSetDelegationSignersErrors(t *testing.T) {
 			body: `{"status":"ERROR","code":"DNSSEC_ALGORITHM_DEPRECATED","message":"alg 5 is no longer accepted by this registry; use 13"}`,
 		},
 		{name: "a key without a DS is unsupported, as Porkbun takes only a DS", keys: []dnsprovider.SigningKey{{DNSKEY: "257 3 13 AAAA", KeyTag: 2371}}, kind: dnsprovider.ErrUnsupported},
+		{name: "an algorithm DNSSEC does not sign with is unsupported", keys: []dnsprovider.SigningKey{{KeyTag: 2371, DS: []string{"2371 3 2 " + digestA}}}, kind: dnsprovider.ErrUnsupported},
 		{name: "two DS of one key tag are unsupported, as Porkbun holds one per key tag", keys: []dnsprovider.SigningKey{key, {KeyTag: 2371, DS: []string{"2371 13 2 " + digestB}}}, kind: dnsprovider.ErrUnsupported},
 	}
 	for _, tc := range cases {

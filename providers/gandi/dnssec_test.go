@@ -253,6 +253,7 @@ func TestSetDelegationSignersErrors(t *testing.T) {
 	}{
 		{name: "a domain the Account does not register is not found", zone: "example.org", keys: []dnsprovider.SigningKey{key}, kind: dnsprovider.ErrNotFound},
 		{name: "a key the registry refuses is unsupported", method: http.MethodPut, refuse: refusal{http.StatusBadRequest, refused}, keys: []dnsprovider.SigningKey{key}, kind: dnsprovider.ErrUnsupported},
+		{name: "an algorithm DNSSEC does not sign with is unsupported", keys: []dnsprovider.SigningKey{{DNSKEY: "257 3 3 " + pubA, KeyTag: 2371}}, kind: dnsprovider.ErrUnsupported},
 		{name: "a key without a DNSKEY is unsupported, as Gandi takes no DS", keys: []dnsprovider.SigningKey{{KeyTag: 2371, DS: []string{"2371 13 2 " + digestA}}}, kind: dnsprovider.ErrUnsupported},
 		{
 			name: "a delete of a domain gone from the Account is not found", method: http.MethodDelete, held: []map[string]any{heldKey(3, 2371, 13, "ksk", pubA, digestA)},

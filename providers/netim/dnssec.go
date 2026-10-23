@@ -200,40 +200,24 @@ func (p *Provider) SetDelegationSigners(ctx context.Context, zone dnsprovider.Zo
 		return err
 	}
 
-	heldIDs := map[string]bool{}
-	for _, h := range hs {
-		for _, id := range h.Identities(domain) {
-			heldIDs[id] = true
-		}
-	}
+	plan := dnssec.Diff(domain, hs, func(h heldSigner) []dnssec.Signer { return []dnssec.Signer{h.Signer} }, want)
 
-	wantIDs := map[string]bool{}
 	added := map[dnssec.Form][]any{} // by form, in key order
 
-	for _, w := range want {
-		ids := w.Identities(domain)
-
-		if !slices.ContainsFunc(ids, func(id string) bool { return heldIDs[id] }) {
-			if w.DNSKEY != nil {
-				added[dnssec.DNSKEY] = appendNew(added[dnssec.DNSKEY], wire(*w.DNSKEY))
-			} else {
-				for _, s := range w.DS {
-					added[dnssec.DS] = appendNew(added[dnssec.DS], wire(s))
-				}
+	for _, i := range plan.Add {
+		if w := want[i]; w.DNSKEY != nil {
+			added[dnssec.DNSKEY] = appendNew(added[dnssec.DNSKEY], wire(*w.DNSKEY))
+		} else {
+			for _, s := range w.DS {
+				added[dnssec.DS] = appendNew(added[dnssec.DS], wire(s))
 			}
-		}
-
-		for _, id := range ids {
-			wantIDs[id] = true
 		}
 	}
 
 	removed := map[dnssec.Form][]json.RawMessage{}
 
-	for _, h := range hs {
-		if !slices.ContainsFunc(h.Identities(domain), func(id string) bool { return wantIDs[id] }) {
-			removed[h.Form] = append(removed[h.Form], h.raw)
-		}
+	for _, i := range plan.Remove {
+		removed[hs[i].Form] = append(removed[hs[i].Form], hs[i].raw)
 	}
 
 	path := domainPath(domain, "ds-record")

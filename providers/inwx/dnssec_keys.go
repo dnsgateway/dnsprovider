@@ -345,49 +345,30 @@ func (p *Provider) SetDelegationSigners(ctx context.Context, zone dnsprovider.Zo
 		return err
 	}
 
-	heldIDs := map[string]bool{}
-
-	for _, h := range held {
-		for _, s := range h.signers {
-			for _, id := range s.Identities(domain) {
-				heldIDs[id] = true
-			}
-		}
-	}
-
-	wantIDs := map[string]bool{}
+	plan := dnssec.Diff(domain, held, func(h heldKey) []dnssec.Signer { return h.signers }, want)
 
 	var toAdd []map[string]any
 
-	for i, w := range want {
-		ids := w.Identities(domain)
-		if !slices.ContainsFunc(ids, func(id string) bool { return heldIDs[id] }) {
-			toAdd = append(toAdd, adds[i]...)
-		}
-
-		for _, id := range ids {
-			wantIDs[id] = true
-		}
+	for _, i := range plan.Add {
+		toAdd = append(toAdd, adds[i]...)
 	}
 
 	var toRemove []json.RawMessage
 
 	seen := map[string]bool{}
 
-	for _, h := range held {
-		wanted := slices.ContainsFunc(h.signers, func(s dnssec.Signer) bool {
-			return slices.ContainsFunc(s.Identities(domain), func(id string) bool { return wantIDs[id] })
-		})
-		if wanted || seen[idString(h.id)] {
+	for _, i := range plan.Remove {
+		id := idString(held[i].id)
+		if seen[id] {
 			continue
 		}
 
-		if idString(h.id) == "" || idString(h.id) == "null" {
+		if id == "" || id == "null" {
 			return errors.New("inwx: dnssec.listkeys holds a key to remove without an id; nothing was changed")
 		}
 
-		seen[idString(h.id)] = true
-		toRemove = append(toRemove, h.id)
+		seen[id] = true
+		toRemove = append(toRemove, held[i].id)
 	}
 
 	added, removed := 0, 0

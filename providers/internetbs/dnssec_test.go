@@ -187,6 +187,19 @@ func TestSetDelegationSignersValidatesBeforeAnyCall(t *testing.T) {
 	}
 }
 
+func TestSetDelegationSignersRefusesWhatNoRegistryTakesBeforeAnyCall(t *testing.T) {
+	for _, key := range []dnsprovider.SigningKey{
+		{KeyTag: 2371, DS: []string{"2371 3 2 AA"}},
+		{KeyTag: 2371, DS: []string{"2371 13 9 AA"}},
+	} {
+		p, f := newSigningRegistry(t, "disabled")
+		err := p.SetDelegationSigners(context.Background(), dnsprovider.Zone{Name: "example.com"}, []dnsprovider.SigningKey{key})
+		if !errors.Is(err, dnsprovider.ErrUnsupported) || len(f.calls) != 0 {
+			t.Errorf("%+v = %v, calls %v; want ErrUnsupported without a call", key, err, f.calls)
+		}
+	}
+}
+
 func TestRegistrationErrorsPreserveRefusalAndProveAbsence(t *testing.T) {
 	for _, owned := range []bool{true, false} {
 		p, f := newSigningRegistry(t, "disabled")

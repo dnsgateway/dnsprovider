@@ -236,13 +236,9 @@ func TestConcurrentChangesetsOnOneRRsetKeepEachOthersValues(t *testing.T) {
 			errs := make([]error, len(changesets))
 
 			for i, changes := range changesets {
-				wg.Add(1)
-
-				go func() {
-					defer wg.Done()
-
+				wg.Go(func() {
 					results[i], errs[i] = dnsprovider.Apply(context.Background(), p, dnsprovider.Changeset{Zone: example, Changes: changes})
-				}()
+				})
 			}
 
 			wg.Wait()

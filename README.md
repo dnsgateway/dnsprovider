@@ -66,7 +66,7 @@ Each link covers setup, features, and limitations.
 
 ## Install
 
-Requires Go 1.24 or later. Run this command in your Go project:
+Requires Go 1.26 or later. Run this command in your Go project:
 
 ```sh
 go get github.com/dnsgateway/dnsprovider

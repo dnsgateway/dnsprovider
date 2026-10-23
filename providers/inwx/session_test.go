@@ -80,15 +80,11 @@ func TestConcurrentFirstCallsLogInOnce(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range 16 {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			if _, err := p.Account(context.Background()); err != nil {
 				t.Error(err)
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

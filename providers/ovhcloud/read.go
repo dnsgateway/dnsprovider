@@ -237,15 +237,11 @@ func (p *Provider) read(ctx context.Context, z dnsprovider.Zone, typ string) (sn
 	var wg sync.WaitGroup
 
 	for range min(readWorkers, len(*ids)) {
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-
+		wg.Go(func() {
 			for i := range next {
 				s.entries[i], errs[i] = p.record(ctx, zone, s.defaultTTL, (*ids)[i])
 			}
-		}()
+		})
 	}
 
 	for i := range *ids {

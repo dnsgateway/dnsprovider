@@ -152,8 +152,7 @@ func TestZoneDetailsReportsAFailedReadAsAFailedPropertyNeverOff(t *testing.T) {
 
 	got, err := d.provider().ZoneDetails(context.Background(), signed, dnsprovider.ZoneDetailRequest{SigningKeys: true})
 
-	var apiErr *dnsprovider.APIError
-	if !errors.As(err, &apiErr) {
+	if _, ok := errors.AsType[*dnsprovider.APIError](err); !ok {
 		t.Fatalf("err = %v, want the APIError", err)
 	}
 

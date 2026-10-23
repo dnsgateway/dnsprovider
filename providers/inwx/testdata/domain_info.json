@@ -1,0 +1,1 @@
+{"code":1000,"msg":"Command completed successfully","resData":{"roId":2001,"domain":"example.net","domainAce":"example.net","status":"OK","ns":["ns1.example.org","ns2.example.org"],"transferLock":true,"renewalMode":"AUTORENEW","period":"1Y"}}

@@ -1,0 +1,8 @@
+{"code":1000,"msg":"Command completed successfully","resData":{"dnskey":[
+ {"ownerName":"example.net","id":7002,"domainId":2001,"keyTag":60485,"flagId":257,"algorithmId":5,
+  "publicKey":"","digestTypeId":1,"digest":"2bb183af5f22588179a53b0a98631fad1a292118",
+  "created":"2026-10-01 00:00:00","status":"OK","active":1},
+ {"ownerName":"example.net","id":7003,"domainId":2001,"keyTag":"","flagId":257,"algorithmId":13,
+  "publicKey":"GojIhhXUN/u4v54ZQqGSnyhWJwaubCvTmeexv7bR6edbkrSqQpF64cYbcB7wNcP+e+MAnLr+Wi9xMWyQLc8NAA==",
+  "digestTypeId":"","digest":"",
+  "created":"2026-10-01 00:00:00","status":"OK","active":1}]}}

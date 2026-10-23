@@ -50,6 +50,7 @@ dnsprovider/
     ├── hetzner/
     ├── infomaniak/
     ├── internetbs/
+    ├── inwx/
     ├── namecheap/
     ├── netim/
     ├── ovhcloud/
@@ -85,7 +86,7 @@ type Record struct {
 }
 ```
 
-Cloudflare, OVHcloud, GoDaddy and Infomaniak assign record IDs. Namecheap, Gandi, Hetzner, Internet.bs, and Netim use content-derived
+Cloudflare, OVHcloud, GoDaddy, Infomaniak and INWX assign record IDs. Namecheap, Gandi, Hetzner, Internet.bs, and Netim use content-derived
 keys, which change when the Record changes. Keep the whole Record as read
 for updates and deletions.
 
@@ -154,6 +155,7 @@ the `ExtraProxied` entry, as `ProxiableTypesOf(p)` does for a built Provider.
 | OVHcloud | 30 | 86400 | No; the default range, as OVHcloud documents no bounds; a native zero TTL inherits the Zone default and reads as that effective TTL |
 | Infomaniak | 60 | 86400 | No; the bounds of Infomaniak's API schema |
 | Netim | 30 | 86400 | No; the default range, as Netim documents no bounds; a Record without a custom TTL reads as the Zone's TTL |
+| INWX | 300 | 86400 | No; the minimum is INWX's, from its Terraform provider; the maximum a library bound until a capture verifies it |
 
 `Traits.TTLRange()` reads the declared `TTL`, with a zero `TTL` standing
 for the default range; a Factory carries the same Traits, for a consumer
@@ -180,6 +182,7 @@ validates configuration without making a network call.
 | Internet.bs | `Key`, `Password` | `key`, `password` |
 | Infomaniak | `Token`, optional `AccountID` | `token` (secret), `account_id` (Tenant, a positive integer) |
 | Netim | `ID` (reseller ID), `Secret` | `id`, `secret` (both secret) |
+| INWX | `Username`, `Password`, optional `SharedSecret` | `username`, `password`, `shared_secret` (all secret; the shared secret base32) |
 | OVHcloud | `ApplicationKey`, `ApplicationSecret`, `ConsumerKey`, `Endpoint` | `application_key`, `application_secret`, `consumer_key` (all secret), `endpoint` (`ovh-eu` default, `ovh-ca`, `ovh-us`) |
 
 Cloudflare's Tenant ID must be 32 lower-case hex digits. Its constructor
@@ -310,7 +313,8 @@ then Pending, then the first listed Zone.
 ## Zone operations and optional settings reads
 
 Every Provider exposes Zone CRUD. Cloudflare declares support for all three
-Zone writes, and Infomaniak for `UpdateZone` alone; other built-in adapters
+Zone writes, as does INWX, and Infomaniak for `UpdateZone` alone; other
+built-in adapters
 return `ErrNotImplemented` before any network request. Test support with `Can(p, CapZoneCreator)`,
 `CapZoneUpdater`, or `CapZoneDeleter`, then call the method directly on the
 Provider.
@@ -318,10 +322,10 @@ Provider.
 `Provider` instead.
 
 Cloudflare's `ZoneDetails` reads Zone Status and Signing Keys, and
-Infomaniak's reads the DNSSEC State; every other
+Infomaniak's reads the DNSSEC State, and INWX's the DNSSEC State and Signing Keys; every other
 built-in adapter embeds `dnsprovider.UnimplementedZoneDetails`, which reports
 each property unsupported without a request. Porkbun, Gandi, Internet.bs,
-Netim, and Infomaniak declare `CapDSRegistrar`.
+Netim, Infomaniak, and INWX declare `CapDSRegistrar`.
 
 `CreateZone(ctx, name)` Onboards a name with `type: full` in the configured
 Tenant. It returns `ErrNoTenant` without a request when unscoped and
@@ -351,7 +355,7 @@ type ZoneUpdate struct {
 ```
 
 `Setting` is Unknown, Off, On, or Pending. DNSSEC may be Pending while
-Cloudflare signs or unsigns the Zone, or while Infomaniak's Zone does not yet
+Cloudflare signs or unsigns the Zone, or while an Infomaniak or INWX Zone does not yet
 show a switch it took. `TLSVersion` is a string;
 `TLSVersions` lists TLS10, TLS11, TLS12, and TLS13 in order. TLSUnknown is
 the empty string. Unknown settings and TLS versions display as `?`.
@@ -369,7 +373,7 @@ HSTS writes preserve existing security-header fields, supplying a six-month
 max-age when enabling it without one. MinTLS accepts only `TLSVersions`.
 Infomaniak switches DNSSEC alone, for a domain the Account registers and
 Infomaniak serves; HSTS and then MinTLS, when set, fail in turn with
-`ErrUnsupported`, after DNSSEC is written or read.
+`ErrUnsupported`, after DNSSEC is written or read. INWX does the same for any Zone it hosts, with `dnssec.enablednssec` or `dnssec.disablednssec`.
 
 ```go
 type SigningKey struct {
@@ -413,7 +417,11 @@ DNSKEY when it has one, and otherwise its DS, adding keys before removing
 them. Infomaniak replaces the whole set in one call, all in one form: DS
 records when every key has some, DNSKEYs when every key has one, and
 otherwise DS records, computing the SHA-256 DS of a key given only as a
-DNSKEY; it does so only for a domain without an Infomaniak Zone.
+DNSKEY; it does so only for a domain without an Infomaniak Zone. INWX adds
+each missing key with one call, as its DNSKEY with the digest computed by
+INWX when it has one and otherwise as each of its DS records, before it
+removes each unwanted key by its ID; it does so only for a domain without
+an INWX zone.
 
 ## Detailed Zone reads
 
@@ -687,6 +695,7 @@ Factory fields come from `DNSPROVIDER_<PROVIDER>_<FIELD>`:
 | Hetzner | `DNSPROVIDER_HETZNER_TOKEN` |
 | Infomaniak | `DNSPROVIDER_INFOMANIAK_TOKEN`, optional `DNSPROVIDER_INFOMANIAK_ACCOUNT_ID` |
 | Internet.bs | `DNSPROVIDER_INTERNETBS_KEY`, `DNSPROVIDER_INTERNETBS_PASSWORD` |
+| INWX | `DNSPROVIDER_INWX_USERNAME`, `DNSPROVIDER_INWX_PASSWORD`, optional `DNSPROVIDER_INWX_SHARED_SECRET` |
 | Namecheap | `DNSPROVIDER_NAMECHEAP_USER`, `DNSPROVIDER_NAMECHEAP_KEY`, `DNSPROVIDER_NAMECHEAP_CLIENT_IP` |
 | Netim | `DNSPROVIDER_NETIM_ID`, `DNSPROVIDER_NETIM_SECRET` |
 | OVHcloud | `DNSPROVIDER_OVHCLOUD_APPLICATION_KEY`, `DNSPROVIDER_OVHCLOUD_APPLICATION_SECRET`, `DNSPROVIDER_OVHCLOUD_CONSUMER_KEY`, optional `DNSPROVIDER_OVHCLOUD_ENDPOINT` |
@@ -738,6 +747,42 @@ As a registrar adapter it reads and replaces the Signing Keys of a
 Registration on other nameservers through
 `/2/domains/domains/{domain}/dnssec/check`, `enable` and `disable`; a domain
 with an Infomaniak Zone is `ErrUnsupported`.
+
+## INWX
+
+[INWX setup and limitations](provider/inwx.md) cover the username and
+password, OT&E, two-factor authentication and the TOTP shared secret,
+sessions, Zones, records, result codes and the sources the wire shapes
+come from. Every call is a JSON-RPC `POST` of `{"method", "params"}` to
+the DomRobot endpoint through the shared REST client, never retried, and
+limited to 60 a minute per username. The adapter logs in lazily with
+`account.login`, unlocks a 2FA session with `account.unlock` and a TOTP
+code, holds the `domrobot` cookie itself, logs in again and resends a call
+once when the session is refused, and logs out with `Close`. Account
+verification reads `account.info`; discovery reads every page of
+`nameserver.list`; `GetZone` and Records read `nameserver.info`, with a
+type pushed down. Zone IDs are INWX's `roId`, and Hosting State is
+Unknown. A domain the Account registers (`domain.info`) without an INWX
+zone is `ErrNotServed`. Record IDs are INWX's account-wide native IDs.
+`CreateZone` Onboards a master zone on INWX's nameservers with one
+`nameserver.create`; `DeleteZone` reads the zone by name, refuses a stale
+`roId` with `ErrNotFound`, and Offboards it with one `nameserver.delete`,
+re-reading once after an unknown outcome. Neither calls a `domain.*`
+method, so Registration and Delegation are untouched. Record creates send
+`nameserver.createRecord` once and read the Record back by its new ID;
+updates and deletes confirm the ID is the Zone's with `nameserver.info`.
+An update, a move to another name or type included, sends one
+`nameserver.updateRecord` by ID and reads the Record back; a delete sends
+`nameserver.deleteRecord` once. `ZoneDetails` maps `dnssec.info` to the
+DNSSEC State and reads an automatically signed Zone's Signing Keys, its
+active KSKs, from `dnssec.listkeys`; `UpdateZone` switches DNSSEC with
+`dnssec.enablednssec` or `dnssec.disablednssec`, then reads it back.
+Code 1001, 2400 and 25xx answers to a Record write are Unconfirmed
+Writes; 1001 to a Zone, DNSSEC switch or DS write is success.
+Registration Signing Keys of a domain the Account registers without an
+INWX zone are read with `dnssec.listkeys`, added with
+`dnssec.adddnskey`, removed by ID with `dnssec.deletednskey`, and all
+removed with `dnssec.deleteall`.
 
 ## Netim
 

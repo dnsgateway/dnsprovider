@@ -1,0 +1,20 @@
+{"code":1000,"msg":"Command completed successfully","resData":{
+ "roId":1001,"domain":"example.com","type":"MASTER","SOAserial":"2026102201","count":17,
+ "record":[
+  {"id":"5001","name":"example.com","type":"SOA","content":"ns.inwx.de hostmaster.inwx.de 2026102201 10800 3600 604800 3600","ttl":86400,"prio":0},
+  {"id":"5002","name":"example.com","type":"NS","content":"ns.inwx.de","ttl":86400,"prio":0},
+  {"id":"5003","name":"","type":"NS","content":"ns2.inwx.de","ttl":86400,"prio":0},
+  {"id":"5004","name":"example.com","type":"A","content":"192.0.2.1","ttl":3600,"prio":0},
+  {"id":"5005","name":"www.example.com","type":"AAAA","content":"2001:db8::1","ttl":3600,"prio":0},
+  {"id":"5006","name":"alias.example.com","type":"CNAME","content":"www.example.com","ttl":300,"prio":0},
+  {"id":"5007","name":"example.com","type":"MX","content":"mail.example.net","ttl":3600,"prio":10},
+  {"id":"5008","name":"_sip._tcp.example.com","type":"SRV","content":"0 5060 sip.example.net","ttl":3600,"prio":10},
+  {"id":"5009","name":"example.com","type":"TXT","content":"v=spf1 include:example.net \"quoted\" -all","ttl":3600,"prio":0},
+  {"id":"5010","name":"example.com","type":"CAA","content":"0 issue \"letsencrypt.org\"","ttl":3600,"prio":0},
+  {"id":"5011","name":"_ftp._tcp.example.com","type":"URI","content":"1 \"ftp://ftp.example.com/public\"","ttl":3600,"prio":10},
+  {"id":"5012","name":"redirect.example.com","type":"URL","content":"https://www.example.org","ttl":3600,"prio":0,"urlRedirectType":"HEADER301","urlAppend":false},
+  {"id":"5013","name":"*.example.com","type":"A","content":"192.0.2.2","ttl":3600,"prio":0},
+  {"id":5014,"name":"Txt.Example.com","type":"txt","content":"  two  spaces, a back\\slash and \"quotes\"  ","ttl":600,"prio":0},
+  {"id":"5015","name":"example.com","type":"ALIAS","content":"lb.example.net","ttl":3600,"prio":0},
+  {"id":"5016","name":"null.example.com","type":"MX","content":".","ttl":3600,"prio":0},
+  {"id":"5017","name":"_443._tcp.www.example.com","type":"TLSA","content":"3 1 1 0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF","ttl":3600,"prio":0}]}}
